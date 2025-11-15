@@ -1,0 +1,16 @@
+[build-system]
+requires = ["maturin>=0.15,<0.16"]
+build-backend = "maturin"
+
+[project]
+name = "orskit"
+version = "0.1.0"
+description = "Python bindings for orskit orbital mechanics library"
+authors = [
+    {name = "Wouittone"},
+]
+license = {text = "MIT OR Apache-2.0"}
+requires-python = ">=3.10"
+
+[project.urls]
+Repository = "https://github.com/Wouittone/orskit"

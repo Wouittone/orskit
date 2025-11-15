@@ -1,0 +1,22 @@
+[workspace]
+members = ["."]
+
+[package]
+name = "orskit-py"
+version = "0.1.0"
+edition = "2021"
+authors = ["Wouittone"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Wouittone/orskit"
+description = "Python bindings for orskit orbital mechanics library"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.21", features = ["extension-module"] }
+core = { path = "../../crates/core" }
+orbit = { path = "../../crates/orbit" }
+stations = { path = "../../crates/stations" }
+measurements = { path = "../../crates/measurements" }
+utils = { path = "../../crates/utils" }

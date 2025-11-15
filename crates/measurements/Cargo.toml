@@ -1,0 +1,11 @@
+[package]
+name = "measurements"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Measurement and observation utilities for orskit"
+
+[dependencies]
+nalgebra = "0.34"

@@ -1,0 +1,11 @@
+[package]
+name = "stations"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Ground station and location utilities for orskit"
+
+[dependencies]
+nalgebra = "0.34"

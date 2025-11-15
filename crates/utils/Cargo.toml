@@ -1,0 +1,10 @@
+[package]
+name = "utils"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Utility functions and helpers for orskit"
+
+[dependencies]

@@ -1,0 +1,13 @@
+[package]
+name = "core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core orbital mechanics library for orskit"
+
+[dependencies]
+nalgebra = "0.34"
+ode-solvers = "0.6"
+hifitime = "4.1"
