@@ -35,12 +35,40 @@ maturin develop
 
 ### Java Bindings
 
-Requires Java 25+ and Gradle:
+Requires Java 25+ and Gradle 9+:
 
 ```bash
 cd bindings/java
+./gradlew build          # Unix/Linux/macOS
+gradlew.bat build        # Windows
+
+# Or with locally installed Gradle
 gradle build
 ```
+
+#### Java Build Configuration
+
+The Java bindings use Kotlin-based Gradle with modern best practices:
+- **Gradle 9.0+**: Latest Gradle version with performance improvements
+- **Kotlin DSL**: Type-safe build configuration (`build.gradle.kts`)
+- **Configuration Cache**: Faster build times with incremental caching
+- **Build Cache**: Reusable build outputs across machines
+- **JaCoCo**: Code coverage reporting
+- **Parallel Builds**: Multi-threaded compilation
+- **Java 25 Preview Features**: Support for latest Java features
+
+#### Build Properties Optimization
+
+The `gradle.properties` file includes:
+- **Daemon Settings**: Long-lived Gradle daemon for faster builds
+- **JVM Configuration**: Optimized heap size (4GB max) and G1 garbage collector
+- **Parallel Execution**: Automatic worker detection for concurrent builds
+- **Caching**: Configuration cache and build cache enabled for incremental builds
+- **Feature Preview**: Auto-download of Java installations
+
+#### Gradle Wrapper
+
+The project includes `gradlew` (Unix/Linux/macOS) and `gradlew.bat` (Windows) scripts for reproducible builds without installing Gradle locally.
 
 ## Dependencies
 
@@ -53,7 +81,8 @@ gradle build
 - **[PyO3](https://github.com/PyO3/pyo3)** (0.21): Python-Rust interop
 
 ### Java Bindings
-- **Java 25+**: For FFM API support
+- **[Java 25+](https://openjdk.org/)**: For FFM API support
+- **[Gradle 9+](https://gradle.org/)**: Build automation with Kotlin DSL
 
 ## License
 
