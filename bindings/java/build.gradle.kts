@@ -24,11 +24,19 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.0")
 }
 
-// Task to build Rust library
+// Read properties with defaults for CI optimization
+val skipRustBuild = project.findProperty("SKIP_RUST_BUILD")?.toString()?.toBoolean() ?: false
+val rustTargetDir = project.findProperty("RUST_TARGET_DIR")?.toString() ?: "../target"
+val rustBuildTarget = project.findProperty("RUST_BUILD_TARGET")?.toString() ?: "x86_64-unknown-linux-gnu"
+
+// Task to build Rust library (skipped if SKIP_RUST_BUILD=true)
 tasks.register<Exec>("buildRustLib") {
     description = "Build the Rust library with Cargo"
-    commandLine("cargo", "build", "--release")
-    workingDir = projectDir
+    enabled = !skipRustBuild
+    if (enabled) {
+        commandLine("cargo", "build", "--release", "--target", rustBuildTarget)
+        workingDir = projectDir
+    }
 }
 
 // Task to clean Rust build artifacts
@@ -42,15 +50,27 @@ tasks.register<Exec>("cleanRustLib") {
 tasks.register<Copy>("copyRustLib") {
     description = "Copy compiled Rust library to build resources"
     dependsOn("buildRustLib")
-    from("target/release") {
+    val sourceDir = if (skipRustBuild) {
+        File("$rustTargetDir/$rustBuildTarget/release")
+    } else {
+        File("target/release")
+    }
+    from(sourceDir) {
         include("*.so", "*.dylib", "*.dll", "*.dll.a")
     }
     into("build/resources/main")
+    doFirst {
+        if (!sourceDir.exists()) {
+            println("Warning: Rust build output directory does not exist: $sourceDir")
+        }
+    }
 }
 
-// Ensure Rust lib is built before Java compilation
+// Ensure Rust lib is built before Java compilation (unless skipped)
 tasks.named("compileJava") {
-    dependsOn("buildRustLib")
+    if (!skipRustBuild) {
+        dependsOn("buildRustLib")
+    }
 }
 
 // Process resources depends on copying Rust library
@@ -107,4 +127,12 @@ tasks.test {
 
 tasks.jacocoTestReport {
     dependsOn("test")
+}
+
+// Wrapper task: ensures consistent Gradle version across developers/CI
+import org.gradle.wrapper.Wrapper
+
+tasks.register<Wrapper>("wrapper") {
+    gradleVersion = "9.2"
+    distributionType = Wrapper.DistributionType.BIN
 }
