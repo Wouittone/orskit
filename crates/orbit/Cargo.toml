@@ -8,7 +8,7 @@ repository.workspace = true
 description = "Orbital propagation and mechanics for orskit"
 
 [dependencies]
-nalgebra = "0.34"
-ode-solvers = "0.6"
-hifitime = "4.1"
-core = { path = "../core" }
+ode_solvers.workspace = true
+orskit-core = { path = "../core" }
+orskit-units = { path = "../units" }
+thiserror.workspace = true

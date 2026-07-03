@@ -1,0 +1,114 @@
+# Delivery roadmap
+
+The roadmap orders risk; it is not a promise of dates. Milestones should ship
+small vertical slices rather than constructing every type before any workflow
+works.
+
+## Milestone 0 — trustworthy foundation
+
+- Pin an Orekit baseline and turn `PARITY.md` into a versioned inventory.
+- Adopt the provenance policy, contributor licensing process, security policy,
+  code of conduct, issue templates, and architecture decision records.
+- Correct package naming and establish the public `orskit` facade direction.
+- Establish CI for formatting, Clippy, tests, docs, dependency licenses,
+  advisories, MSRV, and native binding smoke tests.
+- Define units, time/frame association, error, tolerance, data-context, and
+  serialization policies.
+- Publish a minimal end-to-end two-body scenario with traceable validation.
+
+**Exit gate:** a new contributor can reproduce checks offline, trace every
+reference, and run one scientifically meaningful scenario without ambiguous
+units, frame, or epoch.
+
+## Milestone 1 — time, frames, bodies, and orbit state
+
+- Implement precise instants/durations and initial time-scale conversions.
+- Introduce explicit data contexts and versioned leap/Earth-orientation inputs.
+- Implement inertial/terrestrial frame transforms and transform composition.
+- Implement body/ellipsoid/geodetic primitives.
+- Implement epoch/frame-qualified Cartesian and primary orbital element types,
+  conversions, anomalies, and interpolation.
+
+**Exit gate:** independently validated state conversion between terrestrial and
+inertial frames across representative epochs and orbit regimes.
+
+## Milestone 2 — propagation kernel
+
+- Complete Keplerian propagation and event detection.
+- Add a numerical integrator abstraction, dense output, ephemeris generation,
+  and deterministic event handling.
+- Add force-model composition, beginning with central, harmonics, third-body,
+  drag, radiation pressure, and relativistic corrections.
+- Add spacecraft mass and initial maneuver support.
+- Establish accuracy-plus-performance benchmark scenarios.
+
+**Exit gate:** reproducible LEO and deep-space scenarios with explicit model
+data, bounded errors, events, and benchmark baselines.
+
+## Milestone 3 — operational propagators and attitude
+
+- Implement TLE parsing and independently validated SGP4 behavior.
+- Add selected analytical and semi-analytical families based on user demand.
+- Add attitude state, providers, interpolation, and attitude-dependent forces.
+- Add variational equations, state-transition matrices, and covariance
+  propagation.
+
+**Exit gate:** validated operational propagation workflows and sensitivity
+outputs across documented regimes.
+
+## Milestone 4 — observations and estimation
+
+- Replace placeholder measurements with typed participant/time-aware models.
+- Add stations, clocks, environmental corrections, and major measurement types.
+- Add measurement generation, parameter selection/scaling, batch least squares,
+  and sequential filters.
+- Validate with synthetic recovery and independently sourced scenarios.
+
+**Exit gate:** simulate, perturb, and recover an orbit with inspectable residuals
+and covariance behavior.
+
+## Milestone 5 — data formats and mission workflows
+
+- Implement prioritized CCSDS messages and operational formats using conformance
+  corpora and fuzzing.
+- Add visibility, eclipse, occultation, field-of-view, and access workflows.
+- Build explicit fetch/cache tooling for public scientific datasets without
+  adding implicit network behavior to algorithms.
+
+**Exit gate:** ingest, analyze, estimate, and export a representative mission
+scenario with versioned inputs.
+
+## Milestone 6 — first-class bindings
+
+Bindings evolve throughout earlier milestones, but stabilization happens here:
+
+- curate a stable Rust facade;
+- provide idiomatic Python classes, arrays, exceptions, packaging, and docs;
+- version the native ABI and provide safe JVM wrappers around FFM;
+- test cross-language numerical agreement, ownership, threading, and failures;
+- publish supported platform and compatibility matrices.
+
+**Exit gate:** the same documented scenario runs from Rust, Python, and a JVM
+language with equivalent model choices and tolerance-consistent results.
+
+## Milestone 7 — parity release and 1.0 hardening
+
+- Close or explicitly publish gaps against the pinned Orekit baseline.
+- Perform API, safety, dependency, provenance, and numerical assurance reviews.
+- Stabilize compatibility, deprecation, data-versioning, and release policies.
+- Publish the parity evidence package and reproducible benchmark suite.
+
+**Exit gate:** every claimed capability is `Validated` in `PARITY.md`; remaining
+differences are named, scoped, and documented rather than hidden by a percentage.
+
+## Prioritization rule
+
+Within a milestone, choose work by this order:
+
+1. scientific correctness or provenance risk;
+2. foundations that unblock multiple validated vertical slices;
+3. real user workflows and interoperability;
+4. measurable performance bottlenecks; then
+5. convenience and breadth.
+
+Do not implement a broad surface of placeholders to make the ledger look full.

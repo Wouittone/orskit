@@ -1,13 +1,13 @@
-//! Core orbital mechanics library
+//! Core state types for orskit.
 //!
-//! This crate provides fundamental structures and utilities for orbital mechanics calculations.
+//! Physical scalars and vectors are strongly typed, epochs use Hifitime
+//! directly, and every translational state carries a reference frame.
 
-pub mod orbit;
+mod spacecraft;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+pub use hifitime::Epoch;
+pub use orskit_frames as frames;
+pub use orskit_units as units;
+pub use spacecraft::{
+    InertiaError, InertiaTensor, Orientation, OrientationError, SpacecraftState, StateError,
+};

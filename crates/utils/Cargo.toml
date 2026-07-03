@@ -8,3 +8,4 @@ repository.workspace = true
 description = "Utility functions and helpers for orskit"
 
 [dependencies]
+orskit-units = { path = "../units" }

@@ -1,5 +1,5 @@
 [package]
-name = "core"
+name = "orskit-core"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,6 +8,8 @@ repository.workspace = true
 description = "Core orbital mechanics library for orskit"
 
 [dependencies]
-nalgebra = "0.34"
-ode-solvers = "0.6"
-hifitime = "4.1"
+hifitime.workspace = true
+nalgebra.workspace = true
+orskit-frames = { path = "../frames" }
+orskit-units = { path = "../units" }
+thiserror.workspace = true

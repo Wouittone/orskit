@@ -1,9 +1,11 @@
 [workspace]
 members = [
     "crates/core",
+    "crates/frames",
     "crates/stations",
     "crates/measurements",
     "crates/orbit",
+    "crates/units",
     "crates/utils",
 ]
 resolver = "2"
@@ -14,3 +16,10 @@ edition = "2021"
 authors = ["Wouittone"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Wouittone/orskit"
+
+[workspace.dependencies]
+hifitime = "4.3"
+nalgebra = "0.34"
+ode_solvers = "0.6"
+thiserror = "2"
+uom = { version = "0.38", default-features = false, features = ["autoconvert", "f64", "si", "std"] }

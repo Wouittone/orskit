@@ -1,13 +1,12 @@
 [package]
-name = "measurements"
+name = "orskit-units"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Measurement and observation utilities for orskit"
+description = "Strongly typed physical quantities for orskit"
 
 [dependencies]
-hifitime.workspace = true
-orskit-units = { path = "../units" }
 thiserror.workspace = true
+uom.workspace = true
