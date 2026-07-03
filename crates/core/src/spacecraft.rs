@@ -4,21 +4,21 @@ use orskit_frames::ReferenceFrame;
 use orskit_units::uom::si::{
     mass::kilogram, moment_of_inertia::kilogram_square_meter, ratio::ratio,
 };
-use orskit_units::{Mass, MomentOfInertia, Position, Ratio, Velocity, VelocityVector};
+use orskit_units::{Mass, MomentOfInertia, Ratio, Velocity};
 use thiserror::Error;
 
-/// Complete spacecraft state at one epoch in one reference frame.
+use crate::{FramedPosition, FramedVelocity};
+
+/// Complete spacecraft state at one epoch.
 ///
-/// Position and velocity are expressed in [`Self::frame`]. Orientation, when
-/// present, rotates vectors from the spacecraft body frame into that reference
-/// frame. The inertia tensor, when present, is expressed in the spacecraft body
-/// frame.
+/// Position and velocity each carry their own reference frame; they are not
+/// required to use the same one. Optional orientation and inertia values also
+/// carry the frames needed to interpret them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpacecraftState {
     epoch: Epoch,
-    frame: ReferenceFrame,
-    position: Position,
-    velocity: VelocityVector,
+    position: FramedPosition,
+    velocity: FramedVelocity,
     mass: Mass,
     orientation: Option<Orientation>,
     inertia: Option<InertiaTensor>,
@@ -28,21 +28,14 @@ impl SpacecraftState {
     /// Constructs a translational spacecraft state.
     ///
     /// Orientation and inertia are absent until added with
-    /// [`Self::with_orientation`] and [`Self::with_inertia`].
+    /// [`Self::with_orientation`] and [`Self::with_inertia`]. Position and
+    /// velocity may be expressed in different frames.
     pub fn new(
         epoch: Epoch,
-        frame: ReferenceFrame,
-        position: Position,
-        velocity: VelocityVector,
+        position: FramedPosition,
+        velocity: FramedVelocity,
         mass: Mass,
     ) -> Result<Self, StateError> {
-        if !position.is_finite() {
-            return Err(StateError::NonFinitePosition);
-        }
-        if !velocity.is_finite() {
-            return Err(StateError::NonFiniteVelocity);
-        }
-
         let mass_kg = mass.get::<kilogram>();
         if !mass_kg.is_finite() {
             return Err(StateError::NonFiniteMass);
@@ -53,7 +46,6 @@ impl SpacecraftState {
 
         Ok(Self {
             epoch,
-            frame,
             position,
             velocity,
             mass,
@@ -69,34 +61,28 @@ impl SpacecraftState {
         self
     }
 
-    /// Adds or replaces the body-frame inertia tensor.
+    /// Adds or replaces the framed inertia tensor.
     #[must_use]
     pub fn with_inertia(mut self, inertia: InertiaTensor) -> Self {
         self.inertia = Some(inertia);
         self
     }
 
-    /// Returns the epoch.
+    /// Returns the epoch shared by all state values.
     #[must_use]
     pub const fn epoch(&self) -> Epoch {
         self.epoch
     }
 
-    /// Returns the reference frame for position, velocity, and orientation.
+    /// Returns the framed position.
     #[must_use]
-    pub const fn frame(&self) -> ReferenceFrame {
-        self.frame
-    }
-
-    /// Returns the position.
-    #[must_use]
-    pub const fn position(&self) -> Position {
+    pub const fn position(&self) -> FramedPosition {
         self.position
     }
 
-    /// Returns the velocity vector.
+    /// Returns the independently framed velocity.
     #[must_use]
-    pub const fn velocity(&self) -> VelocityVector {
+    pub const fn velocity(&self) -> FramedVelocity {
         self.velocity
     }
 
@@ -112,27 +98,35 @@ impl SpacecraftState {
         self.mass
     }
 
-    /// Returns the optional body-to-reference orientation.
+    /// Returns the optional framed orientation.
     #[must_use]
     pub const fn orientation(&self) -> Option<&Orientation> {
         self.orientation.as_ref()
     }
 
-    /// Returns the optional body-frame inertia tensor.
+    /// Returns the optional framed inertia tensor.
     #[must_use]
     pub const fn inertia(&self) -> Option<&InertiaTensor> {
         self.inertia.as_ref()
     }
 }
 
-/// A normalized rotation from the spacecraft body frame to a reference frame.
+/// A normalized rotation between two explicitly identified frames.
+///
+/// The rotation maps coordinate components from `from_frame` into `to_frame`.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Orientation(UnitQuaternion<f64>);
+pub struct Orientation {
+    rotation: UnitQuaternion<f64>,
+    from_frame: ReferenceFrame,
+    to_frame: ReferenceFrame,
+}
 
 impl Orientation {
     /// Constructs an orientation from dimensionless quaternion components in
     /// scalar/i/j/k order. The quaternion is normalized after validation.
     pub fn from_quaternion(
+        from_frame: ReferenceFrame,
+        to_frame: ReferenceFrame,
         scalar: Ratio,
         i: Ratio,
         j: Ratio,
@@ -153,20 +147,40 @@ impl Orientation {
             return Err(OrientationError::ZeroNorm);
         }
 
-        Ok(Self(UnitQuaternion::new_normalize(quaternion)))
+        Ok(Self {
+            rotation: UnitQuaternion::new_normalize(quaternion),
+            from_frame,
+            to_frame,
+        })
     }
 
-    /// Identity body-to-reference orientation.
+    /// Identity rotation between two explicitly identified frames.
     #[must_use]
-    pub fn identity() -> Self {
-        Self(UnitQuaternion::identity())
+    pub fn identity(from_frame: ReferenceFrame, to_frame: ReferenceFrame) -> Self {
+        Self {
+            rotation: UnitQuaternion::identity(),
+            from_frame,
+            to_frame,
+        }
+    }
+
+    /// Returns the frame whose components this rotation consumes.
+    #[must_use]
+    pub const fn from_frame(&self) -> ReferenceFrame {
+        self.from_frame
+    }
+
+    /// Returns the frame whose components this rotation produces.
+    #[must_use]
+    pub const fn to_frame(&self) -> ReferenceFrame {
+        self.to_frame
     }
 
     /// Returns normalized scalar/i/j/k quaternion components as dimensionless
     /// typed ratios.
     #[must_use]
     pub fn quaternion(&self) -> [Ratio; 4] {
-        let quaternion = self.0.quaternion();
+        let quaternion = self.rotation.quaternion();
         [
             Ratio::new::<ratio>(quaternion.w),
             Ratio::new::<ratio>(quaternion.i),
@@ -176,9 +190,10 @@ impl Orientation {
     }
 }
 
-/// Symmetric spacecraft inertia tensor expressed in the body frame.
+/// Symmetric spacecraft inertia tensor expressed in its attached frame.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InertiaTensor {
+    frame: ReferenceFrame,
     xx: MomentOfInertia,
     yy: MomentOfInertia,
     zz: MomentOfInertia,
@@ -188,12 +203,14 @@ pub struct InertiaTensor {
 }
 
 impl InertiaTensor {
-    /// Constructs and validates a symmetric inertia tensor.
+    /// Constructs and validates a symmetric inertia tensor in `frame`.
     ///
     /// Arguments are the three diagonal and three unique off-diagonal terms.
     /// Positive definiteness is checked with Sylvester's criterion. The
     /// principal moments must also satisfy the rigid-body triangle inequality.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        frame: ReferenceFrame,
         xx: MomentOfInertia,
         yy: MomentOfInertia,
         zz: MomentOfInertia,
@@ -231,6 +248,7 @@ impl InertiaTensor {
         }
 
         Ok(Self {
+            frame,
             xx,
             yy,
             zz,
@@ -240,14 +258,21 @@ impl InertiaTensor {
         })
     }
 
-    /// Constructs a diagonal inertia tensor in principal body axes.
+    /// Constructs a diagonal inertia tensor in principal axes of `frame`.
     pub fn principal(
+        frame: ReferenceFrame,
         xx: MomentOfInertia,
         yy: MomentOfInertia,
         zz: MomentOfInertia,
     ) -> Result<Self, InertiaError> {
         let zero = MomentOfInertia::new::<kilogram_square_meter>(0.0);
-        Self::new(xx, yy, zz, zero, zero, zero)
+        Self::new(frame, xx, yy, zz, zero, zero, zero)
+    }
+
+    /// Returns the frame in which the tensor is expressed.
+    #[must_use]
+    pub const fn frame(self) -> ReferenceFrame {
+        self.frame
     }
 
     /// Returns the symmetric tensor as a typed row-major matrix.
@@ -264,12 +289,6 @@ impl InertiaTensor {
 /// Invalid spacecraft state input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum StateError {
-    /// At least one position component is NaN or infinite.
-    #[error("position components must be finite")]
-    NonFinitePosition,
-    /// At least one velocity component is NaN or infinite.
-    #[error("velocity components must be finite")]
-    NonFiniteVelocity,
     /// Mass is NaN or infinite.
     #[error("mass must be finite")]
     NonFiniteMass,
@@ -306,64 +325,97 @@ pub enum InertiaError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use orskit_frames::{CustomFrameId, FrameOrientation, FrameOrigin};
     use orskit_units::uom::si::{
         length::kilometer, mass::kilogram, velocity::kilometer_per_second,
     };
-    use orskit_units::{Length, Velocity};
+    use orskit_units::{Length, Position, Velocity, VelocityVector};
 
-    fn translational_state() -> SpacecraftState {
-        SpacecraftState::new(
-            Epoch::from_tai_seconds(0.0),
-            ReferenceFrame::GCRF,
+    fn body_frame() -> ReferenceFrame {
+        let id = CustomFrameId::new(1);
+        ReferenceFrame::new(FrameOrigin::Custom(id), FrameOrientation::Custom(id))
+    }
+
+    fn position(frame: ReferenceFrame) -> FramedPosition {
+        FramedPosition::new(
             Position::new(
                 Length::new::<kilometer>(7_000.0),
                 Length::new::<kilometer>(0.0),
                 Length::new::<kilometer>(0.0),
             ),
+            frame,
+        )
+        .expect("fixture position is finite")
+    }
+
+    fn velocity(frame: ReferenceFrame) -> FramedVelocity {
+        FramedVelocity::new(
             VelocityVector::new(
                 Velocity::new::<kilometer_per_second>(0.0),
                 Velocity::new::<kilometer_per_second>(7.5),
                 Velocity::new::<kilometer_per_second>(0.0),
             ),
+            frame,
+        )
+        .expect("fixture velocity is finite")
+    }
+
+    fn translational_state() -> SpacecraftState {
+        SpacecraftState::new(
+            Epoch::from_tai_seconds(0.0),
+            position(ReferenceFrame::GCRF),
+            velocity(ReferenceFrame::GCRF),
             Mass::new::<kilogram>(1_000.0),
         )
         .expect("fixture is physically valid")
     }
 
     #[test]
-    fn spacecraft_state_keeps_physical_context() {
-        let state = translational_state();
-        assert_eq!(state.frame(), ReferenceFrame::GCRF);
+    fn spacecraft_state_keeps_independent_kinematic_frames() {
+        let state = SpacecraftState::new(
+            Epoch::from_tai_seconds(0.0),
+            position(ReferenceFrame::GCRF),
+            velocity(ReferenceFrame::EME2000),
+            Mass::new::<kilogram>(1_000.0),
+        )
+        .expect("different kinematic frames are valid state data");
+
+        assert_eq!(state.position().frame(), ReferenceFrame::GCRF);
+        assert_eq!(state.velocity().frame(), ReferenceFrame::EME2000);
         assert_eq!(state.epoch(), Epoch::from_tai_seconds(0.0));
         assert_eq!(state.mass(), Mass::new::<kilogram>(1_000.0));
         assert_eq!(state.speed(), Velocity::new::<kilometer_per_second>(7.5));
-        assert!(state.orientation().is_none());
-        assert!(state.inertia().is_none());
     }
 
     #[test]
-    fn optional_rigid_body_state_is_validated() {
+    fn optional_rigid_body_state_keeps_its_own_frames() {
+        let body = body_frame();
         let inertia = InertiaTensor::principal(
+            body,
             MomentOfInertia::new::<kilogram_square_meter>(1_000.0),
             MomentOfInertia::new::<kilogram_square_meter>(1_200.0),
             MomentOfInertia::new::<kilogram_square_meter>(800.0),
         )
-        .expect("principal moments are positive");
+        .expect("principal moments are physical");
+        let orientation = Orientation::identity(body, ReferenceFrame::ITRF2020);
         let state = translational_state()
-            .with_orientation(Orientation::identity())
+            .with_orientation(orientation)
             .with_inertia(inertia);
 
-        assert!(state.orientation().is_some());
-        assert_eq!(state.inertia(), Some(&inertia));
+        assert_eq!(state.orientation().map(Orientation::from_frame), Some(body));
+        assert_eq!(
+            state.orientation().map(Orientation::to_frame),
+            Some(ReferenceFrame::ITRF2020)
+        );
+        assert_eq!(state.inertia().map(|value| value.frame()), Some(body));
     }
 
     #[test]
     fn invalid_mass_is_rejected() {
         let error = SpacecraftState::new(
             Epoch::from_tai_seconds(0.0),
-            ReferenceFrame::GCRF,
-            Position::from_metres(1.0, 0.0, 0.0),
-            VelocityVector::from_metres_per_second(0.0, 1.0, 0.0),
+            position(ReferenceFrame::GCRF),
+            velocity(ReferenceFrame::GCRF),
             Mass::new::<kilogram>(0.0),
         )
         .expect_err("zero mass is invalid");
@@ -372,17 +424,23 @@ mod tests {
 
     #[test]
     fn quaternion_is_normalized_and_zero_is_rejected() {
+        let from_frame = body_frame();
+        let to_frame = ReferenceFrame::GCRF;
         let orientation = Orientation::from_quaternion(
+            from_frame,
+            to_frame,
             Ratio::new::<ratio>(2.0),
             Ratio::new::<ratio>(0.0),
             Ratio::new::<ratio>(0.0),
             Ratio::new::<ratio>(0.0),
         )
         .expect("non-zero quaternion is valid");
-        assert_eq!(orientation, Orientation::identity());
+        assert_eq!(orientation, Orientation::identity(from_frame, to_frame));
 
         assert_eq!(
             Orientation::from_quaternion(
+                from_frame,
+                to_frame,
                 Ratio::new::<ratio>(0.0),
                 Ratio::new::<ratio>(0.0),
                 Ratio::new::<ratio>(0.0),
@@ -396,6 +454,7 @@ mod tests {
     fn non_positive_definite_inertia_is_rejected() {
         assert_eq!(
             InertiaTensor::principal(
+                body_frame(),
                 MomentOfInertia::new::<kilogram_square_meter>(1.0),
                 MomentOfInertia::new::<kilogram_square_meter>(-1.0),
                 MomentOfInertia::new::<kilogram_square_meter>(1.0),
@@ -408,6 +467,7 @@ mod tests {
     fn non_physical_principal_moments_are_rejected() {
         assert_eq!(
             InertiaTensor::principal(
+                body_frame(),
                 MomentOfInertia::new::<kilogram_square_meter>(1.0),
                 MomentOfInertia::new::<kilogram_square_meter>(1.0),
                 MomentOfInertia::new::<kilogram_square_meter>(3.0),

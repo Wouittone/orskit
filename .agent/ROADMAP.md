@@ -80,7 +80,9 @@ scenario with versioned inputs.
 
 ## Milestone 6 — first-class bindings
 
-Bindings evolve throughout earlier milestones, but stabilization happens here:
+Binding feature work is deliberately deferred while Rust core contracts are
+unstable; earlier milestones make only compilation-preserving adapter edits.
+Stabilization happens here:
 
 - curate a stable Rust facade;
 - provide idiomatic Python classes, arrays, exceptions, packaging, and docs;

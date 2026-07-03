@@ -18,6 +18,7 @@ behavior.
 | --- | --- | --- |
 | Standards, textbooks, and papers | Equations, conventions, test values, and algorithms with citation | Copying protected prose, figures, or code |
 | Orekit documentation and public API behavior | Capability inventory, terminology research, black-box comparison, and independent test expectations | Translating or structurally porting source code, tests, or internal design |
+| Lox documentation and public API behavior | Rust API and capability research, ergonomic inspiration, and external dependency evaluation | Translating or structurally porting source code, tests, or internal design |
 | Nyx astrodynamics project material | High-level awareness of user needs and ergonomics | Copying or adapting source, tests, examples, docs, internal architecture, identifiers, or distinctive expression |
 | Separately published permissive/MPL crates | Unmodified dependency use after license, API, and maintenance review | Copying dependency source into project-owned MIT/Apache-2.0 files |
 | Other open-source libraries | Public behavior research and separately licensed dependencies after audit | Source reuse without explicit compatibility review and attribution |
@@ -49,6 +50,7 @@ parity claim.
 | Area | Reference and version | Class/terms | Permitted use | Code or evidence |
 | --- | --- | --- | --- | --- |
 | Project scope | Orekit public capability documentation; baseline not yet pinned | Documentation; terms to record when pinned | Capability inventory only | `.agent/PARITY.md` |
+| Rust design reference | [Lox](https://github.com/lox-space/lox) | MPL-2.0 project documentation | High-level API and architecture research only | `.agent/ARCHITECTURE.md` |
 | Design inspiration boundary | Nyx; version deliberately not consulted | AGPL boundary specified by project owner | High-level awareness only; no implementation material | This policy |
 | Time | [Hifitime 4.3](https://docs.rs/hifitime/4.3.0/hifitime/) | MPL-2.0 dependency | Direct, unmodified epoch/time API | `crates/core`, `crates/measurements` |
 | Units | [`uom` 0.38](https://docs.rs/uom/0.38.0/uom/) | MIT OR Apache-2.0 dependency | Direct dimensional quantities | `crates/units` |

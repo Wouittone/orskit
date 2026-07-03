@@ -8,8 +8,10 @@
   `uom` with SI storage internally and typed conversion units at boundaries.
   Raw `f64` is permitted only inside numerical kernels or at unit-named FFI,
   parsing, and serialization adapters; it must not become a domain field.
-- Attach frames and Hifitime epochs to public state values; do not accept naked
-  six-element vectors when physical interpretation matters.
+- Attach a frame directly to every coordinate-dependent public value and use
+  Hifitime epochs for state time. Do not assume position, velocity, attitude,
+  inertia, covariance, or derivatives share a frame merely because they belong
+  to one state; do not accept naked six-element vectors.
 - State angle ranges, longitude sign, axis order, rotation convention, anomaly
   convention, and derivative ordering.
 - State model validity ranges and singularities. Return a typed error or use a

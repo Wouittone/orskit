@@ -2,7 +2,7 @@
 
 use std::ptr;
 
-use orskit_core::{Epoch, SpacecraftState};
+use orskit_core::{Epoch, FramedPosition, FramedVelocity, SpacecraftState};
 use orskit_frames::ReferenceFrame;
 use orskit_units::uom::si::mass::kilogram;
 use orskit_units::{Mass, Position, VelocityVector};
@@ -35,11 +35,19 @@ pub extern "C" fn spacecraft_state_new(
     let Some(frame) = frame_from_code(frame_code) else {
         return ptr::null_mut();
     };
+    let Ok(position) = FramedPosition::new(Position::from_metres(x_m, y_m, z_m), frame) else {
+        return ptr::null_mut();
+    };
+    let Ok(velocity) = FramedVelocity::new(
+        VelocityVector::from_metres_per_second(vx_m_s, vy_m_s, vz_m_s),
+        frame,
+    ) else {
+        return ptr::null_mut();
+    };
     let Ok(state) = SpacecraftState::new(
         Epoch::from_tai_seconds(epoch_tai_seconds),
-        frame,
-        Position::from_metres(x_m, y_m, z_m),
-        VelocityVector::from_metres_per_second(vx_m_s, vy_m_s, vz_m_s),
+        position,
+        velocity,
         Mass::new::<kilogram>(mass_kg),
     ) else {
         return ptr::null_mut();
@@ -77,7 +85,7 @@ pub unsafe extern "C" fn spacecraft_state_get_position_m(
         return false;
     }
     // SAFETY: Pointer validity and output capacity are required by the caller contract.
-    let values = unsafe { (*state).state.position().to_metres() };
+    let values = unsafe { (*state).state.position().value().to_metres() };
     // SAFETY: The caller guarantees room for all three values and the source is local.
     unsafe { ptr::copy_nonoverlapping(values.as_ptr(), out_xyz_m, values.len()) };
     true
@@ -98,7 +106,7 @@ pub unsafe extern "C" fn spacecraft_state_get_velocity_m_s(
         return false;
     }
     // SAFETY: Pointer validity and output capacity are required by the caller contract.
-    let values = unsafe { (*state).state.velocity().to_metres_per_second() };
+    let values = unsafe { (*state).state.velocity().value().to_metres_per_second() };
     // SAFETY: The caller guarantees room for all three values and the source is local.
     unsafe { ptr::copy_nonoverlapping(values.as_ptr(), out_xyz_m_s, values.len()) };
     true

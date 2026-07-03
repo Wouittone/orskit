@@ -70,8 +70,10 @@ missing abstraction or an incorrectly placed type.
 
 ## Core data contracts
 
-- A physical state carries or is inseparably associated with an epoch and a
-  frame.
+- A physical state has an epoch, while each position, velocity, acceleration,
+  orientation, inertia tensor, covariance, and other coordinate-dependent value
+  carries the frame information needed to interpret that value. A state does
+  not imply that its components share a frame.
 - Every public physical scalar and vector uses a typed quantity. `uom` is the
   canonical dimensional system and SI is its storage baseline. Raw scalars may
   appear only at explicitly unit-named numerical, serialization, and FFI
@@ -81,6 +83,9 @@ missing abstraction or an incorrectly placed type.
 - UTC is a civil representation, not a uniform integration coordinate.
 - Frame transforms support position, velocity, and—where required—acceleration
   consistently.
+- Algorithms declare their frame compatibility. Until supplied with a transform
+  provider, an algorithm rejects combinations it cannot evaluate rather than
+  narrowing what a `SpacecraftState` may represent.
 - External scientific data enters through an immutable `DataContext`-style
   value or trait-backed provider. Algorithms declare their required data.
 - Constants identify their convention and source; there is no anonymous

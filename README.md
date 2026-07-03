@@ -5,16 +5,21 @@ capability-level feature parity with [Orekit](https://www.orekit.org/), paired
 with a Rust-native API, explicit physical context, and benchmarked performance.
 Python and JVM-language bindings are planned as first-class interfaces.
 
-The project takes high-level inspiration from the ergonomics of the Nyx space
-libraries, but it is an independent implementation: Nyx source is not copied,
-translated, or adapted. Project-owned code is intended to remain available
-under either the MIT or Apache-2.0 license.
+The project uses three reference projects deliberately: Orekit for capability
+coverage, [Lox](https://github.com/lox-space/lox) for modern Rust astrodynamics
+design ideas, and Nyx for high-level ergonomics. orskit remains an independent
+implementation: their source is not copied, translated, or adapted into
+project-owned code. That code is intended to remain available under either the
+MIT or Apache-2.0 license.
 
 > **Status: pre-alpha.** The repository currently contains an early workspace
 > scaffold and a first typed spacecraft-state, frame identity, two-body
 > dynamics, station, measurement, Python, and native JVM-FFM slice. It is not
 > yet suitable for scientific or operational use, and it does not currently
 > have Orekit parity.
+
+Rust core correctness is the current priority. Python and JVM bindings are
+planned, but feature work on them is deferred until the core contracts settle.
 
 ## Direction
 
@@ -45,7 +50,7 @@ roadmap. Start with [`.agent/README.md`](.agent/README.md).
 | --- | --- |
 | `crates/units` | `uom`-backed physical quantities and typed Cartesian vectors |
 | `crates/frames` | Reference-frame origin/orientation identities |
-| `crates/core` | Frame- and epoch-qualified spacecraft state with optional orientation/inertia |
+| `crates/core` | Independently framed position, velocity, orientation, and inertia values in a spacecraft state |
 | `crates/orbit` | Typed two-body dynamics scaffold |
 | `crates/stations` | Typed, validated geographic-location scaffold |
 | `crates/measurements` | Typed range-measurement scaffold |

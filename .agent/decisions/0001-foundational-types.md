@@ -24,9 +24,10 @@ maintain, so existing crates were evaluated before choosing project boundaries.
 3. Own the small frame identity contract in `orskit-frames`: a frame is an
    origin plus an orientation. Keep future transform calculation behind
    adapter-friendly provider contracts.
-4. Define spacecraft state as epoch, reference frame, position, velocity, and
-   positive mass, with optional normalized body-to-reference orientation and a
-   positive-definite, rigid-body-realizable body-frame inertia tensor.
+4. Define spacecraft state as an epoch, independently framed position and
+   velocity, and positive mass. Optional orientation carries explicit source
+   and target frames; optional positive-definite, rigid-body-realizable inertia
+   carries its own expression frame. A state never implies these frames match.
 5. Permit raw scalars only at explicitly unit-named numerical, serialization,
    parsing, and FFI boundaries.
 
@@ -51,8 +52,9 @@ maintain, so existing crates were evaluated before choosing project boundaries.
 - Hifitime and `uom` are intentional public compatibility dependencies.
 - FFI bindings must name their raw units and convert immediately to typed
   values.
-- Actual frame transforms remain incomplete, but spacecraft states can no
-  longer omit frame identity while providers are evaluated independently.
+- Actual frame transforms remain incomplete, but every coordinate-dependent
+  state value carries frame identity while providers are evaluated
+  independently. Individual algorithms reject unsupported cross-frame inputs.
 - MPL-2.0 dependency notices must remain available in distributed dependency
   metadata; project-owned source remains MIT/Apache-2.0.
 
