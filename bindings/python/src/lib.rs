@@ -1,6 +1,6 @@
 //! Experimental Python bindings for typed orskit spacecraft states.
 
-use orskit_core::{Epoch, SpacecraftState};
+use orskit_core::{Epoch, FramedPosition, FramedVelocity, SpacecraftState};
 use orskit_frames::ReferenceFrame;
 use orskit_units::uom::si::mass::kilogram;
 use orskit_units::{Mass, Position, VelocityVector};
@@ -44,11 +44,17 @@ impl SpacecraftStateWrapper {
         let frame = frame
             .parse::<ReferenceFrame>()
             .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let position = FramedPosition::new(Position::from_metres(x_m, y_m, z_m), frame)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let velocity = FramedVelocity::new(
+            VelocityVector::from_metres_per_second(vx_m_s, vy_m_s, vz_m_s),
+            frame,
+        )
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
         let state = SpacecraftState::new(
             Epoch::from_tai_seconds(epoch_tai_seconds),
-            frame,
-            Position::from_metres(x_m, y_m, z_m),
-            VelocityVector::from_metres_per_second(vx_m_s, vy_m_s, vz_m_s),
+            position,
+            velocity,
             Mass::new::<kilogram>(mass_kg),
         )
         .map_err(|error| PyValueError::new_err(error.to_string()))?;
@@ -57,13 +63,13 @@ impl SpacecraftStateWrapper {
 
     /// Position in metres, in the state's reference frame.
     fn position_m(&self) -> (f64, f64, f64) {
-        let [x, y, z] = self.state.position().to_metres();
+        let [x, y, z] = self.state.position().value().to_metres();
         (x, y, z)
     }
 
     /// Velocity in metres per second, in the state's reference frame.
     fn velocity_m_s(&self) -> (f64, f64, f64) {
-        let [x, y, z] = self.state.velocity().to_metres_per_second();
+        let [x, y, z] = self.state.velocity().value().to_metres_per_second();
         (x, y, z)
     }
 
@@ -74,7 +80,7 @@ impl SpacecraftStateWrapper {
 
     /// Reference-frame name.
     fn frame(&self) -> String {
-        self.state.frame().to_string()
+        self.state.position().frame().to_string()
     }
 
     /// Epoch as TAI seconds since Hifitime's reference epoch.
@@ -85,10 +91,10 @@ impl SpacecraftStateWrapper {
     fn __repr__(&self) -> String {
         format!(
             "SpacecraftState(position_m={:?}, velocity_m_s={:?}, mass_kg={}, frame='{}')",
-            self.state.position().to_metres(),
-            self.state.velocity().to_metres_per_second(),
+            self.state.position().value().to_metres(),
+            self.state.velocity().value().to_metres_per_second(),
             self.state.mass().get::<kilogram>(),
-            self.state.frame(),
+            self.state.position().frame(),
         )
     }
 }

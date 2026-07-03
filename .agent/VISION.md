@@ -34,7 +34,8 @@ The exact baseline version and capability inventory must be pinned in
 2. **Correctness is evidenced.** Invariants, standards, analytic cases,
    independent datasets, and differential tests support claims.
 3. **Rust shapes the design.** Ownership, traits, enums, newtypes, and typed
-   errors are used where they make invalid states harder to represent.
+   errors are used where they make invalid states harder to represent. Lox is a
+   useful Rust ecosystem reference without being an implementation source.
 4. **Performance is measured.** Optimizations preserve a stated accuracy
    budget and are supported by reproducible benchmarks.
 5. **Bindings are products.** Python and JVM APIs are versioned, tested,
@@ -63,7 +64,7 @@ The exact baseline version and capability inventory must be pinned in
 
 ## Non-goals
 
-- A line-by-line port of Orekit or Nyx.
+- A line-by-line port of Orekit, Lox, or Nyx.
 - Compatibility with Orekit's Java API at the cost of a coherent Rust API.
 - Opaque convenience APIs that silently select frames, time scales, constants,
   models, or online datasets.

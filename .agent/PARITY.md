@@ -35,7 +35,7 @@ Orekit parity.
 | Foundations | Explicit scientific data context and providers | Not assessed | Version/checksum behavior; offline deterministic scenario | None |
 | Geometry | Frames, transforms, Earth orientation | Partial | Transform composition/inverse; independent frame vectors | Typed origin/orientation identities; transforms not implemented |
 | Geometry | Celestial bodies, ephemerides, ellipsoids, geodesy | Not assessed | Standard geodetic vectors; ephemeris comparison | Basic geographic value type only |
-| Orbits | Epoch/frame-qualified Cartesian states | Partial | Invariant-bearing API; units/frame/time tests | Typed `SpacecraftState` with Hifitime epoch, frame, position, velocity, and mass |
+| Orbits | Epoch/frame-qualified Cartesian states | Partial | Invariant-bearing API; units/frame/time tests | Typed `SpacecraftState`; position and velocity carry independent frames; Hifitime epoch and mass are explicit |
 | Orbits | Keplerian, circular, equinoctial, and nonsingular elements | Not assessed | Round trips across regimes; singularity policy | None |
 | Orbits | Anomalies, Jacobians, interpolation, covariance mapping | Not assessed | Analytic/reference comparisons and round-trip bounds | None |
 | Propagation | Two-body/Keplerian propagation | Partial | Analytic orbit scenarios; conservation/error budget | Two-body derivative scaffold only |
@@ -47,7 +47,7 @@ Orekit parity.
 | Propagation | TLE/SGP4 and analytical propagator families | Not assessed | Standard verification cases and format round trips | None |
 | Propagation | Semi-analytical propagation | Not assessed | Long-arc reference scenarios with error budgets | None |
 | Propagation | Variational equations, STM, and covariance propagation | Not assessed | Finite-difference/analytic sensitivities | None |
-| Attitude | Rotations, angular states, and attitude providers | Partial | Composition, interpolation, and reference scenarios | Validated optional orientation and body-frame inertia tensor |
+| Attitude | Rotations, angular states, and attitude providers | Partial | Composition, interpolation, and reference scenarios | Validated orientation with explicit source/target frames and inertia with its own expression frame |
 | Observation | Ground stations, displacement, clocks, weather | Partial | Frame/time-aware station scenarios | Typed, range-validated geodetic location only |
 | Observation | Range, range-rate, angles, Doppler, GNSS, inter-satellite | Partial | Per-type reference vectors and participant timing | Typed range measurement only |
 | Observation | Measurement modifiers and corrections | Not assessed | Model-specific correction vectors | None |

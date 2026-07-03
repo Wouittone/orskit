@@ -18,8 +18,8 @@ boundaries matter more than preserving the current scaffold.
 ## Non-negotiable rules
 
 - Implement independently. Do not copy, translate, port, or mechanically
-  transform code from Orekit, Nyx, or another astrodynamics library unless the
-  repository has explicitly approved that exact reuse and its resulting
+  transform code from Orekit, Lox, Nyx, or another astrodynamics library unless
+  the repository has explicitly approved that exact reuse and its resulting
   licensing in writing. The default is no source reuse.
 - Treat the Nyx astrodynamics implementation, tests, examples, and internal
   structure as implementation-prohibited. Separately published crates may be
@@ -37,6 +37,8 @@ boundaries matter more than preserving the current scaffold.
   reviewed interoperability modules with documented safety invariants.
 - Keep language bindings thin. Domain behavior belongs in Rust and must be
   testable without Python or a JVM.
+- Until the Rust core contracts stabilize, restrict binding edits to the
+  minimum needed to preserve compilation; do not add binding features.
 - Do not trade correctness for speed without a measured error budget. Do not
   claim a performance improvement without a reproducible benchmark.
 - Do not introduce hidden network access, mutable process-global scientific
