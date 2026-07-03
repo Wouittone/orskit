@@ -14,7 +14,9 @@ description = "Java FFM bindings for orskit orbital mechanics library"
 crate-type = ["cdylib"]
 
 [dependencies]
-core = { path = "../../crates/core" }
+orskit-core = { path = "../../crates/core" }
+orskit-frames = { path = "../../crates/frames" }
+orskit-units = { path = "../../crates/units" }
 orbit = { path = "../../crates/orbit" }
 stations = { path = "../../crates/stations" }
 measurements = { path = "../../crates/measurements" }

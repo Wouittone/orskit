@@ -1,94 +1,108 @@
-# orskit - Orbital Mechanics Library in Rust
+# orskit
 
-A Rust library for orbital mechanics calculations, inspired by [Orekit](https://www.orekit.org/). orskit provides orbital propagation, station geometry, and measurement handling with language bindings for Python and Java.
+orskit is an open-source astrodynamics toolkit being built in Rust. Its goal is
+capability-level feature parity with [Orekit](https://www.orekit.org/), paired
+with a Rust-native API, explicit physical context, and benchmarked performance.
+Python and JVM-language bindings are planned as first-class interfaces.
 
-## Structure
+The project takes high-level inspiration from the ergonomics of the Nyx space
+libraries, but it is an independent implementation: Nyx source is not copied,
+translated, or adapted. Project-owned code is intended to remain available
+under either the MIT or Apache-2.0 license.
 
-### Core Library (`crates/`)
+> **Status: pre-alpha.** The repository currently contains an early workspace
+> scaffold and a first typed spacecraft-state, frame identity, two-body
+> dynamics, station, measurement, Python, and native JVM-FFM slice. It is not
+> yet suitable for scientific or operational use, and it does not currently
+> have Orekit parity.
 
-- **`core`**: Core orbital mechanics structures and utilities
-- **`orbit`**: Orbital propagation using numerical ODE solvers (RK4, Dopri5, Dop853)
-- **`stations`**: Ground station and geographic location utilities
-- **`measurements`**: Measurement and observation handling
-- **`utils`**: Common constants and utility functions
+## Direction
 
-### Language Bindings (`bindings/`)
+orskit is designed around a few hard requirements:
 
-- **`python/`**: Python bindings using PyO3 (for Python 3.8+)
-- **`java/`**: Java FFM (Foreign Function & Memory) bindings for Java 25+
+- frames, epochs, time scales, units, constants, and model data are explicit;
+- every public physical value is dimensionally typed rather than documented by
+  convention alone;
+- numerical claims are backed by traceable references and error budgets;
+- the scientific implementation remains independent and permissively licensed;
+- safe Rust owns domain behavior while FFI layers remain thin;
+- optimizations are judged on accuracy and reproducible measurements; and
+- scientific datasets are versioned and caller-controlled, never silently
+  downloaded by an algorithm.
 
-## Building
+The intended scope includes precise time and frames, celestial bodies and
+ephemerides, orbit representations, analytical and numerical propagation,
+force models, events, attitudes, measurements, estimation, mission geometry,
+operational data formats, and Rust/Python/JVM APIs.
 
-### Rust Library
+The project handbook in [`.agent/`](.agent/) defines the architecture,
+clean-room provenance policy, quality standard, capability ledger, and staged
+roadmap. Start with [`.agent/README.md`](.agent/README.md).
 
-```bash
-cargo build --release
+## Current workspace
+
+| Path | Current role |
+| --- | --- |
+| `crates/units` | `uom`-backed physical quantities and typed Cartesian vectors |
+| `crates/frames` | Reference-frame origin/orientation identities |
+| `crates/core` | Frame- and epoch-qualified spacecraft state with optional orientation/inertia |
+| `crates/orbit` | Typed two-body dynamics scaffold |
+| `crates/stations` | Typed, validated geographic-location scaffold |
+| `crates/measurements` | Typed range-measurement scaffold |
+| `crates/utils` | Typed sourced constants; package boundary remains transitional |
+| `bindings/python` | Experimental PyO3 binding workspace |
+| `bindings/java` | Experimental native C ABI and Java FFM build workspace |
+
+See the [capability parity ledger](.agent/PARITY.md) for an honest accounting of
+what exists and what still needs to be researched, designed, and validated.
+
+## Build the current scaffold
+
+The core crates form a Cargo workspace:
+
+```powershell
+cargo build --workspace
+cargo test --workspace
 ```
 
-### Python Bindings
+The binding projects are separate workspaces for now.
 
-```bash
-cd bindings/python
-pip install maturin
-maturin develop
+### Python
+
+Install [uv](https://docs.astral.sh/uv/), then from PowerShell:
+
+```powershell
+Push-Location bindings/python
+uv run --with maturin maturin develop
+Pop-Location
 ```
 
-### Java Bindings
+### JVM languages
 
-Requires Java 25+ and Gradle 9+:
+The current experiment is the native side of a future Java Foreign Function &
+Memory API package:
 
-```bash
-cd bindings/java
-./gradlew build          # Unix/Linux/macOS
-gradlew.bat build        # Windows
-
-# Or with locally installed Gradle
-gradle build
+```powershell
+cargo test --manifest-path bindings/java/Cargo.toml
 ```
 
-#### Java Build Configuration
+The safe JVM wrapper and complete Gradle packaging are still planned work.
+Platform/toolchain support will be documented and tested before the bindings
+are presented as a stable package.
 
-The Java bindings use Kotlin-based Gradle with modern best practices:
-- **Gradle 9.0+**: Latest Gradle version with performance improvements
-- **Kotlin DSL**: Type-safe build configuration (`build.gradle.kts`)
-- **Configuration Cache**: Faster build times with incremental caching
-- **Build Cache**: Reusable build outputs across machines
-- **JaCoCo**: Code coverage reporting
-- **Parallel Builds**: Multi-threaded compilation
-- **Java 25 Preview Features**: Support for latest Java features
+## Contributing
 
-#### Build Properties Optimization
+Before implementing a model, read the [agent and contributor
+instructions](.agent/AGENTS.md) and the [provenance
+policy](.agent/PROVENANCE.md). Work should advance a specific row in
+the [parity ledger](.agent/PARITY.md) with tests, references, stated
+tolerances, and honest known gaps.
 
-The `gradle.properties` file includes:
-- **Daemon Settings**: Long-lived Gradle daemon for faster builds
-- **JVM Configuration**: Optimized heap size (4GB max) and G1 garbage collector
-- **Parallel Execution**: Automatic worker detection for concurrent builds
-- **Caching**: Configuration cache and build cache enabled for incremental builds
-- **Feature Preview**: Auto-download of Java installations
-
-#### Gradle Wrapper
-
-The project includes `gradlew` (Unix/Linux/macOS) and `gradlew.bat` (Windows) scripts for reproducible builds without installing Gradle locally.
-
-## Dependencies
-
-### Core Library
-- **[nalgebra](https://github.com/dimforge/nalgebra)** (0.34): Linear algebra for vectors and matrices
-- **[ode-solvers](https://github.com/ivan-pi/ode_solvers)** (0.6): Numerical ODE integration (RK4, Dopri5, Dop853)
-- **[hifitime](https://github.com/nyx-space/hifitime)** (4.1): High-fidelity time handling for precise orbital mechanics
-
-### Python Bindings
-- **[PyO3](https://github.com/PyO3/pyo3)** (0.21): Python-Rust interop
-
-### Java Bindings
-- **[Java 25+](https://openjdk.org/)**: For FFM API support
-- **[Gradle 9+](https://gradle.org/)**: Build automation with Kotlin DSL
+The immediate priorities are listed in [the roadmap](.agent/ROADMAP.md).
 
 ## License
 
-Licensed under either of:
+orskit is intended to be licensed, at your option, under either:
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
-
-at your option.
+- the [MIT License](LICENSE-MIT); or
+- the [Apache License, Version 2.0](LICENSE-APACHE).

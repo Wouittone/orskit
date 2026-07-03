@@ -1,16 +1,60 @@
-//! Physical and astronomical constants
+//! Typed physical and astronomical constants.
 
-/// Earth's standard gravitational parameter in m^3/s^2
-pub const EARTH_MU: f64 = 3.986004418e14;
+use orskit_units::uom::si::{length::meter, velocity::meter_per_second};
+use orskit_units::{GravitationalConstant, GravitationalParameter, Length, Velocity};
 
-/// Earth's mean equatorial radius in meters
-pub const EARTH_RADIUS: f64 = 6378137.0;
+/// WGS 84 geocentric gravitational parameter in `m^3/s^2`.
+///
+/// Source: [NGA World Geodetic System 1984](https://earth-info.nga.mil/?action=wgs84&dir=wgs84).
+#[must_use]
+pub fn wgs84_earth_gravitational_parameter() -> GravitationalParameter {
+    GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)
+        .expect("the conventional Earth gravitational parameter is positive and finite")
+}
 
-/// Speed of light in m/s
-pub const SPEED_OF_LIGHT: f64 = 299792458.0;
+/// WGS 84 reference-ellipsoid semi-major axis.
+///
+/// Source: [NGA World Geodetic System 1984](https://earth-info.nga.mil/?action=wgs84&dir=wgs84).
+#[must_use]
+pub fn wgs84_semi_major_axis() -> Length {
+    Length::new::<meter>(6_378_137.0)
+}
 
-/// Astronomical unit in meters
-pub const AU: f64 = 1.495978707e11;
+/// Exact vacuum speed of light.
+///
+/// Source: [BIPM definition of the metre](https://www.bipm.org/en/si-base-units/metre).
+#[must_use]
+pub fn speed_of_light() -> Velocity {
+    Velocity::new::<meter_per_second>(299_792_458.0)
+}
 
-/// Gravitational constant in m^3 kg^-1 s^-2
-pub const G: f64 = 6.67430e-11;
+/// Exact IAU 2012 astronomical unit.
+///
+/// Source: [IAU 2012 Resolution B2](https://www.iau.org/static/resolutions/IAU2012_English.pdf).
+#[must_use]
+pub fn astronomical_unit() -> Length {
+    Length::new::<meter>(149_597_870_700.0)
+}
+
+/// CODATA 2018 Newtonian constant of gravitation in `m^3/(kg*s^2)`.
+///
+/// Source: [NIST 2018 CODATA values](https://physics.nist.gov/cuu/Constants/archive2018.html).
+#[must_use]
+pub fn gravitational_constant() -> GravitationalConstant {
+    GravitationalConstant::from_cubic_metres_per_kilogram_second_squared(6.674_30e-11)
+        .expect("the CODATA gravitational constant is positive and finite")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exact_constants_have_typed_dimensions() {
+        assert_eq!(
+            speed_of_light(),
+            Velocity::new::<meter_per_second>(299_792_458.0)
+        );
+        assert_eq!(astronomical_unit(), Length::new::<meter>(149_597_870_700.0));
+    }
+}

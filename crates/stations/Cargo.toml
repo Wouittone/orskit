@@ -8,4 +8,5 @@ repository.workspace = true
 description = "Ground station and location utilities for orskit"
 
 [dependencies]
-nalgebra = "0.34"
+orskit-units = { path = "../units" }
+thiserror.workspace = true

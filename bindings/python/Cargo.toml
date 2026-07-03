@@ -15,7 +15,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.21", features = ["extension-module"] }
-core = { path = "../../crates/core" }
+orskit-core = { path = "../../crates/core" }
+orskit-frames = { path = "../../crates/frames" }
+orskit-units = { path = "../../crates/units" }
 orbit = { path = "../../crates/orbit" }
 stations = { path = "../../crates/stations" }
 measurements = { path = "../../crates/measurements" }

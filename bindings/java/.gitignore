@@ -32,7 +32,6 @@ Thumbs.db
 
 # Rust
 target/
-Cargo.lock
 *.so
 *.dylib
 *.dll
