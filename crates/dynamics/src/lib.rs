@@ -1,18 +1,18 @@
-//! Composable descriptions of dynamical systems and their force models.
+//! Composable descriptions of spacecraft dynamics and force models.
 //!
-//! This crate describes model topology only. It intentionally does not define
-//! state derivatives, numerical integration, propagation, events, or
-//! variational equations yet. Those evaluation contracts can consume a
-//! [`SystemDynamics`] description without making a simplified two-body model
-//! the organizing abstraction.
+//! This crate describes model topology only. A force interaction targets one
+//! spacecraft and may depend on its position, speed, orientation, and inertia.
+//! Environmental bodies and other configuration belong to the force model,
+//! not to the interaction input. State derivatives, numerical integration,
+//! propagation, events, and variational equations remain deliberately absent.
 //!
 //! ```
 //! use orskit_bodies::Body;
 //! use orskit_dynamics::{SystemDynamics, ThreeBodyDynamics};
 //!
-//! let model = ThreeBodyDynamics::new(Body::SUN, Body::EARTH, Body::MOON)?;
-//! assert_eq!(model.participants().len(), 3);
-//! assert_eq!(model.force_models().len(), 1);
+//! let model = ThreeBodyDynamics::new(Body::EARTH, Body::MOON)?;
+//! assert_eq!(model.conservative_forces().len(), 2);
+//! assert!(model.non_conservative_forces().is_empty());
 //! # Ok::<(), orskit_dynamics::DynamicsDescriptionError>(())
 //! ```
 
@@ -21,262 +21,273 @@ use std::{fmt, sync::Arc};
 use orskit_bodies::Body;
 use thiserror::Error;
 
-/// Source and target roles declared by one force model.
+/// Spacecraft-state components a force interaction is allowed to inspect.
 ///
-/// Sources generate or parameterize the interaction; targets are the
-/// participants whose dynamics the model affects. A mutual interaction may
-/// list the same participants in both roles. A source-free model such as a
-/// prescribed maneuver may use an empty source slice.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ForceInteraction<'a, Participant> {
-    sources: &'a [Participant],
-    targets: &'a [Participant],
+/// This value describes access only; it does not evaluate the force. A future
+/// evaluator will map these requirements to an explicit spacecraft-state
+/// representation before invoking a model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SpacecraftStateDependencies {
+    position: bool,
+    speed: bool,
+    orientation: bool,
+    inertia: bool,
 }
 
-impl<'a, Participant> ForceInteraction<'a, Participant> {
-    /// Describes the source and target roles of a force model.
+impl SpacecraftStateDependencies {
+    /// No spacecraft-state component is required.
+    pub const NONE: Self = Self::new(false, false, false, false);
+    /// Only spacecraft position is required.
+    pub const POSITION: Self = Self::new(true, false, false, false);
+    /// Every currently defined spacecraft-state component is required.
+    pub const ALL: Self = Self::new(true, true, true, true);
+
+    /// Defines the spacecraft-state components required by a force model.
     #[must_use]
-    pub const fn new(sources: &'a [Participant], targets: &'a [Participant]) -> Self {
-        Self { sources, targets }
+    pub const fn new(position: bool, speed: bool, orientation: bool, inertia: bool) -> Self {
+        Self {
+            position,
+            speed,
+            orientation,
+            inertia,
+        }
     }
 
-    /// Returns the participants generating or parameterizing the interaction.
+    /// Returns whether spacecraft position is required.
     #[must_use]
-    pub const fn sources(self) -> &'a [Participant] {
-        self.sources
+    pub const fn position(self) -> bool {
+        self.position
     }
 
-    /// Returns the participants affected by the interaction.
+    /// Returns whether spacecraft speed is required.
     #[must_use]
-    pub const fn targets(self) -> &'a [Participant] {
-        self.targets
+    pub const fn speed(self) -> bool {
+        self.speed
+    }
+
+    /// Returns whether spacecraft orientation is required.
+    #[must_use]
+    pub const fn orientation(self) -> bool {
+        self.orientation
+    }
+
+    /// Returns whether spacecraft inertia is required.
+    #[must_use]
+    pub const fn inertia(self) -> bool {
+        self.inertia
     }
 }
 
-/// Pluggable description of one force contribution.
+/// Common descriptive contract for a force acting on a spacecraft.
 ///
-/// This trait deliberately has no evaluation method yet. A future evaluator
-/// will define state, epoch, frame, model-data, derivative, and error contracts
-/// explicitly instead of smuggling them into a descriptive API.
+/// The force model owns all environmental configuration. Its interaction with
+/// the propagated object is restricted to the spacecraft-state components
+/// declared by [`ForceModel::state_dependencies`]. No evaluation method is
+/// defined until the state representation and data context are designed.
 pub trait ForceModel: fmt::Debug + Send + Sync {
-    /// Participant identity used by this model.
-    type Participant: fmt::Debug + Send + Sync;
-
     /// Returns a stable human-readable model name for diagnostics.
     fn name(&self) -> &str;
 
-    /// Returns the declared source and target roles.
-    fn interaction(&self) -> ForceInteraction<'_, Self::Participant>;
+    /// Returns the spacecraft-state components inspected by this model.
+    fn state_dependencies(&self) -> SpacecraftStateDependencies;
 }
 
-/// Shared handle used to plug a force model into a dynamics description.
-pub type ForceModelHandle<Participant> =
-    Arc<dyn ForceModel<Participant = Participant> + Send + Sync + 'static>;
-
-/// Description of a dynamical system and its composed force models.
+/// Description of a conservative force contribution.
 ///
-/// The associated participant type allows future coupled spacecraft, rigid
-/// bodies, or estimation states without forcing every dynamics model to use a
-/// celestial-body-only enum. Implementations preserve force-model order so a
-/// future evaluator can document deterministic accumulation policy.
-pub trait SystemDynamics: fmt::Debug + Send + Sync {
-    /// Participant identity used throughout this system.
-    type Participant: fmt::Debug + Send + Sync;
+/// Conservative and non-conservative models are stored separately so future
+/// evaluators can select appropriate conservation checks and accumulation
+/// policies without inspecting strings or a closed model enum.
+pub trait ConservativeForce: ForceModel {}
 
+/// Description of a non-conservative force contribution.
+pub trait NonConservativeForce: ForceModel {}
+
+/// Shared handle for a pluggable conservative force description.
+pub type ConservativeForceHandle = Arc<dyn ConservativeForce + Send + Sync + 'static>;
+
+/// Shared handle for a pluggable non-conservative force description.
+pub type NonConservativeForceHandle = Arc<dyn NonConservativeForce + Send + Sync + 'static>;
+
+/// Description of a spacecraft dynamical system and its force composition.
+///
+/// Implementations preserve declaration order independently within the
+/// conservative and non-conservative collections. Evaluation, state
+/// derivatives, and numerical resolution belong to future contracts.
+pub trait SystemDynamics: fmt::Debug + Send + Sync {
     /// Returns a stable human-readable system name for diagnostics.
     fn name(&self) -> &str;
 
-    /// Returns all participants whose dynamics belong to this system.
-    fn participants(&self) -> &[Self::Participant];
+    /// Returns conservative forces in declaration order.
+    fn conservative_forces(&self) -> &[ConservativeForceHandle];
 
-    /// Returns the force models in declared composition order.
-    fn force_models(&self) -> &[ForceModelHandle<Self::Participant>];
+    /// Returns non-conservative forces in declaration order.
+    fn non_conservative_forces(&self) -> &[NonConservativeForceHandle];
 }
 
-/// Mutual point-mass gravity topology for a set of celestial bodies.
+/// Point-mass gravity exerted by one configured attracting body.
 ///
-/// This type declares which bodies interact; it does not select gravitational
-/// parameters, ephemerides, frames, or an evaluation algorithm.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MutualPointMassGravity {
-    bodies: Box<[Body]>,
+/// Only spacecraft position is an interaction dependency. The attracting body
+/// is model configuration; its gravitational parameter and ephemeris remain
+/// explicit future data requirements rather than properties inferred here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PointMassGravity {
+    attractor: Body,
 }
 
-impl MutualPointMassGravity {
-    /// Describes mutual point-mass gravity between at least two distinct bodies.
-    pub fn new(bodies: impl Into<Box<[Body]>>) -> Result<Self, DynamicsDescriptionError> {
-        let bodies = bodies.into();
-        validate_distinct_bodies(&bodies, 2)?;
-        Ok(Self { bodies })
-    }
-
-    /// Returns the interacting bodies.
+impl PointMassGravity {
+    /// Describes point-mass gravity from the selected body.
     #[must_use]
-    pub fn bodies(&self) -> &[Body] {
-        &self.bodies
+    pub const fn new(attractor: Body) -> Self {
+        Self { attractor }
+    }
+
+    /// Returns the configured attracting body.
+    #[must_use]
+    pub const fn attractor(self) -> Body {
+        self.attractor
     }
 }
 
-impl ForceModel for MutualPointMassGravity {
-    type Participant = Body;
-
+impl ForceModel for PointMassGravity {
     fn name(&self) -> &str {
-        "mutual point-mass gravity"
+        "point-mass gravity"
     }
 
-    fn interaction(&self) -> ForceInteraction<'_, Self::Participant> {
-        ForceInteraction::new(&self.bodies, &self.bodies)
+    fn state_dependencies(&self) -> SpacecraftStateDependencies {
+        SpacecraftStateDependencies::POSITION
     }
 }
 
-/// Simplified two-body dynamics description.
+impl ConservativeForce for PointMassGravity {}
+
+/// Simplified two-body spacecraft dynamics description.
 ///
-/// Mutual point-mass gravity is always the first force model. Additional force
-/// descriptions may be attached without changing the system contract.
+/// The two bodies are the spacecraft and one configured point-mass attractor.
+/// Additional conservative and non-conservative force descriptions may be
+/// attached without changing the system contract.
 #[derive(Debug, Clone)]
 pub struct TwoBodyDynamics {
-    participants: [Body; 2],
-    force_models: Vec<ForceModelHandle<Body>>,
+    attractor: Body,
+    conservative_forces: Vec<ConservativeForceHandle>,
+    non_conservative_forces: Vec<NonConservativeForceHandle>,
 }
 
 impl TwoBodyDynamics {
-    /// Describes two distinct bodies with mutual point-mass gravity.
-    pub fn new(primary: Body, secondary: Body) -> Result<Self, DynamicsDescriptionError> {
-        let participants = [primary, secondary];
-        let gravity = MutualPointMassGravity::new(participants)?;
-        Ok(Self {
-            participants,
-            force_models: vec![Arc::new(gravity)],
-        })
+    /// Describes spacecraft motion under one point-mass attractor.
+    #[must_use]
+    pub fn new(attractor: Body) -> Self {
+        Self {
+            attractor,
+            conservative_forces: vec![Arc::new(PointMassGravity::new(attractor))],
+            non_conservative_forces: Vec::new(),
+        }
     }
 
-    /// Adds a force description whose participants all belong to this system.
-    pub fn with_force_model(
-        mut self,
-        force_model: ForceModelHandle<Body>,
-    ) -> Result<Self, DynamicsDescriptionError> {
-        validate_force_membership(&self.participants, force_model.as_ref())?;
-        self.force_models.push(force_model);
-        Ok(self)
+    /// Returns the configured attracting body.
+    #[must_use]
+    pub const fn attractor(&self) -> Body {
+        self.attractor
+    }
+
+    /// Adds a conservative force description in declaration order.
+    #[must_use]
+    pub fn with_conservative_force(mut self, force: ConservativeForceHandle) -> Self {
+        self.conservative_forces.push(force);
+        self
+    }
+
+    /// Adds a non-conservative force description in declaration order.
+    #[must_use]
+    pub fn with_non_conservative_force(mut self, force: NonConservativeForceHandle) -> Self {
+        self.non_conservative_forces.push(force);
+        self
     }
 }
 
 impl SystemDynamics for TwoBodyDynamics {
-    type Participant = Body;
-
     fn name(&self) -> &str {
-        "two-body dynamics"
+        "two-body spacecraft dynamics"
     }
 
-    fn participants(&self) -> &[Self::Participant] {
-        &self.participants
+    fn conservative_forces(&self) -> &[ConservativeForceHandle] {
+        &self.conservative_forces
     }
 
-    fn force_models(&self) -> &[ForceModelHandle<Self::Participant>] {
-        &self.force_models
+    fn non_conservative_forces(&self) -> &[NonConservativeForceHandle] {
+        &self.non_conservative_forces
     }
 }
 
-/// Simplified three-body dynamics description.
+/// Simplified three-body spacecraft dynamics description.
 ///
-/// Mutual point-mass gravity is always the first force model. The description
-/// does not choose restricted/full equations or a numerical resolution method.
+/// The three bodies are the spacecraft and two distinct point-mass attractors.
+/// The description does not select restricted/full equations, ephemerides, or
+/// a numerical resolution method.
 #[derive(Debug, Clone)]
 pub struct ThreeBodyDynamics {
-    participants: [Body; 3],
-    force_models: Vec<ForceModelHandle<Body>>,
+    attractors: [Body; 2],
+    conservative_forces: Vec<ConservativeForceHandle>,
+    non_conservative_forces: Vec<NonConservativeForceHandle>,
 }
 
 impl ThreeBodyDynamics {
-    /// Describes three distinct bodies with mutual point-mass gravity.
-    pub fn new(first: Body, second: Body, third: Body) -> Result<Self, DynamicsDescriptionError> {
-        let participants = [first, second, third];
-        let gravity = MutualPointMassGravity::new(participants)?;
+    /// Describes spacecraft motion under two distinct point-mass attractors.
+    pub fn new(first: Body, second: Body) -> Result<Self, DynamicsDescriptionError> {
+        if first == second {
+            return Err(DynamicsDescriptionError::DuplicateAttractor(first));
+        }
         Ok(Self {
-            participants,
-            force_models: vec![Arc::new(gravity)],
+            attractors: [first, second],
+            conservative_forces: vec![
+                Arc::new(PointMassGravity::new(first)),
+                Arc::new(PointMassGravity::new(second)),
+            ],
+            non_conservative_forces: Vec::new(),
         })
     }
 
-    /// Adds a force description whose participants all belong to this system.
-    pub fn with_force_model(
-        mut self,
-        force_model: ForceModelHandle<Body>,
-    ) -> Result<Self, DynamicsDescriptionError> {
-        validate_force_membership(&self.participants, force_model.as_ref())?;
-        self.force_models.push(force_model);
-        Ok(self)
+    /// Returns the two configured attracting bodies.
+    #[must_use]
+    pub const fn attractors(&self) -> [Body; 2] {
+        self.attractors
+    }
+
+    /// Adds a conservative force description in declaration order.
+    #[must_use]
+    pub fn with_conservative_force(mut self, force: ConservativeForceHandle) -> Self {
+        self.conservative_forces.push(force);
+        self
+    }
+
+    /// Adds a non-conservative force description in declaration order.
+    #[must_use]
+    pub fn with_non_conservative_force(mut self, force: NonConservativeForceHandle) -> Self {
+        self.non_conservative_forces.push(force);
+        self
     }
 }
 
 impl SystemDynamics for ThreeBodyDynamics {
-    type Participant = Body;
-
     fn name(&self) -> &str {
-        "three-body dynamics"
+        "three-body spacecraft dynamics"
     }
 
-    fn participants(&self) -> &[Self::Participant] {
-        &self.participants
+    fn conservative_forces(&self) -> &[ConservativeForceHandle] {
+        &self.conservative_forces
     }
 
-    fn force_models(&self) -> &[ForceModelHandle<Self::Participant>] {
-        &self.force_models
+    fn non_conservative_forces(&self) -> &[NonConservativeForceHandle] {
+        &self.non_conservative_forces
     }
 }
 
-fn validate_distinct_bodies(
-    bodies: &[Body],
-    minimum: usize,
-) -> Result<(), DynamicsDescriptionError> {
-    if bodies.len() < minimum {
-        return Err(DynamicsDescriptionError::TooFewBodies { minimum });
-    }
-    for (index, body) in bodies.iter().enumerate() {
-        if bodies[index + 1..].contains(body) {
-            return Err(DynamicsDescriptionError::DuplicateBody(*body));
-        }
-    }
-    Ok(())
-}
-
-fn validate_force_membership(
-    participants: &[Body],
-    force_model: &dyn ForceModel<Participant = Body>,
-) -> Result<(), DynamicsDescriptionError> {
-    let interaction = force_model.interaction();
-    for body in interaction.sources().iter().chain(interaction.targets()) {
-        if !participants.contains(body) {
-            return Err(DynamicsDescriptionError::ExternalBody {
-                model: force_model.name().to_owned(),
-                body: *body,
-            });
-        }
-    }
-    Ok(())
-}
-
-/// Invalid dynamics or force-model description.
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
+/// Invalid dynamics description.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum DynamicsDescriptionError {
-    /// A simplified gravitational model has too few participants.
-    #[error("dynamics description requires at least {minimum} bodies")]
-    TooFewBodies {
-        /// Minimum body count required by the model.
-        minimum: usize,
-    },
-    /// A body occurs more than once in a system.
-    #[error("dynamics description contains duplicate body {0}")]
-    DuplicateBody(Body),
-    /// A plugged-in force references a body outside the system.
-    #[error("force model {model:?} references external body {body}")]
-    ExternalBody {
-        /// Force-model diagnostic name.
-        model: String,
-        /// Body absent from the system participant list.
-        body: Body,
-    },
+    /// A three-body description repeated the same attracting body.
+    #[error("three-body dynamics contains duplicate attractor {0}")]
+    DuplicateAttractor(Body),
 }
 
 #[cfg(test)]
@@ -284,91 +295,99 @@ mod tests {
     use super::*;
 
     #[derive(Debug)]
-    struct DirectedForce {
-        name: &'static str,
-        sources: Box<[Body]>,
-        targets: Box<[Body]>,
-    }
+    struct PositionPotential;
 
-    impl ForceModel for DirectedForce {
-        type Participant = Body;
-
+    impl ForceModel for PositionPotential {
         fn name(&self) -> &str {
-            self.name
+            "position potential"
         }
 
-        fn interaction(&self) -> ForceInteraction<'_, Body> {
-            ForceInteraction::new(&self.sources, &self.targets)
+        fn state_dependencies(&self) -> SpacecraftStateDependencies {
+            SpacecraftStateDependencies::POSITION
         }
     }
+
+    impl ConservativeForce for PositionPotential {}
+
+    #[derive(Debug)]
+    struct AerodynamicDrag;
+
+    impl ForceModel for AerodynamicDrag {
+        fn name(&self) -> &str {
+            "aerodynamic drag"
+        }
+
+        fn state_dependencies(&self) -> SpacecraftStateDependencies {
+            SpacecraftStateDependencies::ALL
+        }
+    }
+
+    impl NonConservativeForce for AerodynamicDrag {}
 
     #[test]
     fn two_body_is_a_system_dynamics_implementation() {
-        let dynamics = TwoBodyDynamics::new(Body::EARTH, Body::MOON)
-            .expect("Earth and Moon are distinct bodies");
+        let dynamics = TwoBodyDynamics::new(Body::EARTH);
 
-        assert_eq!(dynamics.name(), "two-body dynamics");
-        assert_eq!(dynamics.participants(), &[Body::EARTH, Body::MOON]);
-        assert_eq!(dynamics.force_models().len(), 1);
+        assert_eq!(dynamics.name(), "two-body spacecraft dynamics");
+        assert_eq!(dynamics.attractor(), Body::EARTH);
+        assert_eq!(dynamics.conservative_forces().len(), 1);
+        assert!(dynamics.non_conservative_forces().is_empty());
         assert_eq!(
-            dynamics.force_models()[0].interaction(),
-            ForceInteraction::new(&[Body::EARTH, Body::MOON], &[Body::EARTH, Body::MOON])
+            dynamics.conservative_forces()[0].state_dependencies(),
+            SpacecraftStateDependencies::POSITION
         );
     }
 
     #[test]
-    fn three_body_is_not_reduced_to_a_two_body_core() {
-        let dynamics = ThreeBodyDynamics::new(Body::SUN, Body::EARTH, Body::MOON)
-            .expect("fixture bodies are distinct");
+    fn three_body_configures_two_independent_attractors() {
+        let dynamics = ThreeBodyDynamics::new(Body::EARTH, Body::MOON)
+            .expect("Earth and Moon are distinct attractors");
 
-        assert_eq!(dynamics.participants().len(), 3);
+        assert_eq!(dynamics.attractors(), [Body::EARTH, Body::MOON]);
+        assert_eq!(dynamics.conservative_forces().len(), 2);
         assert_eq!(
-            dynamics.force_models()[0].interaction().sources(),
-            &[Body::SUN, Body::EARTH, Body::MOON]
+            dynamics.conservative_forces()[0].state_dependencies(),
+            SpacecraftStateDependencies::POSITION
+        );
+        assert_eq!(
+            dynamics.conservative_forces()[1].state_dependencies(),
+            SpacecraftStateDependencies::POSITION
         );
     }
 
     #[test]
-    fn custom_force_models_are_composed_in_declaration_order() {
-        let extra_force: ForceModelHandle<Body> = Arc::new(DirectedForce {
-            name: "Earth radiation pressure",
-            sources: vec![Body::EARTH].into_boxed_slice(),
-            targets: vec![Body::MOON].into_boxed_slice(),
-        });
-        let dynamics = TwoBodyDynamics::new(Body::EARTH, Body::MOON)
-            .expect("fixture bodies are distinct")
-            .with_force_model(extra_force)
-            .expect("force participants belong to the system");
+    fn conservative_and_non_conservative_forces_are_split_and_ordered() {
+        let dynamics = TwoBodyDynamics::new(Body::EARTH)
+            .with_conservative_force(Arc::new(PositionPotential))
+            .with_non_conservative_force(Arc::new(AerodynamicDrag));
 
-        assert_eq!(dynamics.force_models().len(), 2);
+        assert_eq!(dynamics.conservative_forces().len(), 2);
         assert_eq!(
-            dynamics.force_models()[1].name(),
-            "Earth radiation pressure"
+            dynamics.conservative_forces()[1].name(),
+            "position potential"
+        );
+        assert_eq!(dynamics.non_conservative_forces().len(), 1);
+        assert_eq!(
+            dynamics.non_conservative_forces()[0].state_dependencies(),
+            SpacecraftStateDependencies::ALL
         );
     }
 
     #[test]
-    fn duplicate_and_external_bodies_are_rejected() {
+    fn state_dependencies_are_limited_to_the_spacecraft_state_contract() {
+        let dependencies = SpacecraftStateDependencies::new(true, true, false, true);
+
+        assert!(dependencies.position());
+        assert!(dependencies.speed());
+        assert!(!dependencies.orientation());
+        assert!(dependencies.inertia());
+    }
+
+    #[test]
+    fn duplicate_three_body_attractors_are_rejected() {
         assert!(matches!(
-            TwoBodyDynamics::new(Body::EARTH, Body::EARTH),
-            Err(DynamicsDescriptionError::DuplicateBody(Body::EARTH))
+            ThreeBodyDynamics::new(Body::EARTH, Body::EARTH),
+            Err(DynamicsDescriptionError::DuplicateAttractor(Body::EARTH))
         ));
-
-        let external_force: ForceModelHandle<Body> = Arc::new(DirectedForce {
-            name: "external source",
-            sources: vec![Body::SUN].into_boxed_slice(),
-            targets: vec![Body::MOON].into_boxed_slice(),
-        });
-        let result = TwoBodyDynamics::new(Body::EARTH, Body::MOON)
-            .expect("fixture bodies are distinct")
-            .with_force_model(external_force);
-
-        assert_eq!(
-            result.expect_err("Sun is outside the described system"),
-            DynamicsDescriptionError::ExternalBody {
-                model: "external source".to_owned(),
-                body: Body::SUN,
-            }
-        );
     }
 }
