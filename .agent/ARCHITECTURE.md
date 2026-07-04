@@ -48,7 +48,11 @@ missing abstraction or an incorrectly placed type.
 
 ### Dynamics and observation
 
-- **Forces:** composable acceleration and mass-flow models with declared data
+- **Dynamics:** `SystemDynamics` describes participants and an ordered open set
+  of force-model descriptions. Evaluation, coupled state layout, model data,
+  derivatives, and numerical resolution remain separate future contracts.
+- **Forces:** composable interaction descriptions now expose source/target
+  roles; future acceleration and mass-flow evaluators must declare data
   requirements.
 - **Propagation:** analytical, numerical, semi-analytical, and TLE propagators;
   dense output; ephemerides; variational equations.
@@ -140,8 +144,9 @@ There is no ambient mutable "current data context."
 
 ## Crate evolution
 
-The current `bodies`, `core`, `frames`, `measurements`, `units`, and `utils`
-crates are an initial scaffold. Generic names such as `core` and `utils` are transitional.
+The current `bodies`, `core`, `dynamics`, `frames`, `measurements`, `units`, and
+`utils` crates are an initial scaffold. Generic names such as `core` and
+`utils` are transitional.
 New boundaries should use namespaced package names such as `orskit-time` and
 `orskit-frames`. Split crates only when the domain boundary and dependency
 direction are clear; do not create one crate per noun pre-emptively.
@@ -160,8 +165,10 @@ owns a broader almanac/orbit context than this foundational slice needs. Keep
 the boundary adapter-friendly and revisit both for transform providers rather
 than leaking either API into spacecraft state.
 
-There is deliberately no dynamics/propagation crate yet. Its design must cover
-composable multi-body and coupled dynamics, force models, events, integration,
-and variational equations; a two-body example must not become the organizing
-abstraction. Likewise there is no `stations` crate: ground and spacecraft
-participants belong to the measurement topology and estimation workflows.
+`orskit-dynamics` currently describes participants, force source/target roles,
+and deterministic model composition only. Evaluation and propagation remain
+deferred; their design must cover coupled translational, rotational, mass, and
+variational states, explicit data, events, and integration. Two- and three-body
+descriptions are peer implementations rather than the organizing abstraction.
+There is no `stations` crate: ground and spacecraft participants belong to the
+measurement topology and estimation workflows.

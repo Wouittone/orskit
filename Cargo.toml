@@ -3,6 +3,7 @@ members = [
     "crates/bodies",
     "crates/ccsds",
     "crates/core",
+    "crates/dynamics",
     "crates/frames",
     "crates/measurements",
     "crates/units",

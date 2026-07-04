@@ -618,6 +618,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "orskit-dynamics"
+version = "0.1.0"
+dependencies = [
+ "orskit-bodies",
+ "thiserror",
+]
+
+[[package]]
 name = "orskit-frames"
 version = "0.1.0"
 dependencies = [

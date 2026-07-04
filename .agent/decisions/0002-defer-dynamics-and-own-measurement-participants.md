@@ -1,6 +1,6 @@
 # ADR-0002: defer dynamics and keep participants in measurements
 
-- Status: Accepted
+- Status: Accepted; dynamics deferral superseded in part by ADR-0006
 - Date: 2026-07-04
 - Owners: orskit maintainers
 - Affected parity rows: propagation, observation, estimation
@@ -18,7 +18,9 @@ encourages copying Orekit's station-centric API.
 
 1. Remove the provisional dynamics/orbit implementation and its crate. Design
    propagation later around multi-model dynamics, force composition, coupled
-   states, integration, events, and variational equations.
+   states, integration, events, and variational equations. ADR-0006 now begins
+   that work with description-only system and force-model contracts while
+   continuing to defer evaluation and resolution.
 2. Remove the standalone `stations` crate. Ground assets, spacecraft, clocks,
    signal paths, and corrections are all measurement-participant concerns and
    belong in `measurements` (or lower geometry/data abstractions shared by it).

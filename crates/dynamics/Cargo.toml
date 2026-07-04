@@ -1,0 +1,12 @@
+[package]
+name = "orskit-dynamics"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Composable system-dynamics and force-model descriptions for orskit"
+
+[dependencies]
+orskit-bodies = { path = "../bodies" }
+thiserror.workspace = true
