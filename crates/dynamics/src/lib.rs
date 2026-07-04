@@ -1,18 +1,23 @@
 //! Composable descriptions of spacecraft dynamics and force models.
 //!
-//! This crate describes model topology only. A force interaction targets one
-//! spacecraft and may depend on its position, speed, orientation, and inertia.
-//! Environmental bodies and other configuration belong to the force model,
-//! not to the interaction input. State derivatives, numerical integration,
-//! propagation, events, and variational equations remain deliberately absent.
+//! This crate primarily describes model topology. A force interaction targets
+//! one spacecraft and may depend on its position, speed, orientation, and
+//! inertia. Environmental bodies and other configuration belong to the force
+//! model, not to the interaction input. The first narrow evaluator provides
+//! analytical elliptic two-body propagation; general state derivatives,
+//! numerical integration, events, and variational equations remain absent.
 //!
 //! ```
 //! use orskit_bodies::Body;
 //! use orskit_dynamics::{SystemDynamics, ThreeBodyDynamics};
 //!
 //! let model = ThreeBodyDynamics::new(Body::EARTH, Body::MOON)?;
-//! assert_eq!(model.conservative_forces().len(), 2);
-//! assert!(model.non_conservative_forces().is_empty());
+//! assert_eq!(model.conservative_force_models().len(), 2);
+//! assert_eq!(
+//!     model.conservative_force_models()[0].force().name(),
+//!     "gravity"
+//! );
+//! assert!(model.non_conservative_force_models().is_empty());
 //! # Ok::<(), orskit_dynamics::DynamicsDescriptionError>(())
 //! ```
 
@@ -20,6 +25,10 @@ use std::{fmt, sync::Arc};
 
 use orskit_bodies::Body;
 use thiserror::Error;
+
+mod two_body;
+
+pub use two_body::{EllipticTwoBodyPropagator, TwoBodyPropagationError};
 
 /// Spacecraft-state components a force interaction is allowed to inspect.
 ///
@@ -78,35 +87,54 @@ impl SpacecraftStateDependencies {
     }
 }
 
-/// Common descriptive contract for a force acting on a spacecraft.
+/// Open descriptive identity for a physical force family.
+///
+/// A force is the physical interaction, such as gravity. A [`ForceModel`] is a
+/// selected implementation or approximation of that force, such as a
+/// point-mass gravity model. Keeping this trait object-safe allows downstream
+/// crates to introduce new force families without changing a closed enum.
+pub trait Force: fmt::Debug + Send + Sync {
+    /// Returns a stable human-readable force-family name for diagnostics.
+    fn name(&self) -> &str;
+}
+
+/// Common descriptive contract for a model of a force acting on a spacecraft.
 ///
 /// The force model owns all environmental configuration. Its interaction with
 /// the propagated object is restricted to the spacecraft-state components
 /// declared by [`ForceModel::state_dependencies`]. No evaluation method is
 /// defined until the state representation and data context are designed.
 pub trait ForceModel: fmt::Debug + Send + Sync {
-    /// Returns a stable human-readable model name for diagnostics.
-    fn name(&self) -> &str;
+    /// Returns a stable human-readable implementation name for diagnostics.
+    fn model_name(&self) -> &str;
+
+    /// Returns the physical force modeled by this implementation.
+    ///
+    /// Returning a trait object rather than an associated type keeps
+    /// [`ForceModel`] object-safe so heterogeneous implementations can be
+    /// composed in one dynamics description.
+    fn force(&self) -> &dyn Force;
 
     /// Returns the spacecraft-state components inspected by this model.
     fn state_dependencies(&self) -> SpacecraftStateDependencies;
 }
 
-/// Description of a conservative force contribution.
+/// Description of a potential-derived force-model contribution.
 ///
 /// Conservative and non-conservative models are stored separately so future
 /// evaluators can select appropriate conservation checks and accumulation
 /// policies without inspecting strings or a closed model enum.
-pub trait ConservativeForce: ForceModel {}
+pub trait ConservativeForceModel: ForceModel {}
 
-/// Description of a non-conservative force contribution.
-pub trait NonConservativeForce: ForceModel {}
+/// Description of a non-conservative force-model contribution.
+pub trait NonConservativeForceModel: ForceModel {}
 
-/// Shared handle for a pluggable conservative force description.
-pub type ConservativeForceHandle = Arc<dyn ConservativeForce + Send + Sync + 'static>;
+/// Shared handle for a pluggable conservative force-model description.
+pub type ConservativeForceModelHandle = Arc<dyn ConservativeForceModel + Send + Sync + 'static>;
 
-/// Shared handle for a pluggable non-conservative force description.
-pub type NonConservativeForceHandle = Arc<dyn NonConservativeForce + Send + Sync + 'static>;
+/// Shared handle for a pluggable non-conservative force-model description.
+pub type NonConservativeForceModelHandle =
+    Arc<dyn NonConservativeForceModel + Send + Sync + 'static>;
 
 /// Description of a spacecraft dynamical system and its force composition.
 ///
@@ -117,25 +145,40 @@ pub trait SystemDynamics: fmt::Debug + Send + Sync {
     /// Returns a stable human-readable system name for diagnostics.
     fn name(&self) -> &str;
 
-    /// Returns conservative forces in declaration order.
-    fn conservative_forces(&self) -> &[ConservativeForceHandle];
+    /// Returns conservative force models in declaration order.
+    fn conservative_force_models(&self) -> &[ConservativeForceModelHandle];
 
-    /// Returns non-conservative forces in declaration order.
-    fn non_conservative_forces(&self) -> &[NonConservativeForceHandle];
+    /// Returns non-conservative force models in declaration order.
+    fn non_conservative_force_models(&self) -> &[NonConservativeForceModelHandle];
 }
 
-/// Point-mass gravity exerted by one configured attracting body.
+/// Physical gravitational interaction.
+///
+/// Point-mass, spherical-harmonic, irregular-body, and time-variable gravity
+/// are model implementations of this same force family.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct GravityForce;
+
+impl Force for GravityForce {
+    fn name(&self) -> &str {
+        "gravity"
+    }
+}
+
+static GRAVITY_FORCE: GravityForce = GravityForce;
+
+/// Point-mass model of gravity from one configured attracting body.
 ///
 /// Only spacecraft position is an interaction dependency. The attracting body
 /// is model configuration; its gravitational parameter and ephemeris remain
 /// explicit future data requirements rather than properties inferred here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PointMassGravity {
+pub struct PointMassGravityModel {
     attractor: Body,
 }
 
-impl PointMassGravity {
-    /// Describes point-mass gravity from the selected body.
+impl PointMassGravityModel {
+    /// Describes a point-mass gravity model for the selected body.
     #[must_use]
     pub const fn new(attractor: Body) -> Self {
         Self { attractor }
@@ -148,9 +191,13 @@ impl PointMassGravity {
     }
 }
 
-impl ForceModel for PointMassGravity {
-    fn name(&self) -> &str {
-        "point-mass gravity"
+impl ForceModel for PointMassGravityModel {
+    fn model_name(&self) -> &str {
+        "point-mass gravity model"
+    }
+
+    fn force(&self) -> &dyn Force {
+        &GRAVITY_FORCE
     }
 
     fn state_dependencies(&self) -> SpacecraftStateDependencies {
@@ -158,18 +205,18 @@ impl ForceModel for PointMassGravity {
     }
 }
 
-impl ConservativeForce for PointMassGravity {}
+impl ConservativeForceModel for PointMassGravityModel {}
 
 /// Simplified two-body spacecraft dynamics description.
 ///
 /// The two bodies are the spacecraft and one configured point-mass attractor.
-/// Additional conservative and non-conservative force descriptions may be
-/// attached without changing the system contract.
+/// Additional conservative and non-conservative force-model implementations
+/// may be attached without changing the system contract.
 #[derive(Debug, Clone)]
 pub struct TwoBodyDynamics {
     attractor: Body,
-    conservative_forces: Vec<ConservativeForceHandle>,
-    non_conservative_forces: Vec<NonConservativeForceHandle>,
+    conservative_force_models: Vec<ConservativeForceModelHandle>,
+    non_conservative_force_models: Vec<NonConservativeForceModelHandle>,
 }
 
 impl TwoBodyDynamics {
@@ -178,8 +225,8 @@ impl TwoBodyDynamics {
     pub fn new(attractor: Body) -> Self {
         Self {
             attractor,
-            conservative_forces: vec![Arc::new(PointMassGravity::new(attractor))],
-            non_conservative_forces: Vec::new(),
+            conservative_force_models: vec![Arc::new(PointMassGravityModel::new(attractor))],
+            non_conservative_force_models: Vec::new(),
         }
     }
 
@@ -189,17 +236,20 @@ impl TwoBodyDynamics {
         self.attractor
     }
 
-    /// Adds a conservative force description in declaration order.
+    /// Adds a conservative force-model description in declaration order.
     #[must_use]
-    pub fn with_conservative_force(mut self, force: ConservativeForceHandle) -> Self {
-        self.conservative_forces.push(force);
+    pub fn with_conservative_force_model(mut self, model: ConservativeForceModelHandle) -> Self {
+        self.conservative_force_models.push(model);
         self
     }
 
-    /// Adds a non-conservative force description in declaration order.
+    /// Adds a non-conservative force-model description in declaration order.
     #[must_use]
-    pub fn with_non_conservative_force(mut self, force: NonConservativeForceHandle) -> Self {
-        self.non_conservative_forces.push(force);
+    pub fn with_non_conservative_force_model(
+        mut self,
+        model: NonConservativeForceModelHandle,
+    ) -> Self {
+        self.non_conservative_force_models.push(model);
         self
     }
 }
@@ -209,12 +259,12 @@ impl SystemDynamics for TwoBodyDynamics {
         "two-body spacecraft dynamics"
     }
 
-    fn conservative_forces(&self) -> &[ConservativeForceHandle] {
-        &self.conservative_forces
+    fn conservative_force_models(&self) -> &[ConservativeForceModelHandle] {
+        &self.conservative_force_models
     }
 
-    fn non_conservative_forces(&self) -> &[NonConservativeForceHandle] {
-        &self.non_conservative_forces
+    fn non_conservative_force_models(&self) -> &[NonConservativeForceModelHandle] {
+        &self.non_conservative_force_models
     }
 }
 
@@ -226,8 +276,8 @@ impl SystemDynamics for TwoBodyDynamics {
 #[derive(Debug, Clone)]
 pub struct ThreeBodyDynamics {
     attractors: [Body; 2],
-    conservative_forces: Vec<ConservativeForceHandle>,
-    non_conservative_forces: Vec<NonConservativeForceHandle>,
+    conservative_force_models: Vec<ConservativeForceModelHandle>,
+    non_conservative_force_models: Vec<NonConservativeForceModelHandle>,
 }
 
 impl ThreeBodyDynamics {
@@ -238,11 +288,11 @@ impl ThreeBodyDynamics {
         }
         Ok(Self {
             attractors: [first, second],
-            conservative_forces: vec![
-                Arc::new(PointMassGravity::new(first)),
-                Arc::new(PointMassGravity::new(second)),
+            conservative_force_models: vec![
+                Arc::new(PointMassGravityModel::new(first)),
+                Arc::new(PointMassGravityModel::new(second)),
             ],
-            non_conservative_forces: Vec::new(),
+            non_conservative_force_models: Vec::new(),
         })
     }
 
@@ -252,17 +302,20 @@ impl ThreeBodyDynamics {
         self.attractors
     }
 
-    /// Adds a conservative force description in declaration order.
+    /// Adds a conservative force-model description in declaration order.
     #[must_use]
-    pub fn with_conservative_force(mut self, force: ConservativeForceHandle) -> Self {
-        self.conservative_forces.push(force);
+    pub fn with_conservative_force_model(mut self, model: ConservativeForceModelHandle) -> Self {
+        self.conservative_force_models.push(model);
         self
     }
 
-    /// Adds a non-conservative force description in declaration order.
+    /// Adds a non-conservative force-model description in declaration order.
     #[must_use]
-    pub fn with_non_conservative_force(mut self, force: NonConservativeForceHandle) -> Self {
-        self.non_conservative_forces.push(force);
+    pub fn with_non_conservative_force_model(
+        mut self,
+        model: NonConservativeForceModelHandle,
+    ) -> Self {
+        self.non_conservative_force_models.push(model);
         self
     }
 }
@@ -272,12 +325,12 @@ impl SystemDynamics for ThreeBodyDynamics {
         "three-body spacecraft dynamics"
     }
 
-    fn conservative_forces(&self) -> &[ConservativeForceHandle] {
-        &self.conservative_forces
+    fn conservative_force_models(&self) -> &[ConservativeForceModelHandle] {
+        &self.conservative_force_models
     }
 
-    fn non_conservative_forces(&self) -> &[NonConservativeForceHandle] {
-        &self.non_conservative_forces
+    fn non_conservative_force_models(&self) -> &[NonConservativeForceModelHandle] {
+        &self.non_conservative_force_models
     }
 }
 
@@ -295,11 +348,26 @@ mod tests {
     use super::*;
 
     #[derive(Debug)]
-    struct PositionPotential;
+    struct PotentialForce;
 
-    impl ForceModel for PositionPotential {
+    impl Force for PotentialForce {
         fn name(&self) -> &str {
-            "position potential"
+            "test potential"
+        }
+    }
+
+    static POTENTIAL_FORCE: PotentialForce = PotentialForce;
+
+    #[derive(Debug)]
+    struct PositionPotentialModel;
+
+    impl ForceModel for PositionPotentialModel {
+        fn model_name(&self) -> &str {
+            "position potential model"
+        }
+
+        fn force(&self) -> &dyn Force {
+            &POTENTIAL_FORCE
         }
 
         fn state_dependencies(&self) -> SpacecraftStateDependencies {
@@ -307,14 +375,29 @@ mod tests {
         }
     }
 
-    impl ConservativeForce for PositionPotential {}
+    impl ConservativeForceModel for PositionPotentialModel {}
 
     #[derive(Debug)]
-    struct AerodynamicDrag;
+    struct AerodynamicForce;
 
-    impl ForceModel for AerodynamicDrag {
+    impl Force for AerodynamicForce {
         fn name(&self) -> &str {
-            "aerodynamic drag"
+            "aerodynamic force"
+        }
+    }
+
+    static AERODYNAMIC_FORCE: AerodynamicForce = AerodynamicForce;
+
+    #[derive(Debug)]
+    struct AerodynamicDragModel;
+
+    impl ForceModel for AerodynamicDragModel {
+        fn model_name(&self) -> &str {
+            "isotropic drag model"
+        }
+
+        fn force(&self) -> &dyn Force {
+            &AERODYNAMIC_FORCE
         }
 
         fn state_dependencies(&self) -> SpacecraftStateDependencies {
@@ -322,7 +405,7 @@ mod tests {
         }
     }
 
-    impl NonConservativeForce for AerodynamicDrag {}
+    impl NonConservativeForceModel for AerodynamicDragModel {}
 
     #[test]
     fn two_body_is_a_system_dynamics_implementation() {
@@ -330,10 +413,18 @@ mod tests {
 
         assert_eq!(dynamics.name(), "two-body spacecraft dynamics");
         assert_eq!(dynamics.attractor(), Body::EARTH);
-        assert_eq!(dynamics.conservative_forces().len(), 1);
-        assert!(dynamics.non_conservative_forces().is_empty());
+        assert_eq!(dynamics.conservative_force_models().len(), 1);
+        assert!(dynamics.non_conservative_force_models().is_empty());
         assert_eq!(
-            dynamics.conservative_forces()[0].state_dependencies(),
+            dynamics.conservative_force_models()[0].force().name(),
+            "gravity"
+        );
+        assert_eq!(
+            dynamics.conservative_force_models()[0].model_name(),
+            "point-mass gravity model"
+        );
+        assert_eq!(
+            dynamics.conservative_force_models()[0].state_dependencies(),
             SpacecraftStateDependencies::POSITION
         );
     }
@@ -344,31 +435,47 @@ mod tests {
             .expect("Earth and Moon are distinct attractors");
 
         assert_eq!(dynamics.attractors(), [Body::EARTH, Body::MOON]);
-        assert_eq!(dynamics.conservative_forces().len(), 2);
+        assert_eq!(dynamics.conservative_force_models().len(), 2);
         assert_eq!(
-            dynamics.conservative_forces()[0].state_dependencies(),
+            dynamics.conservative_force_models()[0].state_dependencies(),
             SpacecraftStateDependencies::POSITION
         );
         assert_eq!(
-            dynamics.conservative_forces()[1].state_dependencies(),
+            dynamics.conservative_force_models()[1].state_dependencies(),
             SpacecraftStateDependencies::POSITION
         );
+        assert!(dynamics
+            .conservative_force_models()
+            .iter()
+            .all(|model| model.force().name() == "gravity"));
     }
 
     #[test]
-    fn conservative_and_non_conservative_forces_are_split_and_ordered() {
+    fn heterogeneous_force_models_are_split_and_ordered_without_downcasting() {
         let dynamics = TwoBodyDynamics::new(Body::EARTH)
-            .with_conservative_force(Arc::new(PositionPotential))
-            .with_non_conservative_force(Arc::new(AerodynamicDrag));
+            .with_conservative_force_model(Arc::new(PositionPotentialModel))
+            .with_non_conservative_force_model(Arc::new(AerodynamicDragModel));
 
-        assert_eq!(dynamics.conservative_forces().len(), 2);
+        assert_eq!(dynamics.conservative_force_models().len(), 2);
         assert_eq!(
-            dynamics.conservative_forces()[1].name(),
-            "position potential"
+            dynamics.conservative_force_models()[1].force().name(),
+            "test potential"
         );
-        assert_eq!(dynamics.non_conservative_forces().len(), 1);
         assert_eq!(
-            dynamics.non_conservative_forces()[0].state_dependencies(),
+            dynamics.conservative_force_models()[1].model_name(),
+            "position potential model"
+        );
+        assert_eq!(dynamics.non_conservative_force_models().len(), 1);
+        assert_eq!(
+            dynamics.non_conservative_force_models()[0].force().name(),
+            "aerodynamic force"
+        );
+        assert_eq!(
+            dynamics.non_conservative_force_models()[0].model_name(),
+            "isotropic drag model"
+        );
+        assert_eq!(
+            dynamics.non_conservative_force_models()[0].state_dependencies(),
             SpacecraftStateDependencies::ALL
         );
     }

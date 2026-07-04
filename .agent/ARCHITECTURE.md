@@ -49,13 +49,15 @@ missing abstraction or an incorrectly placed type.
 ### Dynamics and observation
 
 - **Dynamics:** `SystemDynamics` separates ordered conservative and
-  non-conservative force descriptions acting on a spacecraft. Evaluation,
+  non-conservative force-model descriptions acting on a spacecraft. Evaluation,
   coupled state layout, model data, derivatives, and numerical resolution
   remain separate future contracts.
-- **Forces:** an interaction declares only its dependency on spacecraft
-  position, speed, orientation, and inertia. Environmental bodies and other
-  parameters belong to force-model configuration and explicit future data
-  providers.
+- **Forces:** the open `Force` contract identifies a physical interaction while
+  the object-safe `ForceModel` contract identifies one implementation of it.
+  Models declare only their dependency on spacecraft position, speed,
+  orientation, and inertia. Environmental bodies and other parameters belong
+  to force-model configuration and explicit future data providers. Dynamics
+  composes heterogeneous model trait objects without matching model types.
 - **Propagation:** analytical, numerical, semi-analytical, and TLE propagators;
   dense output; ephemerides; variational equations.
 - **Events:** detector functions, direction, root localization, handlers, and
@@ -168,10 +170,12 @@ the boundary adapter-friendly and revisit both for transform providers rather
 than leaking either API into spacecraft state.
 
 `orskit-dynamics` currently describes spacecraft-state dependencies, split
-conservative/non-conservative forces, and deterministic model composition only.
-Evaluation and propagation remain deferred; their design must cover coupled
-translational, rotational, mass, and variational states, explicit data, events,
-and integration. Two- and three-body descriptions are peer implementations
-rather than the organizing abstraction.
+conservative/non-conservative force models, and deterministic model composition.
+Its first evaluator analytically advances elliptic Keplerian states under one
+explicit point-mass parameter. General evaluation and numerical propagation
+remain deferred; their design must cover coupled translational, rotational,
+mass, and variational states, explicit data, events, and integration. Two- and
+three-body descriptions are peer implementations rather than the organizing
+abstraction.
 There is no `stations` crate: ground and spacecraft participants belong to the
 measurement topology and estimation workflows.
