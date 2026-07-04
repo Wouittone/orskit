@@ -36,11 +36,13 @@ missing abstraction or an incorrectly placed type.
 
 ### Physical model
 
-- **Frames:** orskit-owned origin/orientation identities and transform-provider
-  contracts, with optional external adapters for kinematic transforms, Earth
-  orientation, and transform composition.
-- **Bodies:** celestial bodies, reference ellipsoids, geodetic conversion,
-  rotation, and ephemeris providers.
+- **Bodies:** reusable celestial-body identities and explicit body-system
+  membership, followed by reference ellipsoids, geodetic conversion, rotation,
+  and ephemeris providers. Identity does not imply a physical-data model.
+- **Frames:** origins compose a body, body-system barycenter, or explicit custom
+  origin with an orientation. Transform-provider contracts admit optional
+  external adapters for kinematic transforms, Earth orientation, and transform
+  composition.
 - **Orbits:** frame- and epoch-qualified states, element sets, conversions,
   Jacobians, interpolation, and covariance representations.
 
@@ -72,10 +74,17 @@ missing abstraction or an incorrectly placed type.
 
 ## Core data contracts
 
-- A physical state has an epoch, while each position, velocity, acceleration,
-  orientation, inertia tensor, covariance, and other coordinate-dependent value
-  carries the frame information needed to interpret that value. A state does
-  not imply that its components share a frame.
+- A complete physical `State` has an epoch, positive mass, orientation, inertia
+  matrix, and one native coordinate representation. Cartesian, Keplerian,
+  equinoctial, and future representations implement the same trait without
+  embedding one another. Algorithms obtain another representation through an
+  explicit conversion trait and supply conversion-only context there. Each
+  position, velocity, acceleration, orientation, inertia tensor, covariance, and other
+  coordinate-dependent value carries the frame information needed to interpret
+  it; a state does not imply that its components share a frame.
+- File formats that omit physical properties yield values such as
+  `CoordinateSample<CartesianCoordinates>`, not fabricated complete states.
+  Callers enrich them with explicit `SpacecraftProperties` at the workflow boundary.
 - Every public physical scalar and vector uses a typed quantity. `uom` is the
   canonical dimensional system and SI is its storage baseline. Raw scalars may
   appear only at explicitly unit-named numerical, serialization, and FFI
@@ -131,8 +140,8 @@ There is no ambient mutable "current data context."
 
 ## Crate evolution
 
-The current `core`, `frames`, `measurements`, `units`, and `utils` crates are an
-initial scaffold. Generic names such as `core` and `utils` are transitional.
+The current `bodies`, `core`, `frames`, `measurements`, `units`, and `utils`
+crates are an initial scaffold. Generic names such as `core` and `utils` are transitional.
 New boundaries should use namespaced package names such as `orskit-time` and
 `orskit-frames`. Split crates only when the domain boundary and dependency
 direction are clear; do not create one crate per noun pre-emptively.
@@ -142,11 +151,14 @@ for time/data, frames/bodies, orbits, propagation/forces/events, attitude,
 measurements/estimation, I/O, and FFI. The exact split requires architecture
 decision records and evidence from real vertical slices.
 
-The initial split now includes `orskit-units` for typed quantities and
-`orskit-frames` for frame identity. `lox-frames` is scientifically promising but
-still alpha; ANISE is mature but owns a broader almanac/orbit context than this
-foundational slice needs. Keep the boundary adapter-friendly and revisit both
-for transform providers rather than leaking either API into spacecraft state.
+The initial split now includes `orskit-units` for typed quantities,
+`orskit-bodies` for celestial and body-system identities, `orskit-frames` for
+body-backed frame identity, and a trait-based state model with Cartesian,
+elliptic Keplerian, and elliptic equinoctial representations.
+`lox-frames` is scientifically promising but still alpha; ANISE is mature but
+owns a broader almanac/orbit context than this foundational slice needs. Keep
+the boundary adapter-friendly and revisit both for transform providers rather
+than leaking either API into spacecraft state.
 
 There is deliberately no dynamics/propagation crate yet. Its design must cover
 composable multi-body and coupled dynamics, force models, events, integration,

@@ -13,8 +13,10 @@ project-owned code. That code is intended to remain available under either the
 MIT or Apache-2.0 license.
 
 > **Status: pre-alpha.** The repository currently contains an early workspace
-> scaffold with typed units, frame identities, spacecraft state, a minimal
-> range measurement, and experimental binding adapters. Dynamics and complete
+> scaffold with typed units, celestial-body and frame identities, trait-based Cartesian,
+> Keplerian, and equinoctial spacecraft states,
+> streaming CCSDS OEM KVN ingestion, a minimal range measurement, and
+> experimental binding adapters. Dynamics, complete CCSDS coverage, and complete
 > measurement-participant modeling are intentionally not designed yet. It is
 > not suitable for scientific or operational use and does not have Orekit
 > parity.
@@ -50,8 +52,10 @@ roadmap. Start with [`.agent/README.md`](.agent/README.md).
 | Path | Current role |
 | --- | --- |
 | `crates/units` | `uom`-backed physical quantities and typed Cartesian vectors |
-| `crates/frames` | Reference-frame origin/orientation identities |
-| `crates/core` | Independently framed position, velocity, orientation, and inertia values in a spacecraft state |
+| `crates/bodies` | Planet, moon, dwarf-planet, custom-body, and explicit body-system identities |
+| `crates/frames` | Reference-frame identities with body-backed and barycentric origins |
+| `crates/core` | Common `State` contract plus Cartesian, elliptic Keplerian/equinoctial representations and rigid-body properties |
+| `crates/ccsds` | Blocking/Tokio streaming and Rayon collection for CCSDS OEM KVN coordinates |
 | `crates/measurements` | Typed measurement values; future home of ground and spacecraft participant models |
 | `crates/utils` | Typed sourced constants; package boundary remains transitional |
 | `bindings/python` | Experimental PyO3 binding workspace |
@@ -68,6 +72,35 @@ The core crates form a Cargo workspace:
 cargo build --workspace
 cargo test --workspace
 ```
+
+### Stream a CCSDS OEM
+
+The current I/O slice emits timed coordinates without retaining a complete message:
+
+```rust
+use std::{fs::File, io::BufReader};
+use orskit_ccsds::{OemEvent, OemKvnReader};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let reader = OemKvnReader::new(BufReader::new(File::open("orbit.oem")?));
+    for event in reader {
+        if let OemEvent::Coordinates(coordinates) = event? {
+            println!(
+                "{}: {:?}",
+                coordinates.epoch(),
+                coordinates.coordinates().position()
+            );
+        }
+    }
+    Ok(())
+}
+```
+
+OEM supplies coordinates but not mass, orientation, or inertia; construct a
+`CartesianState` only after supplying those values through
+`SpacecraftProperties`. This is presently CCSDS 502.0-B-3 OEM KVN coordinate
+ingestion only. XML,
+covariance, OPM/OMM/OCM, attitude, and tracking messages remain explicit gaps.
 
 The binding projects are separate workspaces for now.
 

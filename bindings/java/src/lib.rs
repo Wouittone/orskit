@@ -2,20 +2,28 @@
 
 use std::ptr;
 
-use orskit_core::{Epoch, FramedPosition, FramedVelocity, SpacecraftState};
-use orskit_frames::ReferenceFrame;
-use orskit_units::uom::si::mass::kilogram;
-use orskit_units::{Mass, Position, VelocityVector};
+use orskit_core::{
+    CartesianCoordinates, CartesianState, CoordinateSample, Epoch, FramedPosition, FramedVelocity,
+    InertiaTensor, Orientation, SpacecraftProperties,
+};
+use orskit_frames::{CustomFrameId, FrameOrientation, FrameOrigin, ReferenceFrame};
+use orskit_units::uom::si::{
+    mass::kilogram, moment_of_inertia::kilogram_square_meter, ratio::ratio,
+};
+use orskit_units::{Mass, MomentOfInertia, Position, Ratio, VelocityVector};
 
 /// Opaque handle owned by the foreign caller.
 pub struct FFMSpacecraftState {
-    state: SpacecraftState,
+    state: CartesianState,
 }
 
 /// Creates a typed spacecraft state and returns an opaque owned handle.
 ///
 /// Frame codes are: `0 = ICRF`, `1 = GCRF`, `2 = EME2000`, `3 = ITRF2020`,
-/// and `4 = TEME`. A null pointer reports invalid input.
+/// and `4 = TEME`. Orientation uses scalar/x/y/z quaternion order from the
+/// custom body frame into that reference frame. The three inertia inputs are
+/// principal moments in `kg*m^2`, expressed in the custom body frame. A null
+/// pointer reports invalid input.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub extern "C" fn spacecraft_state_new(
@@ -27,6 +35,14 @@ pub extern "C" fn spacecraft_state_new(
     vz_m_s: f64,
     mass_kg: f64,
     epoch_tai_seconds: f64,
+    orientation_w: f64,
+    orientation_x: f64,
+    orientation_y: f64,
+    orientation_z: f64,
+    inertia_xx_kg_m2: f64,
+    inertia_yy_kg_m2: f64,
+    inertia_zz_kg_m2: f64,
+    body_frame_id: u64,
     frame_code: u32,
 ) -> *mut FFMSpacecraftState {
     if !epoch_tai_seconds.is_finite() {
@@ -44,14 +60,37 @@ pub extern "C" fn spacecraft_state_new(
     ) else {
         return ptr::null_mut();
     };
-    let Ok(state) = SpacecraftState::new(
-        Epoch::from_tai_seconds(epoch_tai_seconds),
-        position,
-        velocity,
-        Mass::new::<kilogram>(mass_kg),
+    let body_id = CustomFrameId::new(body_frame_id);
+    let body_frame = ReferenceFrame::new(
+        FrameOrigin::Custom(body_id),
+        FrameOrientation::Custom(body_id),
+    );
+    let Ok(orientation) = Orientation::from_quaternion(
+        body_frame,
+        frame,
+        Ratio::new::<ratio>(orientation_w),
+        Ratio::new::<ratio>(orientation_x),
+        Ratio::new::<ratio>(orientation_y),
+        Ratio::new::<ratio>(orientation_z),
     ) else {
         return ptr::null_mut();
     };
+    let Ok(inertia) = InertiaTensor::principal(
+        body_frame,
+        MomentOfInertia::new::<kilogram_square_meter>(inertia_xx_kg_m2),
+        MomentOfInertia::new::<kilogram_square_meter>(inertia_yy_kg_m2),
+        MomentOfInertia::new::<kilogram_square_meter>(inertia_zz_kg_m2),
+    ) else {
+        return ptr::null_mut();
+    };
+    let Ok(properties) =
+        SpacecraftProperties::new(Mass::new::<kilogram>(mass_kg), orientation, inertia)
+    else {
+        return ptr::null_mut();
+    };
+    let coordinates = CartesianCoordinates::new(position, velocity);
+    let sample = CoordinateSample::new(Epoch::from_tai_seconds(epoch_tai_seconds), coordinates);
+    let state = CartesianState::new(sample, properties);
 
     Box::into_raw(Box::new(FFMSpacecraftState { state }))
 }
@@ -129,12 +168,17 @@ mod tests {
 
     #[test]
     fn ffi_constructor_rejects_invalid_mass() {
-        assert!(spacecraft_state_new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1).is_null());
+        assert!(spacecraft_state_new(
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1, 1,
+        )
+        .is_null());
     }
 
     #[test]
     fn ffi_round_trip_uses_explicit_si_values() {
-        let state = spacecraft_state_new(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 10.0, 0.0, 1);
+        let state = spacecraft_state_new(
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 10.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1, 1,
+        );
         assert!(!state.is_null());
         let mut output = [0.0; 3];
         // SAFETY: `state` is live and `output` contains three writable f64 values.

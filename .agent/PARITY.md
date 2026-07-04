@@ -33,10 +33,10 @@ Orekit parity.
 | Foundations | Units, dimensions, constants, and numerical policies | Partial | Typed/convention-explicit APIs; sourced constants; dimensional tests | `orskit-units`; `uom` compile-fail example; typed constants |
 | Foundations | Time scales, calendars, durations, leap seconds | Partial | Standard vectors; leap-boundary tests; scale round trips | Hifitime 4.3 adopted directly; orskit validation pending |
 | Foundations | Explicit scientific data context and providers | Not assessed | Version/checksum behavior; offline deterministic scenario | None |
-| Geometry | Frames, transforms, Earth orientation | Partial | Transform composition/inverse; independent frame vectors | Typed origin/orientation identities; transforms not implemented |
-| Geometry | Celestial bodies, ephemerides, ellipsoids, geodesy | Not assessed | Standard geodetic vectors; ephemeris comparison | Basic geographic value type only |
-| Orbits | Epoch/frame-qualified Cartesian states | Partial | Invariant-bearing API; units/frame/time tests | Typed `SpacecraftState`; position and velocity carry independent frames; Hifitime epoch and mass are explicit |
-| Orbits | Keplerian, circular, equinoctial, and nonsingular elements | Not assessed | Round trips across regimes; singularity policy | None |
+| Geometry | Frames, transforms, Earth orientation | Partial | Transform composition/inverse; independent frame vectors | Typed origin/orientation identities compose body-backed or barycentric origins; transforms not implemented |
+| Geometry | Celestial bodies, ephemerides, ellipsoids, geodesy | Partial | Standard geodetic vectors; ephemeris comparison | `orskit-bodies` provides classified immutable body identities, validated explicit body-system membership, and custom identities; masses, shapes, rotation, ephemerides, and geodesy remain pending |
+| Orbits | Epoch/frame-qualified Cartesian states | Partial | Invariant-bearing API; units/frame/time tests | Representation-aware `State` contract composes an epoch and native coordinates with explicit mass, orientation, and inertia; `CartesianState` alone exposes position, velocity, and speed |
+| Orbits | Keplerian, circular, equinoctial, and nonsingular elements | Partial | Round trips across regimes; singularity policy | Elliptic osculating `KeplerianState` and `(a, ex, ey, hx, hy, lv)` `EquinoctialState` store only native coordinates; `StateConversion` accepts gravitational parameter only for conversion to Cartesian; analytic circular/polar vectors, representation agreement, and explicit singularity errors; hyperbolic/parabolic and other anomaly types pending |
 | Orbits | Anomalies, Jacobians, interpolation, covariance mapping | Not assessed | Analytic/reference comparisons and round-trip bounds | None |
 | Propagation | Two-body/Keplerian propagation | Not assessed | Analytic orbit scenarios; conservation/error budget | Deferred pending advanced dynamics architecture |
 | Propagation | Numerical integration and dense ephemerides | Not assessed | Integrator order/error tests; independent scenarios | Dependencies selected; no public propagator |
@@ -54,7 +54,7 @@ Orekit parity.
 | Estimation | Parameter drivers and measurement generation | Not assessed | Parameter scaling/selection and simulation scenarios | None |
 | Estimation | Batch least squares and sequential filters | Not assessed | Synthetic recovery, covariance, and independent cases | None |
 | Mission analysis | Visibility, eclipse, occultation, FOV, access | Not assessed | Geometry edge cases and event scenarios | None |
-| I/O | CCSDS orbit, attitude, tracking, and navigation messages | Not assessed | Conformance corpus; lossless semantic round trips | None |
+| I/O | CCSDS orbit, attitude, tracking, and navigation messages | Partial | Conformance corpus; lossless semantic round trips | CCSDS 502.0-B-3 OEM KVN blocking/Tokio event ingestion and ordered Rayon collection into typed Cartesian coordinates; explicit enrichment supplies physical state properties absent from OEM; XML, covariance, other message families, conformance corpus, and writing remain pending |
 | I/O | TLE, SP3, RINEX, gravity, EOP, ephemeris, space weather | Not assessed | Format-specific conformance and malformed-input tests | None |
 | Bindings | Stable public Rust facade | Not assessed | Coherent documented workflow API | Independent scaffold crates only |
 | Bindings | Python package | Partial | Build/import smoke tests; typed API/error parity | PyO3 orbital-state scaffold |
