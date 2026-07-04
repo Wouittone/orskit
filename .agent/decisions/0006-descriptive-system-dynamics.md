@@ -20,20 +20,20 @@ be ordinary implementations rather than the root abstraction.
 ## Decision
 
 1. Add an `orskit-dynamics` crate with a description-only `SystemDynamics`
-   trait. It exposes participant identity and an ordered collection of force
-   models, but no derivative or propagation method.
-2. Define an open `ForceModel` trait whose associated participant type and
-   `ForceInteraction` declare source/target roles. Store plug-ins behind shared
-   immutable trait-object handles.
-3. Keep the participant type associated rather than fixing it to celestial
-   bodies. The initial simplified models use `Body`; future coupled spacecraft
-   or estimation systems may use richer participant identities.
+   trait. It exposes separate ordered collections of conservative and
+   non-conservative force models, but no derivative or propagation method.
+2. Define an open `ForceModel` contract plus `ConservativeForce` and
+   `NonConservativeForce` subtraits. Store plug-ins behind shared immutable
+   trait-object handles.
+3. Make the spacecraft the sole interaction target. A force declares whether
+   it needs spacecraft position, speed, orientation, and inertia through
+   `SpacecraftStateDependencies`; environmental bodies and other parameters are
+   force-model configuration, not interaction participants.
 4. Implement `TwoBodyDynamics` and `ThreeBodyDynamics` as peer implementations
-   of `SystemDynamics`. Each begins with a mutual point-mass gravity
-   description and may compose additional force descriptions in deterministic
-   declaration order.
-5. Validate that simplified-system participants are distinct and that every
-   plugged force source/target belongs to the containing system.
+   of `SystemDynamics`. They describe a spacecraft under one or two point-mass
+   attractors respectively and may compose additional force descriptions in
+   deterministic declaration order within each force class.
+5. Reject a three-body description that repeats its attractor.
 6. Defer force evaluation, state derivatives, epochs, frames, external model
    data, integration, propagation, events, and variational equations. Their
    future contract will consume descriptions rather than being embedded in
@@ -48,15 +48,17 @@ be ordinary implementations rather than the root abstraction.
   rejected because it repeats the architecture removed by ADR-0002.
 - Use a closed force-model enum: rejected because downstream and future
   project force models must remain pluggable.
-- Let force models introduce undeclared participants: rejected because it makes
-  the system boundary impossible to inspect or validate.
+- Model force interactions as arbitrary source/target participant graphs:
+  rejected because the propagated spacecraft is the interaction input; bodies,
+  atmospheres, radiation sources, and other environment belong to force-model
+  configuration and explicit future data providers.
 
 ## Consequences
 
 - Applications can assemble and inspect dynamics topology now without a fake
   solver or placeholder numerical output.
-- Force-model ordering is explicit and stable, ready for a future documented
-  accumulation policy.
+- Conservative/non-conservative classification and ordering are explicit and
+  stable, ready for future conservation checks and accumulation policy.
 - The traits do not yet claim that a described system can be evaluated or
   propagated.
 - A future evaluation API can add typed state/data contracts separately without
@@ -65,9 +67,10 @@ be ordinary implementations rather than the root abstraction.
 ## Validation
 
 Tests exercise both simplified implementations through `SystemDynamics`, plug
-in a custom force model, preserve declaration order, and reject duplicate or
-external bodies. No floating-point validation is claimed because this slice
-does not evaluate equations.
+in conservative and non-conservative models, preserve declaration order,
+restrict interaction dependencies to spacecraft state, and reject duplicate
+attractors. No floating-point validation is claimed because this slice does
+not evaluate equations.
 
 ## Provenance
 

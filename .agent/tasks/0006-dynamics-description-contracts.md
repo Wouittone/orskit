@@ -8,27 +8,29 @@
 
 ## User workflow
 
-Describe the participants in a dynamical system, inspect the ordered force
-models acting between them, plug in additional force-model descriptions, and
-represent simplified two- and three-body systems through the same extensible
-contract. Do not evaluate derivatives or propagate a state yet.
+Describe the conservative and non-conservative forces acting on a spacecraft,
+inspect which spacecraft-state components each force requires, plug in
+additional force descriptions, and represent simplified two- and three-body
+systems through the same extensible contract. Do not evaluate derivatives or
+propagate a state yet.
 
 ## Scientific contract
 
-- Inputs and units: body identities and force source/target relationships only;
-  no numerical physical inputs in this slice.
+- Inputs and units: attracting-body identities and declared access to spacecraft
+  position, speed, orientation, and inertia; no numerical physical inputs in
+  this slice.
 - Outputs and units: immutable model topology; no derivative, acceleration, or
   propagated state output.
 - Frames/epochs/time scales: deliberately deferred to a future evaluation
   contract, where they must be explicit alongside the evaluated state.
-- Conventions and valid regimes: two- and three-body descriptions contain two
-  or three distinct bodies respectively and begin with mutual point-mass
-  gravity topology. This does not select restricted/full equations or a
-  numerical solution method.
+- Conventions and valid regimes: the propagated spacecraft is the implicit
+  interaction target. Two-body dynamics configure one point-mass attractor;
+  three-body dynamics configure two distinct point-mass attractors. This does
+  not select restricted/full equations or a numerical solution method.
 - External data requirements: none. Gravity parameters, ephemerides, frame
   transforms, and other model data are not inferred from body identity.
-- Errors and singularities: duplicate participants and force models that refer
-  to bodies outside the described system are typed construction errors.
+- Errors and singularities: duplicate three-body attractors are a typed
+  construction error.
 
 ## Provenance
 
@@ -44,8 +46,9 @@ scientific model.
 
 - Affected crates/layers: new `orskit-dynamics` domain crate; workspace and
   architecture documentation. Bindings remain unchanged.
-- Public API: `SystemDynamics`, `ForceModel`, `ForceInteraction`,
-  `ForceModelHandle`, `MutualPointMassGravity`, `TwoBodyDynamics`,
+- Public API: `SystemDynamics`, `ForceModel`, `ConservativeForce`,
+  `NonConservativeForce`, their shared handles,
+  `SpacecraftStateDependencies`, `PointMassGravity`, `TwoBodyDynamics`,
   `ThreeBodyDynamics`, and `DynamicsDescriptionError`.
 - Rejected alternatives: derivative evaluation before defining state/data
   contracts; a two-body-specific dynamics trait; an enum closing the force
@@ -55,10 +58,11 @@ scientific model.
 
 ## Validation
 
-- Unit cases: two-/three-body trait implementations, force plug-in order,
-  duplicate bodies, and external force participants.
-- Invariants/properties: every force source/target belongs to the containing
-  simplified system; declared model order is preserved.
+- Unit cases: two-/three-body trait implementations, conservative versus
+  non-conservative plug-in order, spacecraft-state dependencies, and duplicate
+  attractors.
+- Invariants/properties: force interactions expose only spacecraft-state
+  dependencies; declared model order is preserved within each force class.
 - Independent reference vectors: not applicable without numerical evaluation.
 - Differential/scenario tests: not applicable in this descriptive slice.
 - Tolerances and justification: not applicable; no floating-point operations.

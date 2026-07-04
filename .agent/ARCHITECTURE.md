@@ -48,12 +48,14 @@ missing abstraction or an incorrectly placed type.
 
 ### Dynamics and observation
 
-- **Dynamics:** `SystemDynamics` describes participants and an ordered open set
-  of force-model descriptions. Evaluation, coupled state layout, model data,
-  derivatives, and numerical resolution remain separate future contracts.
-- **Forces:** composable interaction descriptions now expose source/target
-  roles; future acceleration and mass-flow evaluators must declare data
-  requirements.
+- **Dynamics:** `SystemDynamics` separates ordered conservative and
+  non-conservative force descriptions acting on a spacecraft. Evaluation,
+  coupled state layout, model data, derivatives, and numerical resolution
+  remain separate future contracts.
+- **Forces:** an interaction declares only its dependency on spacecraft
+  position, speed, orientation, and inertia. Environmental bodies and other
+  parameters belong to force-model configuration and explicit future data
+  providers.
 - **Propagation:** analytical, numerical, semi-analytical, and TLE propagators;
   dense output; ephemerides; variational equations.
 - **Events:** detector functions, direction, root localization, handlers, and
@@ -165,10 +167,11 @@ owns a broader almanac/orbit context than this foundational slice needs. Keep
 the boundary adapter-friendly and revisit both for transform providers rather
 than leaking either API into spacecraft state.
 
-`orskit-dynamics` currently describes participants, force source/target roles,
-and deterministic model composition only. Evaluation and propagation remain
-deferred; their design must cover coupled translational, rotational, mass, and
-variational states, explicit data, events, and integration. Two- and three-body
-descriptions are peer implementations rather than the organizing abstraction.
+`orskit-dynamics` currently describes spacecraft-state dependencies, split
+conservative/non-conservative forces, and deterministic model composition only.
+Evaluation and propagation remain deferred; their design must cover coupled
+translational, rotational, mass, and variational states, explicit data, events,
+and integration. Two- and three-body descriptions are peer implementations
+rather than the organizing abstraction.
 There is no `stations` crate: ground and spacecraft participants belong to the
 measurement topology and estimation workflows.
