@@ -8,11 +8,11 @@
 
 ## User workflow
 
-Describe the conservative and non-conservative forces acting on a spacecraft,
-inspect which spacecraft-state components each force requires, plug in
-additional force descriptions, and represent simplified two- and three-body
-systems through the same extensible contract. Do not evaluate derivatives or
-propagate a state yet.
+Describe the conservative and non-conservative force models acting on a
+spacecraft, inspect which spacecraft-state components each model requires, plug
+in additional force-model descriptions, and represent simplified two- and
+three-body systems through the same extensible contract. Do not evaluate
+derivatives or propagate a state yet.
 
 ## Scientific contract
 
@@ -46,10 +46,10 @@ scientific model.
 
 - Affected crates/layers: new `orskit-dynamics` domain crate; workspace and
   architecture documentation. Bindings remain unchanged.
-- Public API: `SystemDynamics`, `ForceModel`, `ConservativeForce`,
-  `NonConservativeForce`, their shared handles,
-  `SpacecraftStateDependencies`, `PointMassGravity`, `TwoBodyDynamics`,
-  `ThreeBodyDynamics`, and `DynamicsDescriptionError`.
+- Public API as refined by ADR-0008: `Force`, `ForceModel`,
+  `ConservativeForceModel`, `NonConservativeForceModel`, their shared handles,
+  `SpacecraftStateDependencies`, `GravityForce`, `PointMassGravityModel`,
+  `TwoBodyDynamics`, `ThreeBodyDynamics`, and `DynamicsDescriptionError`.
 - Rejected alternatives: derivative evaluation before defining state/data
   contracts; a two-body-specific dynamics trait; an enum closing the force
   model set; implicit bodies referenced only by force models; placeholder

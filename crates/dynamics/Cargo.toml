@@ -8,5 +8,8 @@ repository.workspace = true
 description = "Composable system-dynamics and force-model descriptions for orskit"
 
 [dependencies]
+hifitime.workspace = true
 orskit-bodies = { path = "../bodies" }
+orskit-core = { path = "../core" }
+orskit-units = { path = "../units" }
 thiserror.workspace = true

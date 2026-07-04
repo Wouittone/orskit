@@ -621,7 +621,10 @@ dependencies = [
 name = "orskit-dynamics"
 version = "0.1.0"
 dependencies = [
+ "hifitime",
  "orskit-bodies",
+ "orskit-core",
+ "orskit-units",
  "thiserror",
 ]
 

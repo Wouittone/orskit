@@ -1,6 +1,6 @@
 # ADR-0006: separate dynamics description from evaluation and resolution
 
-- Status: Accepted
+- Status: Accepted; refined by ADR-0008 and evaluation deferral superseded in part by ADR-0007
 - Date: 2026-07-04
 - Owners: orskit maintainers
 - Affected parity rows: dynamics composition; propagation; force models
@@ -22,22 +22,23 @@ be ordinary implementations rather than the root abstraction.
 1. Add an `orskit-dynamics` crate with a description-only `SystemDynamics`
    trait. It exposes separate ordered collections of conservative and
    non-conservative force models, but no derivative or propagation method.
-2. Define an open `ForceModel` contract plus `ConservativeForce` and
-   `NonConservativeForce` subtraits. Store plug-ins behind shared immutable
-   trait-object handles.
+2. Define an open `ForceModel` contract and conservative/non-conservative model
+   subtraits. Store plug-ins behind shared immutable trait-object handles.
+   ADR-0008 subsequently separates physical `Force` identity from these model
+   implementations and gives the model subtraits explicit `ForceModel` names.
 3. Make the spacecraft the sole interaction target. A force declares whether
    it needs spacecraft position, speed, orientation, and inertia through
    `SpacecraftStateDependencies`; environmental bodies and other parameters are
    force-model configuration, not interaction participants.
 4. Implement `TwoBodyDynamics` and `ThreeBodyDynamics` as peer implementations
    of `SystemDynamics`. They describe a spacecraft under one or two point-mass
-   attractors respectively and may compose additional force descriptions in
-   deterministic declaration order within each force class.
+   attractors respectively and may compose additional force-model descriptions
+   in deterministic declaration order within each force class.
 5. Reject a three-body description that repeats its attractor.
-6. Defer force evaluation, state derivatives, epochs, frames, external model
-   data, integration, propagation, events, and variational equations. Their
-   future contract will consume descriptions rather than being embedded in
-   them.
+6. Defer general force evaluation, state derivatives, external model data,
+   integration, events, and variational equations. ADR-0007 subsequently adds
+   a narrow analytical elliptic two-body evaluator that consumes this
+   description without defining the general resolution contract.
 
 ## Alternatives considered
 

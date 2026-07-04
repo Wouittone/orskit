@@ -38,9 +38,10 @@ inertial frames across representative epochs and orbit regimes.
 - Extend the initial description-only system/force-model contracts into
   composable translational, rotational, mass, multi-body, and variational
   evaluation contracts before selecting a resolver.
-- Add force-model composition covering central and harmonic gravity,
-  third-body effects, drag, radiation pressure, relativity, tides, and
-  maneuvers. Two-body motion is a validation case, not the architecture.
+- Add force-model composition covering gravity models (point mass, harmonics,
+  third bodies, relativity, and tides), aerodynamic models, radiation-pressure
+  models, and maneuvers. Two-body motion is a validation case, not the
+  architecture.
 - Add numerical integrator abstraction, dense output, ephemeris generation,
   event detection, and deterministic simultaneous-event handling.
 - Add spacecraft mass and initial maneuver support.
@@ -53,7 +54,8 @@ data, bounded errors, events, and benchmark baselines.
 
 - Implement TLE parsing and independently validated SGP4 behavior.
 - Add selected analytical and semi-analytical families based on user demand.
-- Add attitude state, providers, interpolation, and attitude-dependent forces.
+- Add attitude state, providers, interpolation, and attitude-dependent force
+  models.
 - Add variational equations, state-transition matrices, and covariance
   propagation.
 
