@@ -13,11 +13,12 @@ project-owned code. That code is intended to remain available under either the
 MIT or Apache-2.0 license.
 
 > **Status: pre-alpha.** The repository currently contains an early workspace
-> scaffold with typed units, celestial-body and frame identities, trait-based Cartesian,
-> Keplerian, and equinoctial spacecraft states,
-> streaming CCSDS OEM KVN ingestion, a minimal range measurement, and
-> experimental binding adapters. Dynamics, complete CCSDS coverage, and complete
-> measurement-participant modeling are intentionally not designed yet. It is
+> scaffold with typed units, celestial-body and frame identities, trait-based
+> Cartesian, Keplerian, and equinoctial spacecraft states,
+> streaming CCSDS OEM KVN ingestion, description-only composable dynamics, a
+> minimal range measurement, and experimental binding adapters. Dynamics
+> evaluation/propagation, complete CCSDS coverage, and complete
+> measurement-participant modeling are intentionally not implemented yet. It is
 > not suitable for scientific or operational use and does not have Orekit
 > parity.
 
@@ -55,6 +56,7 @@ roadmap. Start with [`.agent/README.md`](.agent/README.md).
 | `crates/bodies` | Planet, moon, dwarf-planet, custom-body, and explicit body-system identities |
 | `crates/frames` | Reference-frame identities with body-backed and barycentric origins |
 | `crates/core` | Common `State` contract plus Cartesian, elliptic Keplerian/equinoctial representations and rigid-body properties |
+| `crates/dynamics` | Description-only system/force-model composition with simplified two- and three-body implementations |
 | `crates/ccsds` | Blocking/Tokio streaming and Rayon collection for CCSDS OEM KVN coordinates |
 | `crates/measurements` | Typed measurement values; future home of ground and spacecraft participant models |
 | `crates/utils` | Typed sourced constants; package boundary remains transitional |

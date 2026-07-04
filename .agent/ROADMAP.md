@@ -35,8 +35,9 @@ inertial frames across representative epochs and orbit regimes.
 
 ## Milestone 2 — advanced dynamics and propagation architecture
 
-- Design composable translational, rotational, mass, multi-body, and
-  variational dynamics before choosing crate or trait boundaries.
+- Extend the initial description-only system/force-model contracts into
+  composable translational, rotational, mass, multi-body, and variational
+  evaluation contracts before selecting a resolver.
 - Add force-model composition covering central and harmonic gravity,
   third-body effects, drag, radiation pressure, relativity, tides, and
   maneuvers. Two-body motion is a validation case, not the architecture.
