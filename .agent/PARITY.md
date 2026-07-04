@@ -38,7 +38,7 @@ Orekit parity.
 | Orbits | Epoch/frame-qualified Cartesian states | Partial | Invariant-bearing API; units/frame/time tests | Typed `SpacecraftState`; position and velocity carry independent frames; Hifitime epoch and mass are explicit |
 | Orbits | Keplerian, circular, equinoctial, and nonsingular elements | Not assessed | Round trips across regimes; singularity policy | None |
 | Orbits | Anomalies, Jacobians, interpolation, covariance mapping | Not assessed | Analytic/reference comparisons and round-trip bounds | None |
-| Propagation | Two-body/Keplerian propagation | Partial | Analytic orbit scenarios; conservation/error budget | Two-body derivative scaffold only |
+| Propagation | Two-body/Keplerian propagation | Not assessed | Analytic orbit scenarios; conservation/error budget | Deferred pending advanced dynamics architecture |
 | Propagation | Numerical integration and dense ephemerides | Not assessed | Integrator order/error tests; independent scenarios | Dependencies selected; no public propagator |
 | Propagation | Gravity fields and solid/ocean tides | Not assessed | Published vectors; degree/order and convention tests | None |
 | Propagation | Third-body, drag, atmosphere, radiation, relativity | Not assessed | Model-specific vectors and combined scenario | None |
@@ -48,7 +48,7 @@ Orekit parity.
 | Propagation | Semi-analytical propagation | Not assessed | Long-arc reference scenarios with error budgets | None |
 | Propagation | Variational equations, STM, and covariance propagation | Not assessed | Finite-difference/analytic sensitivities | None |
 | Attitude | Rotations, angular states, and attitude providers | Partial | Composition, interpolation, and reference scenarios | Validated orientation with explicit source/target frames and inertia with its own expression frame |
-| Observation | Ground stations, displacement, clocks, weather | Partial | Frame/time-aware station scenarios | Typed, range-validated geodetic location only |
+| Observation | Ground participants, displacement, clocks, weather | Not assessed | Frame/time-aware ground-observer scenarios | Ownership assigned to `measurements`; participant API not designed |
 | Observation | Range, range-rate, angles, Doppler, GNSS, inter-satellite | Partial | Per-type reference vectors and participant timing | Typed range measurement only |
 | Observation | Measurement modifiers and corrections | Not assessed | Model-specific correction vectors | None |
 | Estimation | Parameter drivers and measurement generation | Not assessed | Parameter scaling/selection and simulation scenarios | None |

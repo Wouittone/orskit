@@ -63,7 +63,7 @@ maintain, so existing crates were evaluated before choosing project boundaries.
 - Compile-fail documentation proves incompatible quantities cannot be added.
 - Unit tests cover vector dimensions, frame parsing, state invariants,
   quaternion normalization, inertia positive definiteness and principal-moment
-  triangle inequalities, and typed two-body derivatives.
+  triangle inequalities.
 - Rust, Python, and C-ABI/JVM workspaces compile from the same domain state.
 
 ## Provenance

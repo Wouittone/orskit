@@ -13,10 +13,11 @@ project-owned code. That code is intended to remain available under either the
 MIT or Apache-2.0 license.
 
 > **Status: pre-alpha.** The repository currently contains an early workspace
-> scaffold and a first typed spacecraft-state, frame identity, two-body
-> dynamics, station, measurement, Python, and native JVM-FFM slice. It is not
-> yet suitable for scientific or operational use, and it does not currently
-> have Orekit parity.
+> scaffold with typed units, frame identities, spacecraft state, a minimal
+> range measurement, and experimental binding adapters. Dynamics and complete
+> measurement-participant modeling are intentionally not designed yet. It is
+> not suitable for scientific or operational use and does not have Orekit
+> parity.
 
 Rust core correctness is the current priority. Python and JVM bindings are
 planned, but feature work on them is deferred until the core contracts settle.
@@ -51,9 +52,7 @@ roadmap. Start with [`.agent/README.md`](.agent/README.md).
 | `crates/units` | `uom`-backed physical quantities and typed Cartesian vectors |
 | `crates/frames` | Reference-frame origin/orientation identities |
 | `crates/core` | Independently framed position, velocity, orientation, and inertia values in a spacecraft state |
-| `crates/orbit` | Typed two-body dynamics scaffold |
-| `crates/stations` | Typed, validated geographic-location scaffold |
-| `crates/measurements` | Typed range-measurement scaffold |
+| `crates/measurements` | Typed measurement values; future home of ground and spacecraft participant models |
 | `crates/utils` | Typed sourced constants; package boundary remains transitional |
 | `bindings/python` | Experimental PyO3 binding workspace |
 | `bindings/java` | Experimental native C ABI and Java FFM build workspace |

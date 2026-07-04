@@ -55,7 +55,9 @@ missing abstraction or an incorrectly placed type.
 - **Attitude:** rotations, angular derivatives, attitude providers, and
   spacecraft geometry.
 - **Measurements:** typed observations, participants, timing, modifiers,
-  uncertainties, and station models.
+  uncertainties, ground assets, spacecraft links, and correction models. A
+  ground observer is a measurement participant, not a separate top-level
+  domain or crate.
 - **Estimation:** parameters, residuals, least squares, filters, covariance,
   and state-transition/sensitivity machinery.
 
@@ -129,8 +131,8 @@ There is no ambient mutable "current data context."
 
 ## Crate evolution
 
-The current `core`, `orbit`, `stations`, `measurements`, and `utils` crates are
-an initial scaffold. Generic names such as `core` and `utils` are transitional.
+The current `core`, `frames`, `measurements`, `units`, and `utils` crates are an
+initial scaffold. Generic names such as `core` and `utils` are transitional.
 New boundaries should use namespaced package names such as `orskit-time` and
 `orskit-frames`. Split crates only when the domain boundary and dependency
 direction are clear; do not create one crate per noun pre-emptively.
@@ -145,3 +147,9 @@ The initial split now includes `orskit-units` for typed quantities and
 still alpha; ANISE is mature but owns a broader almanac/orbit context than this
 foundational slice needs. Keep the boundary adapter-friendly and revisit both
 for transform providers rather than leaking either API into spacecraft state.
+
+There is deliberately no dynamics/propagation crate yet. Its design must cover
+composable multi-body and coupled dynamics, force models, events, integration,
+and variational equations; a two-body example must not become the organizing
+abstraction. Likewise there is no `stations` crate: ground and spacecraft
+participants belong to the measurement topology and estimation workflows.

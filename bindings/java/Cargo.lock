@@ -357,33 +357,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "ode_solvers"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18501982e08afc982434c92e1a2968d3b696b368c6df40a210475ba447fba8d9"
-dependencies = [
- "nalgebra",
- "num-traits",
- "serde",
- "simba",
- "thiserror",
-]
-
-[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
-
-[[package]]
-name = "orbit"
-version = "0.1.0"
-dependencies = [
- "ode_solvers",
- "orskit-core",
- "orskit-units",
- "thiserror",
-]
 
 [[package]]
 name = "orskit-core"
@@ -408,11 +385,9 @@ name = "orskit-jni"
 version = "0.1.0"
 dependencies = [
  "measurements",
- "orbit",
  "orskit-core",
  "orskit-frames",
  "orskit-units",
- "stations",
  "utils",
 ]
 
@@ -482,7 +457,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
- "serde_derive",
 ]
 
 [[package]]
@@ -543,14 +517,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "stations"
-version = "0.1.0"
-dependencies = [
- "orskit-units",
- "thiserror",
 ]
 
 [[package]]

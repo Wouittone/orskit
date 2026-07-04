@@ -14,7 +14,8 @@ works.
   advisories, MSRV, and native binding smoke tests.
 - Define units, time/frame association, error, tolerance, data-context, and
   serialization policies.
-- Publish a minimal end-to-end two-body scenario with traceable validation.
+- Publish a minimal frame- and unit-safe spacecraft-state workflow with
+  traceable validation, without pre-empting the dynamics architecture.
 
 **Exit gate:** a new contributor can reproduce checks offline, trace every
 reference, and run one scientifically meaningful scenario without ambiguous
@@ -32,13 +33,15 @@ units, frame, or epoch.
 **Exit gate:** independently validated state conversion between terrestrial and
 inertial frames across representative epochs and orbit regimes.
 
-## Milestone 2 — propagation kernel
+## Milestone 2 — advanced dynamics and propagation architecture
 
-- Complete Keplerian propagation and event detection.
-- Add a numerical integrator abstraction, dense output, ephemeris generation,
-  and deterministic event handling.
-- Add force-model composition, beginning with central, harmonics, third-body,
-  drag, radiation pressure, and relativistic corrections.
+- Design composable translational, rotational, mass, multi-body, and
+  variational dynamics before choosing crate or trait boundaries.
+- Add force-model composition covering central and harmonic gravity,
+  third-body effects, drag, radiation pressure, relativity, tides, and
+  maneuvers. Two-body motion is a validation case, not the architecture.
+- Add numerical integrator abstraction, dense output, ephemeris generation,
+  event detection, and deterministic simultaneous-event handling.
 - Add spacecraft mass and initial maneuver support.
 - Establish accuracy-plus-performance benchmark scenarios.
 
@@ -59,7 +62,11 @@ outputs across documented regimes.
 ## Milestone 4 — observations and estimation
 
 - Replace placeholder measurements with typed participant/time-aware models.
-- Add stations, clocks, environmental corrections, and major measurement types.
+- Model ordered participant paths that support ground–spacecraft,
+  spacecraft–spacecraft, and multi-leg observations without a separate station
+  subsystem or an Orekit-shaped station API.
+- Add ground geometry, participant clocks, environmental corrections, and
+  major measurement types inside the measurement domain.
 - Add measurement generation, parameter selection/scaling, batch least squares,
   and sequential filters.
 - Validate with synthetic recovery and independently sourced scenarios.

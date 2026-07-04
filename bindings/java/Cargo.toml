@@ -17,7 +17,5 @@ crate-type = ["cdylib"]
 orskit-core = { path = "../../crates/core" }
 orskit-frames = { path = "../../crates/frames" }
 orskit-units = { path = "../../crates/units" }
-orbit = { path = "../../crates/orbit" }
-stations = { path = "../../crates/stations" }
 measurements = { path = "../../crates/measurements" }
 utils = { path = "../../crates/utils" }

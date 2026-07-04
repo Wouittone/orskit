@@ -55,8 +55,8 @@ The exact baseline version and capability inventory must be pinned in
   models;
 - event detection, attitudes, interpolation, covariance, and state-transition
   support;
-- ground stations, measurements, modifiers, orbit determination, and
-  filtering;
+- participant-centric ground–spacecraft and spacecraft–spacecraft
+  measurements, modifiers, orbit determination, and filtering;
 - mission geometry, visibility, conjunction-supporting primitives, and
   ephemeris generation;
 - common CCSDS and operational astrodynamics data formats; and
