@@ -79,6 +79,56 @@ pub struct FramedAcceleration {
     frame: ReferenceFrame,
 }
 
+/// Cartesian translational coordinates.
+///
+/// Each component retains its own frame. The coordinate fields of formats such
+/// as CCSDS OEM map to this type; their epoch is attached separately with
+/// [`crate::CoordinateSample`] because those formats do not provide all
+/// physical properties required by a complete [`crate::State`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CartesianCoordinates {
+    position: FramedPosition,
+    velocity: FramedVelocity,
+    acceleration: Option<FramedAcceleration>,
+}
+
+impl CartesianCoordinates {
+    /// Constructs Cartesian position/velocity coordinates.
+    #[must_use]
+    pub const fn new(position: FramedPosition, velocity: FramedVelocity) -> Self {
+        Self {
+            position,
+            velocity,
+            acceleration: None,
+        }
+    }
+
+    /// Adds or replaces the optional acceleration.
+    #[must_use]
+    pub const fn with_acceleration(mut self, acceleration: FramedAcceleration) -> Self {
+        self.acceleration = Some(acceleration);
+        self
+    }
+
+    /// Returns the framed position.
+    #[must_use]
+    pub const fn position(self) -> FramedPosition {
+        self.position
+    }
+
+    /// Returns the framed velocity.
+    #[must_use]
+    pub const fn velocity(self) -> FramedVelocity {
+        self.velocity
+    }
+
+    /// Returns the optional framed acceleration.
+    #[must_use]
+    pub const fn acceleration(self) -> Option<FramedAcceleration> {
+        self.acceleration
+    }
+}
+
 impl FramedAcceleration {
     /// Attaches a frame to a finite acceleration vector.
     pub fn new(value: AccelerationVector, frame: ReferenceFrame) -> Result<Self, KinematicError> {
@@ -134,5 +184,23 @@ mod tests {
 
         assert_ne!(gcrf, eme2000);
         assert_eq!(gcrf.frame(), ReferenceFrame::GCRF);
+    }
+
+    #[test]
+    fn cartesian_coordinates_do_not_invent_spacecraft_properties() {
+        let position = FramedPosition::new(
+            Position::from_metres(7_000_000.0, 0.0, 0.0),
+            ReferenceFrame::GCRF,
+        )
+        .expect("finite position");
+        let velocity = FramedVelocity::new(
+            VelocityVector::from_metres_per_second(0.0, 7_500.0, 0.0),
+            ReferenceFrame::GCRF,
+        )
+        .expect("finite velocity");
+        let state = CartesianCoordinates::new(position, velocity);
+
+        assert_eq!(state.position().frame(), ReferenceFrame::GCRF);
+        assert!(state.acceleration().is_none());
     }
 }

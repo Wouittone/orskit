@@ -1,40 +1,31 @@
-use hifitime::Epoch;
 use nalgebra::{Matrix3, Quaternion, UnitQuaternion};
 use orskit_frames::ReferenceFrame;
 use orskit_units::uom::si::{
     mass::kilogram, moment_of_inertia::kilogram_square_meter, ratio::ratio,
 };
-use orskit_units::{Mass, MomentOfInertia, Ratio, Velocity};
+use orskit_units::{Mass, MomentOfInertia, Ratio};
 use thiserror::Error;
 
-use crate::{FramedPosition, FramedVelocity};
+use crate::StateError;
 
-/// Complete spacecraft state at one epoch.
+/// Representation-independent physical properties of a spacecraft.
 ///
-/// Position and velocity each carry their own reference frame; they are not
-/// required to use the same one. Optional orientation and inertia values also
-/// carry the frames needed to interpret them.
+/// These values are required by every complete [`crate::State`]. Their frame
+/// identities remain explicit and are not inferred from the orbit
+/// representation.
 #[derive(Debug, Clone, PartialEq)]
-pub struct SpacecraftState {
-    epoch: Epoch,
-    position: FramedPosition,
-    velocity: FramedVelocity,
+pub struct SpacecraftProperties {
     mass: Mass,
-    orientation: Option<Orientation>,
-    inertia: Option<InertiaTensor>,
+    orientation: Orientation,
+    inertia: InertiaTensor,
 }
 
-impl SpacecraftState {
-    /// Constructs a translational spacecraft state.
-    ///
-    /// Orientation and inertia are absent until added with
-    /// [`Self::with_orientation`] and [`Self::with_inertia`]. Position and
-    /// velocity may be expressed in different frames.
+impl SpacecraftProperties {
+    /// Constructs the physical properties shared by every state representation.
     pub fn new(
-        epoch: Epoch,
-        position: FramedPosition,
-        velocity: FramedVelocity,
         mass: Mass,
+        orientation: Orientation,
+        inertia: InertiaTensor,
     ) -> Result<Self, StateError> {
         let mass_kg = mass.get::<kilogram>();
         if !mass_kg.is_finite() {
@@ -45,51 +36,10 @@ impl SpacecraftState {
         }
 
         Ok(Self {
-            epoch,
-            position,
-            velocity,
             mass,
-            orientation: None,
-            inertia: None,
+            orientation,
+            inertia,
         })
-    }
-
-    /// Adds or replaces the orientation.
-    #[must_use]
-    pub fn with_orientation(mut self, orientation: Orientation) -> Self {
-        self.orientation = Some(orientation);
-        self
-    }
-
-    /// Adds or replaces the framed inertia tensor.
-    #[must_use]
-    pub fn with_inertia(mut self, inertia: InertiaTensor) -> Self {
-        self.inertia = Some(inertia);
-        self
-    }
-
-    /// Returns the epoch shared by all state values.
-    #[must_use]
-    pub const fn epoch(&self) -> Epoch {
-        self.epoch
-    }
-
-    /// Returns the framed position.
-    #[must_use]
-    pub const fn position(&self) -> FramedPosition {
-        self.position
-    }
-
-    /// Returns the independently framed velocity.
-    #[must_use]
-    pub const fn velocity(&self) -> FramedVelocity {
-        self.velocity
-    }
-
-    /// Returns the scalar speed.
-    #[must_use]
-    pub fn speed(&self) -> Velocity {
-        self.velocity.speed()
     }
 
     /// Returns the spacecraft mass.
@@ -98,16 +48,16 @@ impl SpacecraftState {
         self.mass
     }
 
-    /// Returns the optional framed orientation.
+    /// Returns the explicit spacecraft orientation.
     #[must_use]
-    pub const fn orientation(&self) -> Option<&Orientation> {
-        self.orientation.as_ref()
+    pub const fn orientation(&self) -> &Orientation {
+        &self.orientation
     }
 
-    /// Returns the optional framed inertia tensor.
+    /// Returns the explicit framed inertia tensor.
     #[must_use]
-    pub const fn inertia(&self) -> Option<&InertiaTensor> {
-        self.inertia.as_ref()
+    pub const fn inertia(&self) -> InertiaTensor {
+        self.inertia
     }
 }
 
@@ -286,17 +236,6 @@ impl InertiaTensor {
     }
 }
 
-/// Invalid spacecraft state input.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-pub enum StateError {
-    /// Mass is NaN or infinite.
-    #[error("mass must be finite")]
-    NonFiniteMass,
-    /// Mass is zero or negative.
-    #[error("mass must be strictly positive")]
-    NotPositiveMass,
-}
-
 /// Invalid orientation input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum OrientationError {
@@ -326,69 +265,14 @@ pub enum InertiaError {
 mod tests {
     use super::*;
     use orskit_frames::{CustomFrameId, FrameOrientation, FrameOrigin};
-    use orskit_units::uom::si::{
-        length::kilometer, mass::kilogram, velocity::kilometer_per_second,
-    };
-    use orskit_units::{Length, Position, Velocity, VelocityVector};
+    use orskit_units::uom::si::mass::kilogram;
 
     fn body_frame() -> ReferenceFrame {
         let id = CustomFrameId::new(1);
         ReferenceFrame::new(FrameOrigin::Custom(id), FrameOrientation::Custom(id))
     }
 
-    fn position(frame: ReferenceFrame) -> FramedPosition {
-        FramedPosition::new(
-            Position::new(
-                Length::new::<kilometer>(7_000.0),
-                Length::new::<kilometer>(0.0),
-                Length::new::<kilometer>(0.0),
-            ),
-            frame,
-        )
-        .expect("fixture position is finite")
-    }
-
-    fn velocity(frame: ReferenceFrame) -> FramedVelocity {
-        FramedVelocity::new(
-            VelocityVector::new(
-                Velocity::new::<kilometer_per_second>(0.0),
-                Velocity::new::<kilometer_per_second>(7.5),
-                Velocity::new::<kilometer_per_second>(0.0),
-            ),
-            frame,
-        )
-        .expect("fixture velocity is finite")
-    }
-
-    fn translational_state() -> SpacecraftState {
-        SpacecraftState::new(
-            Epoch::from_tai_seconds(0.0),
-            position(ReferenceFrame::GCRF),
-            velocity(ReferenceFrame::GCRF),
-            Mass::new::<kilogram>(1_000.0),
-        )
-        .expect("fixture is physically valid")
-    }
-
-    #[test]
-    fn spacecraft_state_keeps_independent_kinematic_frames() {
-        let state = SpacecraftState::new(
-            Epoch::from_tai_seconds(0.0),
-            position(ReferenceFrame::GCRF),
-            velocity(ReferenceFrame::EME2000),
-            Mass::new::<kilogram>(1_000.0),
-        )
-        .expect("different kinematic frames are valid state data");
-
-        assert_eq!(state.position().frame(), ReferenceFrame::GCRF);
-        assert_eq!(state.velocity().frame(), ReferenceFrame::EME2000);
-        assert_eq!(state.epoch(), Epoch::from_tai_seconds(0.0));
-        assert_eq!(state.mass(), Mass::new::<kilogram>(1_000.0));
-        assert_eq!(state.speed(), Velocity::new::<kilometer_per_second>(7.5));
-    }
-
-    #[test]
-    fn optional_rigid_body_state_keeps_its_own_frames() {
+    fn physical_parts() -> (Orientation, InertiaTensor) {
         let body = body_frame();
         let inertia = InertiaTensor::principal(
             body,
@@ -398,27 +282,21 @@ mod tests {
         )
         .expect("principal moments are physical");
         let orientation = Orientation::identity(body, ReferenceFrame::ITRF2020);
-        let state = translational_state()
-            .with_orientation(orientation)
-            .with_inertia(inertia);
-
-        assert_eq!(state.orientation().map(Orientation::from_frame), Some(body));
-        assert_eq!(
-            state.orientation().map(Orientation::to_frame),
-            Some(ReferenceFrame::ITRF2020)
-        );
-        assert_eq!(state.inertia().map(|value| value.frame()), Some(body));
+        (orientation, inertia)
     }
 
     #[test]
-    fn invalid_mass_is_rejected() {
-        let error = SpacecraftState::new(
-            Epoch::from_tai_seconds(0.0),
-            position(ReferenceFrame::GCRF),
-            velocity(ReferenceFrame::GCRF),
-            Mass::new::<kilogram>(0.0),
-        )
-        .expect_err("zero mass is invalid");
+    fn spacecraft_properties_require_positive_mass_and_explicit_rigid_body_data() {
+        let (orientation, inertia) = physical_parts();
+        let properties =
+            SpacecraftProperties::new(Mass::new::<kilogram>(1_000.0), orientation.clone(), inertia)
+                .expect("fixture properties are physical");
+        assert_eq!(properties.mass(), Mass::new::<kilogram>(1_000.0));
+        assert_eq!(properties.orientation(), &orientation);
+        assert_eq!(properties.inertia(), inertia);
+
+        let error = SpacecraftProperties::new(Mass::new::<kilogram>(0.0), orientation, inertia)
+            .expect_err("zero mass is invalid");
         assert_eq!(error, StateError::NotPositiveMass);
     }
 

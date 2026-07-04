@@ -1,15 +1,20 @@
 //! Experimental Python bindings for typed orskit spacecraft states.
 
-use orskit_core::{Epoch, FramedPosition, FramedVelocity, SpacecraftState};
-use orskit_frames::ReferenceFrame;
-use orskit_units::uom::si::mass::kilogram;
-use orskit_units::{Mass, Position, VelocityVector};
+use orskit_core::{
+    CartesianCoordinates, CartesianState, CoordinateSample, Epoch, FramedPosition, FramedVelocity,
+    InertiaTensor, Orientation, SpacecraftProperties, State,
+};
+use orskit_frames::{CustomFrameId, FrameOrientation, FrameOrigin, ReferenceFrame};
+use orskit_units::uom::si::{
+    mass::kilogram, moment_of_inertia::kilogram_square_meter, ratio::ratio,
+};
+use orskit_units::{Mass, MomentOfInertia, Position, Ratio, VelocityVector};
 use pyo3::{exceptions::PyValueError, prelude::*};
 
 /// Python-facing spacecraft state.
 #[pyclass(name = "SpacecraftState")]
 pub struct SpacecraftStateWrapper {
-    state: SpacecraftState,
+    state: CartesianState,
 }
 
 #[pymethods]
@@ -24,6 +29,9 @@ impl SpacecraftStateWrapper {
         vz_m_s,
         mass_kg,
         epoch_tai_seconds,
+        orientation_wxyz,
+        principal_inertia_kg_m2,
+        body_frame_id,
         frame = "GCRF"
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -36,6 +44,9 @@ impl SpacecraftStateWrapper {
         vz_m_s: f64,
         mass_kg: f64,
         epoch_tai_seconds: f64,
+        orientation_wxyz: (f64, f64, f64, f64),
+        principal_inertia_kg_m2: (f64, f64, f64),
+        body_frame_id: u64,
         frame: &str,
     ) -> PyResult<Self> {
         if !epoch_tai_seconds.is_finite() {
@@ -51,13 +62,33 @@ impl SpacecraftStateWrapper {
             frame,
         )
         .map_err(|error| PyValueError::new_err(error.to_string()))?;
-        let state = SpacecraftState::new(
-            Epoch::from_tai_seconds(epoch_tai_seconds),
-            position,
-            velocity,
-            Mass::new::<kilogram>(mass_kg),
+        let body_id = CustomFrameId::new(body_frame_id);
+        let body_frame = ReferenceFrame::new(
+            FrameOrigin::Custom(body_id),
+            FrameOrientation::Custom(body_id),
+        );
+        let orientation = Orientation::from_quaternion(
+            body_frame,
+            frame,
+            Ratio::new::<ratio>(orientation_wxyz.0),
+            Ratio::new::<ratio>(orientation_wxyz.1),
+            Ratio::new::<ratio>(orientation_wxyz.2),
+            Ratio::new::<ratio>(orientation_wxyz.3),
         )
         .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let inertia = InertiaTensor::principal(
+            body_frame,
+            MomentOfInertia::new::<kilogram_square_meter>(principal_inertia_kg_m2.0),
+            MomentOfInertia::new::<kilogram_square_meter>(principal_inertia_kg_m2.1),
+            MomentOfInertia::new::<kilogram_square_meter>(principal_inertia_kg_m2.2),
+        )
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let properties =
+            SpacecraftProperties::new(Mass::new::<kilogram>(mass_kg), orientation, inertia)
+                .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let coordinates = CartesianCoordinates::new(position, velocity);
+        let sample = CoordinateSample::new(Epoch::from_tai_seconds(epoch_tai_seconds), coordinates);
+        let state = CartesianState::new(sample, properties);
         Ok(Self { state })
     }
 

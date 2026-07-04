@@ -1,6 +1,7 @@
 # ADR-0001: foundational time, units, frames, and state types
 
-- Status: Accepted
+- Status: Accepted; frame-origin ownership and state composition superseded in
+  part by ADR-0005 and ADR-0004 respectively
 - Date: 2026-07-04
 - Owners: orskit maintainers
 - Affected parity rows: foundations/time/units, geometry/frames,
@@ -22,12 +23,13 @@ maintain, so existing crates were evaluated before choosing project boundaries.
    dimensional quantities. orskit-owned semantic vector and state types compose
    these quantities.
 3. Own the small frame identity contract in `orskit-frames`: a frame is an
-   origin plus an orientation. Keep future transform calculation behind
-   adapter-friendly provider contracts.
+   origin plus an orientation. ADR-0005 subsequently moved celestial-body and
+   body-system identity into `orskit-bodies`, which frame origins compose. Keep
+   future transform calculation behind adapter-friendly provider contracts.
 4. Define spacecraft state as an epoch, independently framed position and
-   velocity, and positive mass. Optional orientation carries explicit source
-   and target frames; optional positive-definite, rigid-body-realizable inertia
-   carries its own expression frame. A state never implies these frames match.
+   velocity, and positive mass. This initial composition was superseded by
+   ADR-0004, which requires orientation and inertia in every complete `State`
+   and separates incomplete Cartesian coordinates from complete states.
 5. Permit raw scalars only at explicitly unit-named numerical, serialization,
    parsing, and FFI boundaries.
 

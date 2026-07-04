@@ -1,12 +1,11 @@
 [package]
-name = "orskit-frames"
+name = "orskit-bodies"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Reference-frame identities and contracts for orskit"
+description = "Celestial-body and body-system identities for orskit"
 
 [dependencies]
-orskit-bodies = { path = "../bodies" }
 thiserror.workspace = true

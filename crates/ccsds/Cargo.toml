@@ -1,0 +1,29 @@
+[package]
+name = "orskit-ccsds"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Streaming CCSDS navigation-message ingestion for orskit"
+
+[features]
+default = ["async", "parallel"]
+async = ["dep:tokio"]
+parallel = ["dep:rayon"]
+
+[dependencies]
+orskit-core = { path = "../core" }
+orskit-frames = { path = "../frames" }
+orskit-units = { path = "../units" }
+rayon = { workspace = true, optional = true }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util"], optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+tokio = { workspace = true, features = ["io-util", "macros", "rt"] }
+
+[[bench]]
+name = "oem"
+harness = false

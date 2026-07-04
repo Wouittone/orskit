@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    "crates/bodies",
+    "crates/ccsds",
     "crates/core",
     "crates/frames",
     "crates/measurements",
@@ -18,5 +20,7 @@ repository = "https://github.com/Wouittone/orskit"
 [workspace.dependencies]
 hifitime = "4.3"
 nalgebra = "0.34"
+rayon = "1.12"
 thiserror = "2"
+tokio = "1.52"
 uom = { version = "0.38", default-features = false, features = ["autoconvert", "f64", "si", "std"] }
