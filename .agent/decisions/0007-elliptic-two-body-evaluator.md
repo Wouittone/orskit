@@ -1,6 +1,6 @@
 # ADR-0007: begin dynamics evaluation with explicit elliptic two-body propagation
 
-- Status: Accepted; generalized by ADR-0009 and recomposed by ADR-0011
+- Status: Accepted; generalized by ADR-0009 and recomposed by ADR-0011 and ADR-0013
 - Date: 2026-07-04
 - Owners: orskit maintainers
 - Affected parity rows: two-body propagation; dynamics composition; orbits

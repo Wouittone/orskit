@@ -355,6 +355,36 @@ impl From<EquinoctialState> for SpacecraftState {
     }
 }
 
+/// An orbital state qualified by the epoch at which its elements are valid.
+///
+/// This is the complete input and output of translational propagation. It does
+/// not imply that spacecraft mass, inertia, or attitude were propagated.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Orbit {
+    epoch: Epoch,
+    state: SpacecraftState,
+}
+
+impl Orbit {
+    /// Associates an orbital representation with its epoch.
+    #[must_use]
+    pub const fn new(epoch: Epoch, state: SpacecraftState) -> Self {
+        Self { epoch, state }
+    }
+
+    /// Returns the epoch at which the orbital state is valid.
+    #[must_use]
+    pub const fn epoch(self) -> Epoch {
+        self.epoch
+    }
+
+    /// Returns the native orbital representation.
+    #[must_use]
+    pub const fn state(self) -> SpacecraftState {
+        self.state
+    }
+}
+
 /// Source-side counterpart to [`From`].
 ///
 /// This blanket implementation makes `value.to()` equivalent to

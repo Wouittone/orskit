@@ -1,5 +1,7 @@
 # Task: propagate every state representation with an explicit force model
 
+- Status: Superseded in part by task 0014
+
 ## Parity target
 
 - Ledger row: Propagation / Two-body/Keplerian propagation

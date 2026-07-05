@@ -14,8 +14,9 @@ MIT or Apache-2.0 license.
 
 > **Status: pre-alpha.** The repository currently contains an early workspace
 > scaffold with typed units, celestial-body and frame identities, a closed
-> six-element Cartesian/Keplerian/equinoctial state enum, orbital conversion
-> traits, time-independent spacecraft definitions, and epoch-specific views
+> six-element Cartesian/Keplerian/equinoctial state enum, epoch-qualified
+> orbits, orbital conversion traits, time-independent spacecraft definitions,
+> and epoch-specific views
 > with attitude and angular velocity,
 > streaming CCSDS OEM KVN ingestion, composable dynamics descriptions, a
 > minimal range measurement, representation-preserving analytical elliptic
@@ -59,8 +60,8 @@ roadmap. Start with [`.agent/README.md`](.agent/README.md).
 | `crates/units` | `uom`-backed physical quantities and typed Cartesian vectors |
 | `crates/bodies` | Planet, moon, dwarf-planet, custom-body, and explicit body-system identities |
 | `crates/frames` | Reference-frame identities with body-backed and barycentric origins |
-| `crates/core` | Six-element orbital states, time-independent spacecraft identity/geometry, and epoch-specific physical views |
-| `crates/dynamics` | System/force-model composition plus spacecraft propagation and analytical elliptic point-mass propagation |
+| `crates/core` | Six-element orbital states, epoch-qualified orbits, time-independent spacecraft identity/geometry, and complete physical views |
+| `crates/dynamics` | System/force-model composition plus orbit-only analytical elliptic point-mass propagation |
 | `crates/ccsds` | Blocking/Tokio streaming and Rayon collection for CCSDS OEM KVN coordinates |
 | `crates/measurements` | Typed measurement values; future home of ground and spacecraft participant models |
 | `crates/utils` | Typed sourced constants; package boundary remains transitional |

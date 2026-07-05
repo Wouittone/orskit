@@ -4,7 +4,7 @@
 //! one spacecraft and may depend on its position, speed, orientation, and
 //! inertia. Environmental bodies and other configuration belong to the force
 //! model, not to the interaction input. The first narrow evaluator provides
-//! analytical elliptic two-body propagation; general state derivatives,
+//! orbit-only analytical elliptic two-body propagation; general state derivatives,
 //! numerical integration, events, and variational equations remain absent.
 //!
 //! ```

@@ -1,6 +1,6 @@
 # ADR-0011: separate spacecraft definition from epoch-specific views
 
-- Status: Superseded in part by ADR-0012
+- Status: Superseded in part by ADR-0012 and ADR-0013
 - Date: 2026-07-05
 - Supersedes: ADR-0010 spacecraft composition
 - Affected parity rows: Cartesian states; rotations and angular states;

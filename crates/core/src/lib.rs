@@ -3,8 +3,9 @@
 //! Physical scalars and vectors are strongly typed, epochs use Hifitime
 //! directly, and each coordinate-dependent value carries its own frame.
 //! [`SpacecraftState`] is the closed set of six-element orbital
-//! representations. [`Spacecraft`] contains time-independent identity and
-//! geometry; [`SpacecraftView`] composes its epoch-specific physical state.
+//! representations and [`Orbit`] qualifies one with an epoch. [`Spacecraft`]
+//! contains time-independent identity and geometry; [`SpacecraftView`]
+//! composes a complete epoch-specific physical state.
 
 mod kinematics;
 mod spacecraft;
@@ -22,6 +23,6 @@ pub use spacecraft::{
     SpacecraftView, SpacecraftViewError,
 };
 pub use state::{
-    CartesianState, CoordinateSample, EquinoctialState, KeplerianState, OrbitalConversion,
+    CartesianState, CoordinateSample, EquinoctialState, KeplerianState, Orbit, OrbitalConversion,
     OrbitalElements, SpacecraftState, StateError, To, TryTo,
 };

@@ -1,6 +1,6 @@
 # Task 0012: split spacecraft definition from epoch-specific view
 
-- Status: Superseded in part by task 0013
+- Status: Superseded in part by tasks 0013 and 0014
 - Parity rows: Orbits / Cartesian states; Attitude / angular states;
   Propagation / two-body propagation
 

@@ -1288,7 +1288,7 @@ fn required(
 mod tests {
     use super::*;
     use orskit_core::{
-        AttitudeState, CartesianState, FramedAngularVelocity, InertiaTensor, Orientation,
+        AttitudeState, CartesianState, FramedAngularVelocity, InertiaTensor, Orbit, Orientation,
         Spacecraft, SpacecraftShape, SpacecraftView,
     };
     use orskit_frames::{CustomFrameId, FrameOrientation};
@@ -1392,9 +1392,8 @@ META_STOP\n\
             .expect("valid spacecraft definition");
         let view = SpacecraftView::new(
             &spacecraft,
-            coordinates.epoch(),
+            Orbit::new(coordinates.epoch(), state.into()),
             Mass::new::<kilogram>(500.0),
-            state.into(),
             inertia,
             attitude,
         )

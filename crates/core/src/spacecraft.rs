@@ -10,7 +10,7 @@ use orskit_units::{
 };
 use thiserror::Error;
 
-use crate::SpacecraftState;
+use crate::{Orbit, SpacecraftState};
 
 /// A normalized rotation between two explicitly identified frames.
 ///
@@ -408,25 +408,27 @@ fn validate_dimension(dimension: Length) -> Result<(), ShapeError> {
 
 /// Epoch-specific physical view of a time-independent [`Spacecraft`].
 ///
-/// The view borrows the spacecraft definition and owns closed orbital and
-/// attitude state enums. It is not generic over any physical representation.
+/// The view borrows the spacecraft definition and owns an epoch-qualified
+/// orbit plus a closed attitude state. It is not generic over any physical
+/// representation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpacecraftView<'a> {
     spacecraft: &'a Spacecraft,
-    epoch: Epoch,
+    orbit: Orbit,
     mass: Mass,
-    state: SpacecraftState,
     inertia: InertiaTensor,
     attitude: AttitudeState,
 }
 
 impl<'a> SpacecraftView<'a> {
     /// Composes all physical quantities valid at one epoch.
+    ///
+    /// The caller is responsible for supplying mass, inertia, and attitude
+    /// that are valid at the orbit's epoch.
     pub fn new(
         spacecraft: &'a Spacecraft,
-        epoch: Epoch,
+        orbit: Orbit,
         mass: Mass,
-        state: SpacecraftState,
         inertia: InertiaTensor,
         attitude: AttitudeState,
     ) -> Result<Self, SpacecraftViewError> {
@@ -442,9 +444,8 @@ impl<'a> SpacecraftView<'a> {
         }
         Ok(Self {
             spacecraft,
-            epoch,
+            orbit,
             mass,
-            state,
             inertia,
             attitude,
         })
@@ -459,7 +460,13 @@ impl<'a> SpacecraftView<'a> {
     /// Returns the view epoch.
     #[must_use]
     pub const fn epoch(&self) -> Epoch {
-        self.epoch
+        self.orbit.epoch()
+    }
+
+    /// Returns the epoch-qualified orbit in this complete view.
+    #[must_use]
+    pub const fn orbit(&self) -> Orbit {
+        self.orbit
     }
 
     /// Returns spacecraft mass at the view epoch.
@@ -471,7 +478,7 @@ impl<'a> SpacecraftView<'a> {
     /// Returns the orbital state at the view epoch.
     #[must_use]
     pub const fn state(&self) -> SpacecraftState {
-        self.state
+        self.orbit.state()
     }
 
     /// Returns the inertia tensor at the view epoch.
@@ -484,22 +491,6 @@ impl<'a> SpacecraftView<'a> {
     #[must_use]
     pub const fn attitude(&self) -> &AttitudeState {
         &self.attitude
-    }
-
-    /// Replaces epoch and orbital state while preserving the other view data.
-    pub fn with_state(
-        self,
-        epoch: Epoch,
-        state: SpacecraftState,
-    ) -> Result<Self, SpacecraftViewError> {
-        Self::new(
-            self.spacecraft,
-            epoch,
-            self.mass,
-            state,
-            self.inertia,
-            self.attitude,
-        )
     }
 }
 
@@ -657,9 +648,8 @@ mod tests {
         let attitude = attitude(body);
         let view = SpacecraftView::new(
             &spacecraft,
-            Epoch::from_tai_seconds(42.0),
+            Orbit::new(Epoch::from_tai_seconds(42.0), state()),
             Mass::new::<kilogram>(500.0),
-            state(),
             inertia(body),
             attitude,
         )
@@ -667,6 +657,10 @@ mod tests {
 
         assert_eq!(view.spacecraft(), &spacecraft);
         assert_eq!(view.epoch(), Epoch::from_tai_seconds(42.0));
+        assert_eq!(
+            view.orbit(),
+            Orbit::new(Epoch::from_tai_seconds(42.0), state())
+        );
         assert_eq!(view.mass(), Mass::new::<kilogram>(500.0));
         assert_eq!(
             match view.state() {
@@ -688,9 +682,8 @@ mod tests {
         assert!(matches!(
             SpacecraftView::new(
                 &spacecraft,
-                Epoch::from_tai_seconds(0.0),
+                Orbit::new(Epoch::from_tai_seconds(0.0), state()),
                 Mass::new::<kilogram>(500.0),
-                state(),
                 inertia(other),
                 valid_attitude.clone(),
             ),
@@ -699,9 +692,8 @@ mod tests {
         assert!(matches!(
             SpacecraftView::new(
                 &spacecraft,
-                Epoch::from_tai_seconds(0.0),
+                Orbit::new(Epoch::from_tai_seconds(0.0), state()),
                 Mass::new::<kilogram>(0.0),
-                state(),
                 inertia(body),
                 valid_attitude,
             ),

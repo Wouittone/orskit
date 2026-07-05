@@ -1,6 +1,6 @@
 # Task 0013: reconcile orbital and attitude state representations
 
-- Status: Complete
+- Status: Complete; propagation preservation superseded by task 0014
 - Parity rows: Attitude / rotations and angular states; Propagation / two-body
   propagation
 
@@ -15,7 +15,8 @@ views own their angular state directly.
 - Quaternion attitude construction and frame validation.
 - Attitude enum angle and angular-speed access.
 - Spacecraft views own and preserve attitude values.
-- Propagation preserves attitude equality across every orbital representation.
+- At completion, propagation preserved attitude equality across every orbital
+  representation; task 0014 supersedes that behavior with orbit-only results.
 - Workspace and binding formatting, tests, Clippy, and documentation checks.
 
 Validation passed with workspace tests, Clippy with warnings denied, rustdoc

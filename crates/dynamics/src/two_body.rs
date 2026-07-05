@@ -3,10 +3,7 @@ use std::f64::consts::{PI, TAU};
 use hifitime::Duration;
 use orskit_bodies::Body;
 use orskit_core::frames::{FrameOrientation, FrameOrigin, ReferenceFrame};
-use orskit_core::{
-    KeplerianState, OrbitalElements, SpacecraftState, SpacecraftView, SpacecraftViewError,
-    StateError,
-};
+use orskit_core::{KeplerianState, Orbit, OrbitalElements, SpacecraftState, StateError};
 use orskit_units::uom::si::{angle::radian, length::meter, ratio::ratio};
 use orskit_units::Angle;
 use thiserror::Error;
@@ -24,8 +21,8 @@ const DEFAULT_MAX_ITERATIONS: usize = 32;
 /// [NASA GMAT Mathematical Specifications](https://ntrs.nasa.gov/citations/20080031744).
 ///
 /// The input [`SpacecraftState`] variant is preserved. This translational
-/// evaluator advances only epoch and orbit; mass, inertia, and attitude are
-/// copied unchanged.
+/// evaluator returns only an epoch-qualified orbit and makes no claim about
+/// spacecraft mass, inertia, or attitude at the resulting epoch.
 #[derive(Debug, Clone)]
 pub struct EllipticTwoBodyPropagator {
     tolerance_radians: f64,
@@ -148,16 +145,14 @@ impl EllipticTwoBodyPropagator {
 impl Propagator<PointMassGravityModel> for EllipticTwoBodyPropagator {
     type Error = TwoBodyPropagationError;
 
-    fn propagate<'a>(
+    fn propagate(
         &self,
-        initial: &SpacecraftView<'a>,
+        initial: Orbit,
         model: &PointMassGravityModel,
         duration: Duration,
-    ) -> Result<SpacecraftView<'a>, Self::Error> {
+    ) -> Result<Orbit, Self::Error> {
         let state = self.propagate_state(initial.state(), model, duration)?;
-        Ok(initial
-            .clone()
-            .with_state(initial.epoch() + duration, state)?)
+        Ok(Orbit::new(initial.epoch() + duration, state))
     }
 }
 
@@ -268,24 +263,14 @@ pub enum TwoBodyPropagationError {
     /// The propagated orbital state failed validation.
     #[error(transparent)]
     InvalidState(#[from] StateError),
-    /// Recombining the propagated spacecraft failed validation.
-    #[error(transparent)]
-    InvalidSpacecraftView(#[from] SpacecraftViewError),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use hifitime::Epoch;
-    use orskit_core::frames::{CustomFrameId, FrameOrientation, FrameOrigin};
-    use orskit_core::{
-        AttitudeState, CartesianState, FramedAngularVelocity, InertiaTensor, Orientation,
-        Spacecraft, SpacecraftShape,
-    };
-    use orskit_units::uom::si::{mass::kilogram, moment_of_inertia::kilogram_square_meter};
-    use orskit_units::{
-        AngularVelocityVector, GravitationalParameter, Length, Mass, MomentOfInertia, Ratio,
-    };
+    use orskit_core::CartesianState;
+    use orskit_units::{GravitationalParameter, Length, Ratio};
 
     fn earth_mu() -> GravitationalParameter {
         GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)
@@ -301,39 +286,6 @@ mod tests {
         PointMassGravityModel::new(Body::EARTH, mu)
     }
 
-    struct Fixture {
-        spacecraft: Spacecraft,
-        attitude: AttitudeState,
-        inertia: InertiaTensor,
-    }
-
-    fn fixture() -> Fixture {
-        let id = CustomFrameId::new(11);
-        let body = ReferenceFrame::new(FrameOrigin::Custom(id), FrameOrientation::Custom(id));
-        let attitude = AttitudeState::new(
-            Orientation::identity(body, ReferenceFrame::GCRF),
-            FramedAngularVelocity::new(
-                AngularVelocityVector::from_radians_per_second(0.0, 0.0, 0.0),
-                body,
-            )
-            .expect("finite angular velocity"),
-        )
-        .expect("consistent attitude");
-        let inertia = InertiaTensor::principal(
-            body,
-            MomentOfInertia::new::<kilogram_square_meter>(800.0),
-            MomentOfInertia::new::<kilogram_square_meter>(900.0),
-            MomentOfInertia::new::<kilogram_square_meter>(1_000.0),
-        )
-        .expect("physical inertia");
-        Fixture {
-            spacecraft: Spacecraft::new("TEST-SC", SpacecraftShape::Point)
-                .expect("valid spacecraft"),
-            attitude,
-            inertia,
-        }
-    }
-
     fn orbit(eccentricity: f64, true_anomaly: f64) -> KeplerianState {
         KeplerianState::new(
             ReferenceFrame::GCRF,
@@ -347,16 +299,11 @@ mod tests {
         .expect("fixture orbit is elliptic")
     }
 
-    fn view(fixture: &Fixture, eccentricity: f64, true_anomaly: f64) -> SpacecraftView<'_> {
-        SpacecraftView::new(
-            &fixture.spacecraft,
+    fn initial(eccentricity: f64, true_anomaly: f64) -> Orbit {
+        Orbit::new(
             Epoch::from_tai_seconds(1_000.0),
-            Mass::new::<kilogram>(500.0),
             orbit(eccentricity, true_anomaly).into(),
-            fixture.inertia,
-            fixture.attitude.clone(),
         )
-        .expect("physical spacecraft view")
     }
 
     fn assert_vector_close(actual: [f64; 3], expected: [f64; 3], tolerance: f64) {
@@ -374,38 +321,26 @@ mod tests {
     ) -> [CartesianState; 3] {
         let model = earth_model(mu);
         let propagator = EllipticTwoBodyPropagator::new();
-        let fixture = fixture();
-        let keplerian = view(&fixture, 0.1, 2.0);
+        let keplerian = initial(0.1, 2.0);
         let orbit = match keplerian.state() {
             SpacecraftState::Keplerian(state) => state,
             _ => unreachable!(),
         };
-        let equinoctial = keplerian
-            .clone()
-            .with_state(
-                keplerian.epoch(),
-                orbit.equinoctial(mu).expect("conversion").into(),
-            )
-            .expect("same physical properties");
-        let cartesian = keplerian
-            .clone()
-            .with_state(
-                keplerian.epoch(),
-                orbit.cartesian(mu).expect("conversion").into(),
-            )
-            .expect("same physical properties");
+        let equinoctial = Orbit::new(
+            keplerian.epoch(),
+            orbit.equinoctial(mu).expect("conversion").into(),
+        );
+        let cartesian = Orbit::new(
+            keplerian.epoch(),
+            orbit.cartesian(mu).expect("conversion").into(),
+        );
 
-        let results = [keplerian, equinoctial, cartesian].map(|initial| {
+        [keplerian, equinoctial, cartesian].map(|initial| {
             let propagated = propagator
-                .propagate(&initial, &model, duration)
+                .propagate(initial, &model, duration)
                 .expect("propagation converges");
-            assert_eq!(propagated.mass(), initial.mass());
-            assert_eq!(propagated.inertia(), initial.inertia());
-            assert_eq!(propagated.attitude(), initial.attitude());
-            assert_eq!(propagated.spacecraft(), initial.spacecraft());
             propagated.state().cartesian(mu).expect("result converts")
-        });
-        results
+        })
     }
 
     fn assert_all_representations_match_reference(
@@ -425,8 +360,7 @@ mod tests {
 
     #[test]
     fn circular_half_period_reaches_opposite_state() {
-        let fixture = fixture();
-        let initial = view(&fixture, 0.0, 0.0);
+        let initial = initial(0.0, 0.0);
         let initial_orbit = match initial.state() {
             SpacecraftState::Keplerian(state) => state,
             _ => unreachable!(),
@@ -436,7 +370,7 @@ mod tests {
             PI * (radius.powi(3) / earth_mu().as_cubic_metres_per_second_squared()).sqrt();
         let propagated = EllipticTwoBodyPropagator::new()
             .propagate(
-                &initial,
+                initial,
                 &earth_model(earth_mu()),
                 Duration::from_seconds(half_period),
             )
@@ -463,12 +397,11 @@ mod tests {
     }
 
     #[test]
-    fn propagation_preserves_variant_invariants_and_spacecraft_properties() {
-        let fixture = fixture();
-        let initial = view(&fixture, 0.2, 1.3);
+    fn propagation_preserves_variant_and_orbital_invariants() {
+        let initial = initial(0.2, 1.3);
         let propagated = EllipticTwoBodyPropagator::new()
             .propagate(
-                &initial,
+                initial,
                 &earth_model(earth_mu()),
                 Duration::from_seconds(1_800.0),
             )
@@ -491,23 +424,22 @@ mod tests {
             after.argument_of_periapsis(),
             before.argument_of_periapsis()
         );
-        assert_eq!(propagated.mass(), initial.mass());
-        assert_eq!(propagated.inertia(), initial.inertia());
-        assert_eq!(propagated.attitude(), initial.attitude());
-        assert_eq!(propagated.spacecraft(), initial.spacecraft());
+        assert_eq!(
+            propagated.epoch(),
+            initial.epoch() + Duration::from_seconds(1_800.0)
+        );
     }
 
     #[test]
     fn signed_duration_round_trip_recovers_cartesian_state() {
-        let fixture = fixture();
-        let initial = view(&fixture, 0.6, 2.1);
+        let initial = initial(0.6, 2.1);
         let model = earth_model(earth_mu());
         let propagator = EllipticTwoBodyPropagator::new();
         let forward = propagator
-            .propagate(&initial, &model, Duration::from_seconds(3_600.0))
+            .propagate(initial, &model, Duration::from_seconds(3_600.0))
             .expect("forward propagation converges");
         let recovered = propagator
-            .propagate(&forward, &model, Duration::from_seconds(-3_600.0))
+            .propagate(forward, &model, Duration::from_seconds(-3_600.0))
             .expect("backward propagation converges");
         let initial_cartesian = initial.state().cartesian(earth_mu()).expect("conversion");
         let recovered_cartesian = recovered.state().cartesian(earth_mu()).expect("conversion");
@@ -526,23 +458,21 @@ mod tests {
 
     #[test]
     fn target_epoch_matches_duration_propagation() {
-        let fixture = fixture();
-        let initial = view(&fixture, 0.1, 2.0);
+        let initial = initial(0.1, 2.0);
         let duration = Duration::from_seconds(900.0);
         let model = earth_model(earth_mu());
         let concrete = EllipticTwoBodyPropagator::new();
         let propagator: &dyn Propagator<PointMassGravityModel, Error = TwoBodyPropagationError> =
             &concrete;
         let by_duration = propagator
-            .propagate(&initial, &model, duration)
+            .propagate(initial, &model, duration)
             .expect("duration propagation converges");
         let by_epoch = propagator
-            .propagate_to(&initial, &model, initial.epoch() + duration)
+            .propagate_to(initial, &model, initial.epoch() + duration)
             .expect("target propagation converges");
 
         assert_eq!(by_epoch.epoch(), by_duration.epoch());
         assert_eq!(by_epoch.state(), by_duration.state());
-        assert_eq!(by_epoch.spacecraft(), by_duration.spacecraft());
     }
 
     #[test]
@@ -559,11 +489,10 @@ mod tests {
         let one_iteration = propagator
             .with_max_iterations(1)
             .expect("one iteration is valid");
-        let fixture = fixture();
-        let difficult = view(&fixture, 0.99, 0.2);
+        let difficult = initial(0.99, 0.2);
         assert!(matches!(
             one_iteration.propagate(
-                &difficult,
+                difficult,
                 &earth_model(earth_mu()),
                 Duration::from_seconds(4_000.0)
             ),
@@ -573,10 +502,9 @@ mod tests {
 
     #[test]
     fn invalid_model_frame_is_rejected() {
-        let fixture = fixture();
-        let initial = view(&fixture, 0.1, 2.0);
+        let initial = initial(0.1, 2.0);
         let result = EllipticTwoBodyPropagator::new().propagate(
-            &initial,
+            initial,
             &PointMassGravityModel::new(Body::MARS, earth_mu()),
             Duration::from_seconds(60.0),
         );
@@ -598,12 +526,10 @@ mod tests {
             Angle::new::<radian>(2.0),
         )
         .expect("elements are valid");
-        let rotating = initial
-            .with_state(Epoch::from_tai_seconds(1_000.0), rotating.into())
-            .expect("physical properties unchanged");
+        let rotating = Orbit::new(Epoch::from_tai_seconds(1_000.0), rotating.into());
         assert!(matches!(
             EllipticTwoBodyPropagator::new().propagate(
-                &rotating,
+                rotating,
                 &earth_model(earth_mu()),
                 Duration::from_seconds(60.0)
             ),

@@ -6,8 +6,8 @@ only published APIs. Their output is copied into an offline Rust regression
 test; the external tools are never required by normal builds or CI.
 
 Orskit constructs this same physical initial condition in each
-`SpacecraftState` variant. Each epoch-specific `SpacecraftView` is propagated
-through `Propagator<PointMassGravityModel>`, converted to Cartesian only for
+`SpacecraftState` variant. Each epoch-specific `Orbit` is propagated through
+`Propagator<PointMassGravityModel>`, converted to Cartesian only for
 the comparison boundary, and checked against both recorded endpoints.
 
 ## Shared input

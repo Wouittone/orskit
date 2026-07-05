@@ -58,9 +58,11 @@ missing abstraction or an incorrectly placed type.
   orientation, and inertia. Environmental bodies and other parameters belong
   to force-model configuration and explicit future data providers. Dynamics
   composes heterogeneous model trait objects without matching model types.
-- **Propagation:** `Propagator<ForceModel>` advances epoch-specific
-  `SpacecraftView` values and preserves the native `SpacecraftState` enum
-  variant. Analytical, numerical, semi-analytical, and TLE
+- **Propagation:** `Propagator<ForceModel>` advances epoch-qualified `Orbit`
+  values and preserves the native `SpacecraftState` enum variant. A
+  translational propagator does not imply that attitude or other
+  epoch-dependent spacecraft properties were advanced. Analytical, numerical,
+  semi-analytical, and TLE
   algorithms, dense output, ephemerides, and variational equations remain
   distinct capabilities.
 - **Events:** detector functions, direction, root localization, handlers, and
@@ -90,9 +92,10 @@ missing abstraction or an incorrectly placed type.
   explicit frame. `From`/`To` wrap concrete representations; fallible
   `TryFrom`/`TryTo` representation changes receive explicit conversion context.
   `OrbitalElements` lets every representation provide any supported state.
-- `Spacecraft` contains only time-independent identity and body geometry.
-  `SpacecraftView` borrows it while owning closed `SpacecraftState` and
-  `AttitudeState` enums plus epoch, positive mass, and framed inertia. No
+- `Orbit` composes an epoch with one closed `SpacecraftState` representation.
+  `Spacecraft` contains only time-independent identity and body geometry.
+  `SpacecraftView` borrows it while owning an `Orbit`, a closed `AttitudeState`
+  enum, positive mass, and framed inertia. No
   physical representation is a generic parameter or trait object in the
   spacecraft definition or view.
   Position, velocity, acceleration, orientation, inertia tensor, covariance,
@@ -181,10 +184,11 @@ than leaking either API into spacecraft state.
 
 `orskit-dynamics` currently describes spacecraft-state dependencies, split
 conservative/non-conservative force models, and deterministic model composition.
-Its first `Propagator<ForceModel>` implementation analytically advances a
-`SpacecraftView` containing Cartesian, Keplerian, or equinoctial elliptic state
-with an explicit point-mass gravity model and returns the same native enum
-variant while borrowing the same spacecraft definition and attitude.
+Its first `Propagator<ForceModel>` implementation analytically advances an
+epoch-qualified Cartesian, Keplerian, or equinoctial elliptic `Orbit` with an
+explicit point-mass gravity model and returns the same native enum variant.
+Complete spacecraft views are composed separately from properties known to be
+valid at the propagated epoch.
 General
 force evaluation and numerical propagation remain deferred; their design must
 cover coupled translational, rotational, mass, and variational states, explicit

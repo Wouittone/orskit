@@ -1,6 +1,6 @@
 # ADR-0009: use a representation-preserving state/model propagator contract
 
-- Status: Superseded in part by ADR-0010
+- Status: Superseded in part by ADR-0010 and ADR-0013
 - Date: 2026-07-04
 - Owners: orskit maintainers
 - Affected parity rows: two-body propagation; state representations; dynamics
