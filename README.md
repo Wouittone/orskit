@@ -13,11 +13,14 @@ project-owned code. That code is intended to remain available under either the
 MIT or Apache-2.0 license.
 
 > **Status: pre-alpha.** The repository currently contains an early workspace
-> scaffold with typed units, celestial-body and frame identities, trait-based
-> Cartesian, Keplerian, and equinoctial spacecraft states,
+> scaffold with typed units, celestial-body and frame identities, a closed
+> six-element Cartesian/Keplerian/equinoctial state enum, orbital conversion
+> traits, time-independent spacecraft definitions, and epoch-specific views
+> with attitude and angular velocity,
 > streaming CCSDS OEM KVN ingestion, composable dynamics descriptions, a
-> minimal range measurement, an initial analytical elliptic two-body solution,
-> and experimental binding adapters. General dynamics evaluation/propagation,
+> minimal range measurement, representation-preserving analytical elliptic
+> two-body propagation for all current state types, and experimental binding
+> adapters. General composed-force/numerical propagation,
 > complete CCSDS coverage, and complete
 > measurement-participant modeling are intentionally not implemented yet. It is
 > not suitable for scientific or operational use and does not have Orekit
@@ -56,8 +59,8 @@ roadmap. Start with [`.agent/README.md`](.agent/README.md).
 | `crates/units` | `uom`-backed physical quantities and typed Cartesian vectors |
 | `crates/bodies` | Planet, moon, dwarf-planet, custom-body, and explicit body-system identities |
 | `crates/frames` | Reference-frame identities with body-backed and barycentric origins |
-| `crates/core` | Common `State` contract plus Cartesian, elliptic Keplerian/equinoctial representations and rigid-body properties |
-| `crates/dynamics` | System/force-model composition plus initial analytical elliptic two-body propagation |
+| `crates/core` | Six-element orbital states, time-independent spacecraft identity/geometry, and epoch-specific physical views |
+| `crates/dynamics` | System/force-model composition plus spacecraft propagation and analytical elliptic point-mass propagation |
 | `crates/ccsds` | Blocking/Tokio streaming and Rayon collection for CCSDS OEM KVN coordinates |
 | `crates/measurements` | Typed measurement values; future home of ground and spacecraft participant models |
 | `crates/utils` | Typed sourced constants; package boundary remains transitional |
@@ -99,9 +102,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-OEM supplies coordinates but not mass, orientation, or inertia; construct a
-`CartesianState` only after supplying those values through
-`SpacecraftProperties`. This is presently CCSDS 502.0-B-3 OEM KVN coordinate
+OEM supplies timed coordinates but not mass, inertia, attitude, or angular
+velocity. Define the time-independent `Spacecraft` from identity and geometry,
+convert the OEM coordinates to `CartesianState`, then combine them with those
+missing values in a `SpacecraftView`. This is presently
+CCSDS 502.0-B-3 OEM KVN coordinate
 ingestion only. XML,
 covariance, OPM/OMM/OCM, attitude, and tracking messages remain explicit gaps.
 

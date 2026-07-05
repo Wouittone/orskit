@@ -9,25 +9,31 @@
 //!
 //! ```
 //! use orskit_bodies::Body;
-//! use orskit_dynamics::{SystemDynamics, ThreeBodyDynamics};
+//! use orskit_dynamics::{PointMassGravityModel, SystemDynamics, TwoBodyDynamics};
+//! use orskit_units::GravitationalParameter;
 //!
-//! let model = ThreeBodyDynamics::new(Body::EARTH, Body::MOON)?;
-//! assert_eq!(model.conservative_force_models().len(), 2);
+//! let mu = GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)?;
+//! let gravity = PointMassGravityModel::new(Body::EARTH, mu);
+//! let model = TwoBodyDynamics::new(gravity);
+//! assert_eq!(model.conservative_force_models().len(), 1);
 //! assert_eq!(
 //!     model.conservative_force_models()[0].force().name(),
 //!     "gravity"
 //! );
 //! assert!(model.non_conservative_force_models().is_empty());
-//! # Ok::<(), orskit_dynamics::DynamicsDescriptionError>(())
+//! # Ok::<(), orskit_units::QuantityError>(())
 //! ```
 
 use std::{fmt, sync::Arc};
 
 use orskit_bodies::Body;
+use orskit_units::GravitationalParameter;
 use thiserror::Error;
 
+mod propagator;
 mod two_body;
 
+pub use propagator::Propagator;
 pub use two_body::{EllipticTwoBodyPropagator, TwoBodyPropagationError};
 
 /// Spacecraft-state components a force interaction is allowed to inspect.
@@ -170,24 +176,34 @@ static GRAVITY_FORCE: GravityForce = GravityForce;
 /// Point-mass model of gravity from one configured attracting body.
 ///
 /// Only spacecraft position is an interaction dependency. The attracting body
-/// is model configuration; its gravitational parameter and ephemeris remain
-/// explicit future data requirements rather than properties inferred here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// and its sourced gravitational parameter are explicit model configuration;
+/// neither value is inferred from the other.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PointMassGravityModel {
     attractor: Body,
+    gravitational_parameter: GravitationalParameter,
 }
 
 impl PointMassGravityModel {
     /// Describes a point-mass gravity model for the selected body.
     #[must_use]
-    pub const fn new(attractor: Body) -> Self {
-        Self { attractor }
+    pub const fn new(attractor: Body, gravitational_parameter: GravitationalParameter) -> Self {
+        Self {
+            attractor,
+            gravitational_parameter,
+        }
     }
 
     /// Returns the configured attracting body.
     #[must_use]
     pub const fn attractor(self) -> Body {
         self.attractor
+    }
+
+    /// Returns the explicitly configured gravitational parameter.
+    #[must_use]
+    pub const fn gravitational_parameter(self) -> GravitationalParameter {
+        self.gravitational_parameter
     }
 }
 
@@ -220,12 +236,12 @@ pub struct TwoBodyDynamics {
 }
 
 impl TwoBodyDynamics {
-    /// Describes spacecraft motion under one point-mass attractor.
+    /// Describes spacecraft motion under one point-mass gravity model.
     #[must_use]
-    pub fn new(attractor: Body) -> Self {
+    pub fn new(model: PointMassGravityModel) -> Self {
         Self {
-            attractor,
-            conservative_force_models: vec![Arc::new(PointMassGravityModel::new(attractor))],
+            attractor: model.attractor(),
+            conservative_force_models: vec![Arc::new(model)],
             non_conservative_force_models: Vec::new(),
         }
     }
@@ -282,16 +298,18 @@ pub struct ThreeBodyDynamics {
 
 impl ThreeBodyDynamics {
     /// Describes spacecraft motion under two distinct point-mass attractors.
-    pub fn new(first: Body, second: Body) -> Result<Self, DynamicsDescriptionError> {
-        if first == second {
-            return Err(DynamicsDescriptionError::DuplicateAttractor(first));
+    pub fn new(
+        first: PointMassGravityModel,
+        second: PointMassGravityModel,
+    ) -> Result<Self, DynamicsDescriptionError> {
+        if first.attractor() == second.attractor() {
+            return Err(DynamicsDescriptionError::DuplicateAttractor(
+                first.attractor(),
+            ));
         }
         Ok(Self {
-            attractors: [first, second],
-            conservative_force_models: vec![
-                Arc::new(PointMassGravityModel::new(first)),
-                Arc::new(PointMassGravityModel::new(second)),
-            ],
+            attractors: [first.attractor(), second.attractor()],
+            conservative_force_models: vec![Arc::new(first), Arc::new(second)],
             non_conservative_force_models: Vec::new(),
         })
     }
@@ -346,6 +364,22 @@ pub enum DynamicsDescriptionError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn point_mass(body: Body, mu_m3_s2: f64) -> PointMassGravityModel {
+        PointMassGravityModel::new(
+            body,
+            GravitationalParameter::from_cubic_metres_per_second_squared(mu_m3_s2)
+                .expect("fixture gravitational parameter is positive"),
+        )
+    }
+
+    fn earth_gravity() -> PointMassGravityModel {
+        point_mass(Body::EARTH, 3.986_004_418e14)
+    }
+
+    fn moon_gravity() -> PointMassGravityModel {
+        point_mass(Body::MOON, 4.904_869_5e12)
+    }
 
     #[derive(Debug)]
     struct PotentialForce;
@@ -409,7 +443,7 @@ mod tests {
 
     #[test]
     fn two_body_is_a_system_dynamics_implementation() {
-        let dynamics = TwoBodyDynamics::new(Body::EARTH);
+        let dynamics = TwoBodyDynamics::new(earth_gravity());
 
         assert_eq!(dynamics.name(), "two-body spacecraft dynamics");
         assert_eq!(dynamics.attractor(), Body::EARTH);
@@ -431,7 +465,7 @@ mod tests {
 
     #[test]
     fn three_body_configures_two_independent_attractors() {
-        let dynamics = ThreeBodyDynamics::new(Body::EARTH, Body::MOON)
+        let dynamics = ThreeBodyDynamics::new(earth_gravity(), moon_gravity())
             .expect("Earth and Moon are distinct attractors");
 
         assert_eq!(dynamics.attractors(), [Body::EARTH, Body::MOON]);
@@ -452,7 +486,7 @@ mod tests {
 
     #[test]
     fn heterogeneous_force_models_are_split_and_ordered_without_downcasting() {
-        let dynamics = TwoBodyDynamics::new(Body::EARTH)
+        let dynamics = TwoBodyDynamics::new(earth_gravity())
             .with_conservative_force_model(Arc::new(PositionPotentialModel))
             .with_non_conservative_force_model(Arc::new(AerodynamicDragModel));
 
@@ -493,7 +527,7 @@ mod tests {
     #[test]
     fn duplicate_three_body_attractors_are_rejected() {
         assert!(matches!(
-            ThreeBodyDynamics::new(Body::EARTH, Body::EARTH),
+            ThreeBodyDynamics::new(earth_gravity(), earth_gravity()),
             Err(DynamicsDescriptionError::DuplicateAttractor(Body::EARTH))
         ));
     }

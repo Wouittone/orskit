@@ -1,6 +1,6 @@
 # ADR-0007: begin dynamics evaluation with explicit elliptic two-body propagation
 
-- Status: Accepted
+- Status: Accepted; generalized by ADR-0009 and recomposed by ADR-0011
 - Date: 2026-07-04
 - Owners: orskit maintainers
 - Affected parity rows: two-body propagation; dynamics composition; orbits
@@ -15,10 +15,13 @@ conversion to Cartesian coordinates when a gravitational parameter is supplied.
 
 ## Decision
 
-1. Add `EllipticTwoBodyPropagator` as one evaluator for `TwoBodyDynamics`, not
-   as a method on `SystemDynamics` or a universal propagation trait.
-2. Accept an explicit positive `GravitationalParameter` when constructing the
-   propagator. Body identity never selects a constant implicitly.
+1. Add `EllipticTwoBodyPropagator` as one evaluator, not as a method on
+   `SystemDynamics`. ADR-0009 subsequently places it behind the generic
+   representation-preserving propagator contract; ADR-0011 later changes its
+   input to an epoch-specific spacecraft view with a closed orbital-state enum.
+2. Require an explicit positive `GravitationalParameter`. ADR-0009 moves it
+   from propagator construction into `PointMassGravityModel`; body identity
+   still never selects a constant implicitly.
 3. Propagate `KeplerianState` analytically by advancing mean anomaly and solving
    the elliptic Kepler equation with bounded Newton iteration. Preserve frame,
    non-anomaly elements, and all spacecraft properties.
@@ -26,9 +29,9 @@ conversion to Cartesian coordinates when a gravitational parameter is supplied.
    the existing elliptic element regime; Cartesian universal-variable,
    parabolic, and hyperbolic propagation remain separate future work.
 5. Validate against analytic invariants and offline Cartesian outputs generated
-   independently by Orekit and Lox. Do not consult Nyx material under the
-   repository's explicit clean-room prohibition; accept a maintainer-supplied
-   black-box output later.
+   independently by Orekit and Lox. A later policy amendment permits Nyx
+   public-API black-box validation only; it does not alter this implementation
+   decision or allow Nyx implementation material to inform orskit.
 
 ## Alternatives considered
 
@@ -61,5 +64,6 @@ recorded independent outputs with physical tolerances.
 
 Equations come from NASA GMAT mathematical documentation. Orekit and Lox are
 used only to generate black-box output for the same declared initial condition.
-Nyx is not consulted because repository policy permits only high-level
-awareness of it.
+Nyx was not consulted while making this implementation decision. A later
+maintainer-approved, isolated public-API benchmark remains validation evidence
+only and did not inform this design.

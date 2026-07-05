@@ -2,8 +2,9 @@
 //!
 //! Physical scalars and vectors are strongly typed, epochs use Hifitime
 //! directly, and each coordinate-dependent value carries its own frame.
-//! [`State`] is the common physical contract implemented by [`CartesianState`],
-//! [`KeplerianState`], and [`EquinoctialState`].
+//! [`SpacecraftState`] is the closed set of six-element orbital
+//! representations. [`Spacecraft`] contains time-independent identity and
+//! geometry; [`SpacecraftView`] composes its epoch-specific physical state.
 
 mod kinematics;
 mod spacecraft;
@@ -16,9 +17,11 @@ pub use kinematics::{
 pub use orskit_frames as frames;
 pub use orskit_units as units;
 pub use spacecraft::{
-    InertiaError, InertiaTensor, Orientation, OrientationError, SpacecraftProperties,
+    AttitudeError, AttitudeState, FramedAngularVelocity, InertiaError, InertiaTensor, Orientation,
+    OrientationError, QuaternionAttitude, ShapeError, Spacecraft, SpacecraftError, SpacecraftShape,
+    SpacecraftView, SpacecraftViewError,
 };
 pub use state::{
-    CartesianState, CoordinateSample, EquinoctialCoordinates, EquinoctialState,
-    KeplerianCoordinates, KeplerianState, State, StateConversion, StateError,
+    CartesianState, CoordinateSample, EquinoctialState, KeplerianState, OrbitalConversion,
+    OrbitalElements, SpacecraftState, StateError, To, TryTo,
 };
