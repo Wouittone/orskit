@@ -58,8 +58,11 @@ missing abstraction or an incorrectly placed type.
   orientation, and inertia. Environmental bodies and other parameters belong
   to force-model configuration and explicit future data providers. Dynamics
   composes heterogeneous model trait objects without matching model types.
-- **Propagation:** analytical, numerical, semi-analytical, and TLE propagators;
-  dense output; ephemerides; variational equations.
+- **Propagation:** `Propagator<ForceModel>` advances epoch-specific
+  `SpacecraftView` values and preserves the native `SpacecraftState` enum
+  variant. Analytical, numerical, semi-analytical, and TLE
+  algorithms, dense output, ephemerides, and variational equations remain
+  distinct capabilities.
 - **Events:** detector functions, direction, root localization, handlers, and
   deterministic simultaneous-event policy.
 - **Attitude:** rotations, angular derivatives, attitude providers, and
@@ -82,17 +85,24 @@ missing abstraction or an incorrectly placed type.
 
 ## Core data contracts
 
-- A complete physical `State` has an epoch, positive mass, orientation, inertia
-  matrix, and one native coordinate representation. Cartesian, Keplerian,
-  equinoctial, and future representations implement the same trait without
-  embedding one another. Algorithms obtain another representation through an
-  explicit conversion trait and supply conversion-only context there. Each
-  position, velocity, acceleration, orientation, inertia tensor, covariance, and other
-  coordinate-dependent value carries the frame information needed to interpret
-  it; a state does not imply that its components share a frame.
+- `SpacecraftState` is a closed enum whose Cartesian, Keplerian, and
+  equinoctial alternatives each contain six characteristic elements plus an
+  explicit frame. `From`/`To` wrap concrete representations; fallible
+  `TryFrom`/`TryTo` representation changes receive explicit conversion context.
+  `OrbitalElements` lets every representation provide any supported state.
+- `Spacecraft` contains only time-independent identity and body geometry.
+  `SpacecraftView` borrows it while owning closed `SpacecraftState` and
+  `AttitudeState` enums plus epoch, positive mass, and framed inertia. No
+  physical representation is a generic parameter or trait object in the
+  spacecraft definition or view.
+  Position, velocity, acceleration, orientation, inertia tensor, covariance,
+  and every other coordinate-dependent value carries the frame information
+  needed to interpret it. The six elements in a `SpacecraftState` alternative
+  share its declared frame; lower-level format coordinates may remain separate
+  until validated into that state.
 - File formats that omit physical properties yield values such as
   `CoordinateSample<CartesianCoordinates>`, not fabricated complete states.
-  Callers enrich them with explicit `SpacecraftProperties` at the workflow boundary.
+  Callers enrich them into an explicit `Spacecraft` at the workflow boundary.
 - Every public physical scalar and vector uses a typed quantity. `uom` is the
   canonical dimensional system and SI is its storage baseline. Raw scalars may
   appear only at explicitly unit-named numerical, serialization, and FFI
@@ -162,8 +172,8 @@ decision records and evidence from real vertical slices.
 
 The initial split now includes `orskit-units` for typed quantities,
 `orskit-bodies` for celestial and body-system identities, `orskit-frames` for
-body-backed frame identity, and a trait-based state model with Cartesian,
-elliptic Keplerian, and elliptic equinoctial representations.
+body-backed frame identity, and a closed `SpacecraftState` enum with Cartesian,
+elliptic Keplerian, and elliptic equinoctial six-element representations.
 `lox-frames` is scientifically promising but still alpha; ANISE is mature but
 owns a broader almanac/orbit context than this foundational slice needs. Keep
 the boundary adapter-friendly and revisit both for transform providers rather
@@ -171,11 +181,14 @@ than leaking either API into spacecraft state.
 
 `orskit-dynamics` currently describes spacecraft-state dependencies, split
 conservative/non-conservative force models, and deterministic model composition.
-Its first evaluator analytically advances elliptic Keplerian states under one
-explicit point-mass parameter. General evaluation and numerical propagation
-remain deferred; their design must cover coupled translational, rotational,
-mass, and variational states, explicit data, events, and integration. Two- and
-three-body descriptions are peer implementations rather than the organizing
-abstraction.
+Its first `Propagator<ForceModel>` implementation analytically advances a
+`SpacecraftView` containing Cartesian, Keplerian, or equinoctial elliptic state
+with an explicit point-mass gravity model and returns the same native enum
+variant while borrowing the same spacecraft definition and attitude.
+General
+force evaluation and numerical propagation remain deferred; their design must
+cover coupled translational, rotational, mass, and variational states, explicit
+data, events, and integration. Two- and three-body descriptions are peer
+implementations rather than the organizing abstraction.
 There is no `stations` crate: ground and spacecraft participants belong to the
 measurement topology and estimation workflows.

@@ -21,10 +21,13 @@ boundaries matter more than preserving the current scaffold.
   transform code from Orekit, Lox, Nyx, or another astrodynamics library unless
   the repository has explicitly approved that exact reuse and its resulting
   licensing in writing. The default is no source reuse.
-- Treat the Nyx astrodynamics implementation, tests, examples, and internal
-  structure as implementation-prohibited. Separately published crates may be
-  used unmodified after a license/API audit; Hifitime is an approved MPL-2.0
-  dependency and the canonical orskit time API.
+- Treat Nyx source, tests, examples, and internal structure as
+  implementation-prohibited. Public API documentation and unmodified
+  black-box execution are permitted only for independent validation and
+  performance comparisons. Nyx must remain outside the orskit dependency
+  graph: any linked harness is a separately licensed, isolated workspace that
+  is never shipped as part of the MIT/Apache library. Hifitime remains an
+  approved MPL-2.0 dependency and the canonical orskit time API.
 - Use Orekit as a capability and behavior reference, not as a source-language
   implementation to translate.
 - Never claim feature parity from the existence of a type or method. A parity

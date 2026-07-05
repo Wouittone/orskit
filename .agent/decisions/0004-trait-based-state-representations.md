@@ -1,6 +1,6 @@
 # ADR-0004: compose complete states from physical properties and orbit representations
 
-- Status: Accepted
+- Status: Superseded by ADR-0010
 - Date: 2026-07-04
 - Owners: orskit maintainers
 - Affected parity rows: Cartesian states; Keplerian/equinoctial elements;

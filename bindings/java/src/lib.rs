@@ -3,14 +3,11 @@
 use std::ptr;
 
 use orskit_core::{
-    CartesianCoordinates, CartesianState, CoordinateSample, Epoch, FramedPosition, FramedVelocity,
-    InertiaTensor, Orientation, SpacecraftProperties,
+    AttitudeState, CartesianState, FramedAngularVelocity, InertiaTensor, Orientation,
 };
 use orskit_frames::{CustomFrameId, FrameOrientation, FrameOrigin, ReferenceFrame};
-use orskit_units::uom::si::{
-    mass::kilogram, moment_of_inertia::kilogram_square_meter, ratio::ratio,
-};
-use orskit_units::{Mass, MomentOfInertia, Position, Ratio, VelocityVector};
+use orskit_units::uom::si::{moment_of_inertia::kilogram_square_meter, ratio::ratio};
+use orskit_units::{AngularVelocityVector, MomentOfInertia, Position, Ratio, VelocityVector};
 
 /// Opaque handle owned by the foreign caller.
 pub struct FFMSpacecraftState {
@@ -22,8 +19,9 @@ pub struct FFMSpacecraftState {
 /// Frame codes are: `0 = ICRF`, `1 = GCRF`, `2 = EME2000`, `3 = ITRF2020`,
 /// and `4 = TEME`. Orientation uses scalar/x/y/z quaternion order from the
 /// custom body frame into that reference frame. The three inertia inputs are
-/// principal moments in `kg*m^2`, expressed in the custom body frame. A null
-/// pointer reports invalid input.
+/// principal moments in `kg*m^2`, expressed in the custom body frame. Angular
+/// velocity is expressed in body-frame radians per second. A null pointer
+/// reports invalid input.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub extern "C" fn spacecraft_state_new(
@@ -39,24 +37,25 @@ pub extern "C" fn spacecraft_state_new(
     orientation_x: f64,
     orientation_y: f64,
     orientation_z: f64,
+    angular_velocity_x_rad_s: f64,
+    angular_velocity_y_rad_s: f64,
+    angular_velocity_z_rad_s: f64,
     inertia_xx_kg_m2: f64,
     inertia_yy_kg_m2: f64,
     inertia_zz_kg_m2: f64,
     body_frame_id: u64,
     frame_code: u32,
 ) -> *mut FFMSpacecraftState {
-    if !epoch_tai_seconds.is_finite() {
+    if !epoch_tai_seconds.is_finite() || !mass_kg.is_finite() || mass_kg <= 0.0 {
         return ptr::null_mut();
     }
     let Some(frame) = frame_from_code(frame_code) else {
         return ptr::null_mut();
     };
-    let Ok(position) = FramedPosition::new(Position::from_metres(x_m, y_m, z_m), frame) else {
-        return ptr::null_mut();
-    };
-    let Ok(velocity) = FramedVelocity::new(
-        VelocityVector::from_metres_per_second(vx_m_s, vy_m_s, vz_m_s),
+    let Ok(state) = CartesianState::new(
         frame,
+        Position::from_metres(x_m, y_m, z_m),
+        VelocityVector::from_metres_per_second(vx_m_s, vy_m_s, vz_m_s),
     ) else {
         return ptr::null_mut();
     };
@@ -75,6 +74,19 @@ pub extern "C" fn spacecraft_state_new(
     ) else {
         return ptr::null_mut();
     };
+    let Ok(angular_velocity) = FramedAngularVelocity::new(
+        AngularVelocityVector::from_radians_per_second(
+            angular_velocity_x_rad_s,
+            angular_velocity_y_rad_s,
+            angular_velocity_z_rad_s,
+        ),
+        body_frame,
+    ) else {
+        return ptr::null_mut();
+    };
+    let Ok(attitude) = AttitudeState::new(orientation, angular_velocity) else {
+        return ptr::null_mut();
+    };
     let Ok(inertia) = InertiaTensor::principal(
         body_frame,
         MomentOfInertia::new::<kilogram_square_meter>(inertia_xx_kg_m2),
@@ -83,14 +95,9 @@ pub extern "C" fn spacecraft_state_new(
     ) else {
         return ptr::null_mut();
     };
-    let Ok(properties) =
-        SpacecraftProperties::new(Mass::new::<kilogram>(mass_kg), orientation, inertia)
-    else {
-        return ptr::null_mut();
-    };
-    let coordinates = CartesianCoordinates::new(position, velocity);
-    let sample = CoordinateSample::new(Epoch::from_tai_seconds(epoch_tai_seconds), coordinates);
-    let state = CartesianState::new(sample, properties);
+    // The experimental binding does not yet expose the core spacecraft/view
+    // split; construction still validates all supplied rigid-body values.
+    let _validated_rigid_body = (inertia, attitude);
 
     Box::into_raw(Box::new(FFMSpacecraftState { state }))
 }
@@ -124,7 +131,7 @@ pub unsafe extern "C" fn spacecraft_state_get_position_m(
         return false;
     }
     // SAFETY: Pointer validity and output capacity are required by the caller contract.
-    let values = unsafe { (*state).state.position().value().to_metres() };
+    let values = unsafe { (*state).state.position().to_metres() };
     // SAFETY: The caller guarantees room for all three values and the source is local.
     unsafe { ptr::copy_nonoverlapping(values.as_ptr(), out_xyz_m, values.len()) };
     true
@@ -145,7 +152,7 @@ pub unsafe extern "C" fn spacecraft_state_get_velocity_m_s(
         return false;
     }
     // SAFETY: Pointer validity and output capacity are required by the caller contract.
-    let values = unsafe { (*state).state.velocity().value().to_metres_per_second() };
+    let values = unsafe { (*state).state.velocity().to_metres_per_second() };
     // SAFETY: The caller guarantees room for all three values and the source is local.
     unsafe { ptr::copy_nonoverlapping(values.as_ptr(), out_xyz_m_s, values.len()) };
     true
@@ -169,7 +176,8 @@ mod tests {
     #[test]
     fn ffi_constructor_rejects_invalid_mass() {
         assert!(spacecraft_state_new(
-            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1, 1,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0,
+            1.0, 1, 1,
         )
         .is_null());
     }
@@ -177,7 +185,8 @@ mod tests {
     #[test]
     fn ffi_round_trip_uses_explicit_si_values() {
         let state = spacecraft_state_new(
-            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 10.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1, 1,
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 10.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0,
+            1.0, 1, 1,
         );
         assert!(!state.is_null());
         let mut output = [0.0; 3];

@@ -1,65 +1,16 @@
+use hifitime::Epoch;
 use nalgebra::{Matrix3, Quaternion, UnitQuaternion};
 use orskit_frames::ReferenceFrame;
 use orskit_units::uom::si::{
-    mass::kilogram, moment_of_inertia::kilogram_square_meter, ratio::ratio,
+    angle::radian, length::meter, mass::kilogram, moment_of_inertia::kilogram_square_meter,
+    ratio::ratio,
 };
-use orskit_units::{Mass, MomentOfInertia, Ratio};
+use orskit_units::{
+    Angle, AngularVelocity, AngularVelocityVector, Length, Mass, MomentOfInertia, Ratio,
+};
 use thiserror::Error;
 
-use crate::StateError;
-
-/// Representation-independent physical properties of a spacecraft.
-///
-/// These values are required by every complete [`crate::State`]. Their frame
-/// identities remain explicit and are not inferred from the orbit
-/// representation.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SpacecraftProperties {
-    mass: Mass,
-    orientation: Orientation,
-    inertia: InertiaTensor,
-}
-
-impl SpacecraftProperties {
-    /// Constructs the physical properties shared by every state representation.
-    pub fn new(
-        mass: Mass,
-        orientation: Orientation,
-        inertia: InertiaTensor,
-    ) -> Result<Self, StateError> {
-        let mass_kg = mass.get::<kilogram>();
-        if !mass_kg.is_finite() {
-            return Err(StateError::NonFiniteMass);
-        }
-        if mass_kg <= 0.0 {
-            return Err(StateError::NotPositiveMass);
-        }
-
-        Ok(Self {
-            mass,
-            orientation,
-            inertia,
-        })
-    }
-
-    /// Returns the spacecraft mass.
-    #[must_use]
-    pub const fn mass(&self) -> Mass {
-        self.mass
-    }
-
-    /// Returns the explicit spacecraft orientation.
-    #[must_use]
-    pub const fn orientation(&self) -> &Orientation {
-        &self.orientation
-    }
-
-    /// Returns the explicit framed inertia tensor.
-    #[must_use]
-    pub const fn inertia(&self) -> InertiaTensor {
-        self.inertia
-    }
-}
+use crate::SpacecraftState;
 
 /// A normalized rotation between two explicitly identified frames.
 ///
@@ -72,8 +23,7 @@ pub struct Orientation {
 }
 
 impl Orientation {
-    /// Constructs an orientation from dimensionless quaternion components in
-    /// scalar/i/j/k order. The quaternion is normalized after validation.
+    /// Constructs an orientation from scalar/i/j/k quaternion components.
     pub fn from_quaternion(
         from_frame: ReferenceFrame,
         to_frame: ReferenceFrame,
@@ -126,8 +76,7 @@ impl Orientation {
         self.to_frame
     }
 
-    /// Returns normalized scalar/i/j/k quaternion components as dimensionless
-    /// typed ratios.
+    /// Returns normalized scalar/i/j/k quaternion components.
     #[must_use]
     pub fn quaternion(&self) -> [Ratio; 4] {
         let quaternion = self.rotation.quaternion();
@@ -137,6 +86,160 @@ impl Orientation {
             Ratio::new::<ratio>(quaternion.j),
             Ratio::new::<ratio>(quaternion.k),
         ]
+    }
+
+    /// Returns intrinsic roll/pitch/yaw angles about x/y/z, in that order.
+    ///
+    /// The quaternion remains the canonical representation; these Euler angles
+    /// are a convenience view and inherit the usual pitch singularity.
+    #[must_use]
+    pub fn angles(&self) -> [Angle; 3] {
+        let (roll, pitch, yaw) = self.rotation.euler_angles();
+        [
+            Angle::new::<radian>(roll),
+            Angle::new::<radian>(pitch),
+            Angle::new::<radian>(yaw),
+        ]
+    }
+}
+
+/// Angular velocity expressed in an explicit frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FramedAngularVelocity {
+    value: AngularVelocityVector,
+    frame: ReferenceFrame,
+}
+
+impl FramedAngularVelocity {
+    /// Attaches a frame to a finite angular-velocity vector.
+    pub fn new(value: AngularVelocityVector, frame: ReferenceFrame) -> Result<Self, AttitudeError> {
+        if !value.is_finite() {
+            return Err(AttitudeError::NonFiniteAngularVelocity);
+        }
+        Ok(Self { value, frame })
+    }
+
+    /// Returns the angular-velocity vector.
+    #[must_use]
+    pub const fn value(self) -> AngularVelocityVector {
+        self.value
+    }
+
+    /// Returns the expression frame.
+    #[must_use]
+    pub const fn frame(self) -> ReferenceFrame {
+        self.frame
+    }
+
+    /// Returns angular speeds about x/y/z.
+    #[must_use]
+    pub const fn components(self) -> [AngularVelocity; 3] {
+        self.value.components()
+    }
+}
+
+/// Immutable attitude represented by a quaternion and body angular velocity.
+#[derive(Debug, Clone, PartialEq)]
+pub struct QuaternionAttitude {
+    orientation: Orientation,
+    angular_velocity: FramedAngularVelocity,
+}
+
+impl QuaternionAttitude {
+    /// Constructs an attitude with angular velocity in the orientation's body frame.
+    pub fn new(
+        orientation: Orientation,
+        angular_velocity: FramedAngularVelocity,
+    ) -> Result<Self, AttitudeError> {
+        if orientation.from_frame() != angular_velocity.frame() {
+            return Err(AttitudeError::AngularVelocityFrameMismatch);
+        }
+        Ok(Self {
+            orientation,
+            angular_velocity,
+        })
+    }
+
+    /// Returns the body-to-reference orientation.
+    #[must_use]
+    pub const fn orientation(&self) -> &Orientation {
+        &self.orientation
+    }
+
+    /// Returns angular velocity expressed in the body frame.
+    #[must_use]
+    pub const fn angular_velocity(&self) -> FramedAngularVelocity {
+        self.angular_velocity
+    }
+
+    /// Returns intrinsic roll/pitch/yaw angles about x/y/z.
+    #[must_use]
+    pub fn angles(&self) -> [Angle; 3] {
+        self.orientation.angles()
+    }
+
+    /// Returns angular speeds about body x/y/z.
+    #[must_use]
+    pub const fn angular_speeds(&self) -> [AngularVelocity; 3] {
+        self.angular_velocity.components()
+    }
+}
+
+/// Closed set of supported spacecraft attitude representations.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AttitudeState {
+    /// Quaternion orientation and body angular velocity.
+    Quaternion(QuaternionAttitude),
+}
+
+impl AttitudeState {
+    /// Constructs the current quaternion attitude representation.
+    pub fn new(
+        orientation: Orientation,
+        angular_velocity: FramedAngularVelocity,
+    ) -> Result<Self, AttitudeError> {
+        Ok(Self::Quaternion(QuaternionAttitude::new(
+            orientation,
+            angular_velocity,
+        )?))
+    }
+
+    /// Returns the body-to-reference orientation in any representation.
+    #[must_use]
+    pub const fn orientation(&self) -> &Orientation {
+        match self {
+            Self::Quaternion(attitude) => attitude.orientation(),
+        }
+    }
+
+    /// Returns body angular velocity in any representation.
+    #[must_use]
+    pub const fn angular_velocity(&self) -> FramedAngularVelocity {
+        match self {
+            Self::Quaternion(attitude) => attitude.angular_velocity(),
+        }
+    }
+
+    /// Returns intrinsic roll/pitch/yaw angles about x/y/z.
+    #[must_use]
+    pub fn angles(&self) -> [Angle; 3] {
+        match self {
+            Self::Quaternion(attitude) => attitude.angles(),
+        }
+    }
+
+    /// Returns angular speeds about body x/y/z.
+    #[must_use]
+    pub const fn angular_speeds(&self) -> [AngularVelocity; 3] {
+        match self {
+            Self::Quaternion(attitude) => attitude.angular_speeds(),
+        }
+    }
+}
+
+impl From<QuaternionAttitude> for AttitudeState {
+    fn from(attitude: QuaternionAttitude) -> Self {
+        Self::Quaternion(attitude)
     }
 }
 
@@ -154,10 +257,6 @@ pub struct InertiaTensor {
 
 impl InertiaTensor {
     /// Constructs and validates a symmetric inertia tensor in `frame`.
-    ///
-    /// Arguments are the three diagonal and three unique off-diagonal terms.
-    /// Positive definiteness is checked with Sylvester's criterion. The
-    /// principal moments must also satisfy the rigid-body triangle inequality.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         frame: ReferenceFrame,
@@ -236,6 +335,174 @@ impl InertiaTensor {
     }
 }
 
+/// Time-independent spacecraft identity and geometry.
+///
+/// Epoch-dependent quantities such as orbit, mass, inertia, and attitude
+/// belong to [`SpacecraftView`], not this object.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Spacecraft {
+    id: String,
+    shape: SpacecraftShape,
+}
+
+impl Spacecraft {
+    /// Creates a spacecraft with a stable non-empty identifier and geometry.
+    pub fn new(id: impl Into<String>, shape: SpacecraftShape) -> Result<Self, SpacecraftError> {
+        let id = id.into();
+        if id.trim().is_empty() {
+            return Err(SpacecraftError::EmptyId);
+        }
+        Ok(Self { id, shape })
+    }
+
+    /// Returns the stable spacecraft identifier.
+    #[must_use]
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Returns the time-independent spacecraft geometry.
+    #[must_use]
+    pub const fn shape(&self) -> SpacecraftShape {
+        self.shape
+    }
+}
+
+/// Time-independent spacecraft geometry expressed in body axes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SpacecraftShape {
+    /// Geometry is intentionally unresolved or irrelevant to the calculation.
+    Point,
+    /// Sphere with a strictly positive radius.
+    Sphere { radius: Length },
+    /// Body-axis-aligned cuboid with strictly positive x/y/z dimensions.
+    Cuboid { dimensions: [Length; 3] },
+}
+
+impl SpacecraftShape {
+    /// Constructs a spherical geometry.
+    pub fn sphere(radius: Length) -> Result<Self, ShapeError> {
+        validate_dimension(radius)?;
+        Ok(Self::Sphere { radius })
+    }
+
+    /// Constructs a body-axis-aligned cuboid geometry.
+    pub fn cuboid(dimensions: [Length; 3]) -> Result<Self, ShapeError> {
+        for dimension in dimensions {
+            validate_dimension(dimension)?;
+        }
+        Ok(Self::Cuboid { dimensions })
+    }
+}
+
+fn validate_dimension(dimension: Length) -> Result<(), ShapeError> {
+    let metres = dimension.get::<meter>();
+    if !metres.is_finite() {
+        return Err(ShapeError::NonFiniteDimension);
+    }
+    if metres <= 0.0 {
+        return Err(ShapeError::NotPositiveDimension);
+    }
+    Ok(())
+}
+
+/// Epoch-specific physical view of a time-independent [`Spacecraft`].
+///
+/// The view borrows the spacecraft definition and owns closed orbital and
+/// attitude state enums. It is not generic over any physical representation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpacecraftView<'a> {
+    spacecraft: &'a Spacecraft,
+    epoch: Epoch,
+    mass: Mass,
+    state: SpacecraftState,
+    inertia: InertiaTensor,
+    attitude: AttitudeState,
+}
+
+impl<'a> SpacecraftView<'a> {
+    /// Composes all physical quantities valid at one epoch.
+    pub fn new(
+        spacecraft: &'a Spacecraft,
+        epoch: Epoch,
+        mass: Mass,
+        state: SpacecraftState,
+        inertia: InertiaTensor,
+        attitude: AttitudeState,
+    ) -> Result<Self, SpacecraftViewError> {
+        let mass_kg = mass.get::<kilogram>();
+        if !mass_kg.is_finite() {
+            return Err(SpacecraftViewError::NonFiniteMass);
+        }
+        if mass_kg <= 0.0 {
+            return Err(SpacecraftViewError::NotPositiveMass);
+        }
+        if inertia.frame() != attitude.orientation().from_frame() {
+            return Err(SpacecraftViewError::InertiaFrameMismatch);
+        }
+        Ok(Self {
+            spacecraft,
+            epoch,
+            mass,
+            state,
+            inertia,
+            attitude,
+        })
+    }
+
+    /// Returns the time-independent spacecraft definition.
+    #[must_use]
+    pub const fn spacecraft(&self) -> &'a Spacecraft {
+        self.spacecraft
+    }
+
+    /// Returns the view epoch.
+    #[must_use]
+    pub const fn epoch(&self) -> Epoch {
+        self.epoch
+    }
+
+    /// Returns spacecraft mass at the view epoch.
+    #[must_use]
+    pub const fn mass(&self) -> Mass {
+        self.mass
+    }
+
+    /// Returns the orbital state at the view epoch.
+    #[must_use]
+    pub const fn state(&self) -> SpacecraftState {
+        self.state
+    }
+
+    /// Returns the inertia tensor at the view epoch.
+    #[must_use]
+    pub const fn inertia(&self) -> InertiaTensor {
+        self.inertia
+    }
+
+    /// Returns the attitude at the view epoch.
+    #[must_use]
+    pub const fn attitude(&self) -> &AttitudeState {
+        &self.attitude
+    }
+
+    /// Replaces epoch and orbital state while preserving the other view data.
+    pub fn with_state(
+        self,
+        epoch: Epoch,
+        state: SpacecraftState,
+    ) -> Result<Self, SpacecraftViewError> {
+        Self::new(
+            self.spacecraft,
+            epoch,
+            self.mass,
+            state,
+            self.inertia,
+            self.attitude,
+        )
+    }
+}
+
 /// Invalid orientation input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum OrientationError {
@@ -245,6 +512,17 @@ pub enum OrientationError {
     /// The quaternion has no defined direction.
     #[error("orientation quaternion must have non-zero norm")]
     ZeroNorm,
+}
+
+/// Invalid attitude input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum AttitudeError {
+    /// At least one angular-velocity component is NaN or infinite.
+    #[error("angular-velocity components must be finite")]
+    NonFiniteAngularVelocity,
+    /// Angular velocity is not expressed in the orientation body frame.
+    #[error("angular velocity must be expressed in the attitude body frame")]
+    AngularVelocityFrameMismatch,
 }
 
 /// Invalid inertia tensor input.
@@ -261,64 +539,195 @@ pub enum InertiaError {
     ViolatesTriangleInequality,
 }
 
+/// Invalid time-independent spacecraft input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum SpacecraftError {
+    /// The spacecraft identifier contains no non-whitespace characters.
+    #[error("spacecraft identifier must not be empty")]
+    EmptyId,
+}
+
+/// Invalid time-independent spacecraft geometry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum ShapeError {
+    /// A geometry dimension is NaN or infinite.
+    #[error("spacecraft shape dimensions must be finite")]
+    NonFiniteDimension,
+    /// A geometry dimension is zero or negative.
+    #[error("spacecraft shape dimensions must be strictly positive")]
+    NotPositiveDimension,
+}
+
+/// Invalid epoch-specific spacecraft view input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum SpacecraftViewError {
+    /// Mass is NaN or infinite.
+    #[error("mass must be finite")]
+    NonFiniteMass,
+    /// Mass is zero or negative.
+    #[error("mass must be strictly positive")]
+    NotPositiveMass,
+    /// Inertia is not expressed in the attitude body frame.
+    #[error("inertia tensor must be expressed in the attitude body frame")]
+    InertiaFrameMismatch,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use orskit_frames::{CustomFrameId, FrameOrientation, FrameOrigin};
-    use orskit_units::uom::si::mass::kilogram;
+    use orskit_units::uom::si::{angular_velocity::radian_per_second, velocity::meter_per_second};
+    use orskit_units::{Position, VelocityVector};
 
-    fn body_frame() -> ReferenceFrame {
-        let id = CustomFrameId::new(1);
+    fn body_frame(id: u64) -> ReferenceFrame {
+        let id = CustomFrameId::new(id);
         ReferenceFrame::new(FrameOrigin::Custom(id), FrameOrientation::Custom(id))
     }
 
-    fn physical_parts() -> (Orientation, InertiaTensor) {
-        let body = body_frame();
-        let inertia = InertiaTensor::principal(
+    fn attitude(body: ReferenceFrame) -> AttitudeState {
+        QuaternionAttitude::new(
+            Orientation::identity(body, ReferenceFrame::GCRF),
+            FramedAngularVelocity::new(
+                AngularVelocityVector::from_radians_per_second(0.1, 0.2, 0.3),
+                body,
+            )
+            .expect("finite angular velocity"),
+        )
+        .expect("consistent frames")
+        .into()
+    }
+
+    fn inertia(body: ReferenceFrame) -> InertiaTensor {
+        InertiaTensor::principal(
             body,
             MomentOfInertia::new::<kilogram_square_meter>(1_000.0),
             MomentOfInertia::new::<kilogram_square_meter>(1_200.0),
             MomentOfInertia::new::<kilogram_square_meter>(800.0),
         )
-        .expect("principal moments are physical");
-        let orientation = Orientation::identity(body, ReferenceFrame::ITRF2020);
-        (orientation, inertia)
+        .expect("physical inertia")
     }
 
-    #[test]
-    fn spacecraft_properties_require_positive_mass_and_explicit_rigid_body_data() {
-        let (orientation, inertia) = physical_parts();
-        let properties =
-            SpacecraftProperties::new(Mass::new::<kilogram>(1_000.0), orientation.clone(), inertia)
-                .expect("fixture properties are physical");
-        assert_eq!(properties.mass(), Mass::new::<kilogram>(1_000.0));
-        assert_eq!(properties.orientation(), &orientation);
-        assert_eq!(properties.inertia(), inertia);
-
-        let error = SpacecraftProperties::new(Mass::new::<kilogram>(0.0), orientation, inertia)
-            .expect_err("zero mass is invalid");
-        assert_eq!(error, StateError::NotPositiveMass);
-    }
-
-    #[test]
-    fn quaternion_is_normalized_and_zero_is_rejected() {
-        let from_frame = body_frame();
-        let to_frame = ReferenceFrame::GCRF;
-        let orientation = Orientation::from_quaternion(
-            from_frame,
-            to_frame,
-            Ratio::new::<ratio>(2.0),
-            Ratio::new::<ratio>(0.0),
-            Ratio::new::<ratio>(0.0),
-            Ratio::new::<ratio>(0.0),
+    fn state() -> SpacecraftState {
+        crate::CartesianState::new(
+            ReferenceFrame::GCRF,
+            Position::from_metres(7_000_000.0, 0.0, 0.0),
+            VelocityVector::from_metres_per_second(0.0, 7_500.0, 0.0),
         )
-        .expect("non-zero quaternion is valid");
-        assert_eq!(orientation, Orientation::identity(from_frame, to_frame));
+        .expect("finite state")
+        .into()
+    }
+
+    #[test]
+    fn attitude_exposes_angles_and_angular_speeds() {
+        let body = body_frame(1);
+        let attitude = attitude(body);
+
+        assert_eq!(attitude.angles(), [Angle::new::<radian>(0.0); 3]);
+        assert_eq!(
+            attitude.angular_speeds(),
+            [
+                AngularVelocity::new::<radian_per_second>(0.1),
+                AngularVelocity::new::<radian_per_second>(0.2),
+                AngularVelocity::new::<radian_per_second>(0.3),
+            ]
+        );
+    }
+
+    #[test]
+    fn spacecraft_contains_only_time_independent_identity_and_geometry() {
+        let shape = SpacecraftShape::sphere(Length::new::<meter>(1.5)).expect("valid shape");
+        let spacecraft = Spacecraft::new("SC-001", shape).expect("non-empty id");
+
+        assert_eq!(spacecraft.id(), "SC-001");
+        assert_eq!(spacecraft.shape(), shape);
+        assert_eq!(
+            Spacecraft::new("  ", SpacecraftShape::Point),
+            Err(SpacecraftError::EmptyId)
+        );
+        assert_eq!(
+            SpacecraftShape::sphere(Length::new::<meter>(0.0)),
+            Err(ShapeError::NotPositiveDimension)
+        );
+    }
+
+    #[test]
+    fn spacecraft_view_composes_epoch_dependent_physical_data() {
+        let body = body_frame(1);
+        let spacecraft = Spacecraft::new("SC-001", SpacecraftShape::Point).expect("valid craft");
+        let attitude = attitude(body);
+        let view = SpacecraftView::new(
+            &spacecraft,
+            Epoch::from_tai_seconds(42.0),
+            Mass::new::<kilogram>(500.0),
+            state(),
+            inertia(body),
+            attitude,
+        )
+        .expect("consistent view");
+
+        assert_eq!(view.spacecraft(), &spacecraft);
+        assert_eq!(view.epoch(), Epoch::from_tai_seconds(42.0));
+        assert_eq!(view.mass(), Mass::new::<kilogram>(500.0));
+        assert_eq!(
+            match view.state() {
+                SpacecraftState::Cartesian(state) => state.speed().get::<meter_per_second>(),
+                _ => unreachable!("fixture is Cartesian"),
+            },
+            7_500.0
+        );
+        assert_eq!(view.inertia().frame(), body);
+        assert_eq!(view.attitude().orientation().from_frame(), body);
+    }
+
+    #[test]
+    fn rigid_body_frames_and_mass_are_validated() {
+        let body = body_frame(1);
+        let other = body_frame(2);
+        let spacecraft = Spacecraft::new("SC-001", SpacecraftShape::Point).expect("valid craft");
+        let valid_attitude = attitude(body);
+        assert!(matches!(
+            SpacecraftView::new(
+                &spacecraft,
+                Epoch::from_tai_seconds(0.0),
+                Mass::new::<kilogram>(500.0),
+                state(),
+                inertia(other),
+                valid_attitude.clone(),
+            ),
+            Err(SpacecraftViewError::InertiaFrameMismatch)
+        ));
+        assert!(matches!(
+            SpacecraftView::new(
+                &spacecraft,
+                Epoch::from_tai_seconds(0.0),
+                Mass::new::<kilogram>(0.0),
+                state(),
+                inertia(body),
+                valid_attitude,
+            ),
+            Err(SpacecraftViewError::NotPositiveMass)
+        ));
 
         assert_eq!(
+            AttitudeState::new(
+                Orientation::identity(body, ReferenceFrame::GCRF),
+                FramedAngularVelocity::new(
+                    AngularVelocityVector::from_radians_per_second(0.0, 0.0, 0.0),
+                    other,
+                )
+                .expect("finite angular velocity"),
+            ),
+            Err(AttitudeError::AngularVelocityFrameMismatch)
+        );
+    }
+
+    #[test]
+    fn quaternion_and_inertia_validation_remain_explicit() {
+        let body = body_frame(1);
+        assert_eq!(
             Orientation::from_quaternion(
-                from_frame,
-                to_frame,
+                body,
+                ReferenceFrame::GCRF,
                 Ratio::new::<ratio>(0.0),
                 Ratio::new::<ratio>(0.0),
                 Ratio::new::<ratio>(0.0),
@@ -326,26 +735,9 @@ mod tests {
             ),
             Err(OrientationError::ZeroNorm)
         );
-    }
-
-    #[test]
-    fn non_positive_definite_inertia_is_rejected() {
         assert_eq!(
             InertiaTensor::principal(
-                body_frame(),
-                MomentOfInertia::new::<kilogram_square_meter>(1.0),
-                MomentOfInertia::new::<kilogram_square_meter>(-1.0),
-                MomentOfInertia::new::<kilogram_square_meter>(1.0),
-            ),
-            Err(InertiaError::NotPositiveDefinite)
-        );
-    }
-
-    #[test]
-    fn non_physical_principal_moments_are_rejected() {
-        assert_eq!(
-            InertiaTensor::principal(
-                body_frame(),
+                body,
                 MomentOfInertia::new::<kilogram_square_meter>(1.0),
                 MomentOfInertia::new::<kilogram_square_meter>(1.0),
                 MomentOfInertia::new::<kilogram_square_meter>(3.0),

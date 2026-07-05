@@ -39,7 +39,7 @@ result to Cartesian coordinates for comparison with independent tools.
 | NASA GMAT Mathematical Specifications, 2007 | US Government technical documentation | Elliptic mean/eccentric/true anomaly relations and mean motion | `crates/dynamics/src/two_body.rs` |
 | Orekit 13.1.6 `KeplerianPropagator` public API/black-box output | Public behavior documentation; Apache-2.0 project | Independent propagation output only | reference fixture and comparison test |
 | Lox `Vallado` in `lox-space` 0.1.0-alpha.39 public API/black-box output | Public behavior documentation; MPL-2.0 package | Independent Cartesian propagation output only, with its built-in Earth gravitational parameter recorded explicitly | reference fixture and comparison test |
-| Nyx | Deliberately not consulted under repository policy | No implementation material or output used | comparison slot documented as pending external result |
+| Nyx 2.3.1 public API/black-box output | AGPL-3.0-or-later; validation-only use approved later by the project owner | No implementation material used; later output did not meet the shared Cartesian tolerance | Historical implementation remained independent; later evidence is recorded in task 0010 |
 
 No source, tests, examples, or internal structure are copied from any reference
 implementation.
@@ -65,8 +65,9 @@ implementation.
   state within a stated physical tolerance.
 - Independent reference vectors: one non-circular inclined Earth orbit compared
   in Cartesian metres and metres per second with Orekit and Lox outputs.
-- Differential/scenario tests: offline fixture test; Nyx column remains pending
-  because direct consultation is prohibited by project policy.
+- Differential/scenario tests: offline Orekit and Lox fixture tests. A later,
+  isolated Nyx black-box run is recorded in task 0010 with its failed Cartesian
+  accuracy result; it is not a regression fixture or implementation input.
 - Tolerances and justification: anomaly solver residual at most `1e-13 rad`;
   reference Cartesian tolerance set from observed independent-tool agreement
   plus f64 conversion error and recorded beside the fixture.

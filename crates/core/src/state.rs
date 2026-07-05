@@ -1,23 +1,19 @@
-use std::{f64::consts::PI, fmt};
+use std::f64::consts::{PI, TAU};
 
 use hifitime::Epoch;
-use orskit_frames::ReferenceFrame;
+use orskit_frames::{FrameOrientation, ReferenceFrame};
 use orskit_units::uom::si::{angle::radian, length::meter, ratio::ratio};
 use orskit_units::{
-    Angle, GravitationalParameter, Length, Mass, MomentOfInertia, Position, Ratio, Velocity,
-    VelocityVector,
+    Angle, GravitationalParameter, Length, Position, Ratio, Velocity, VelocityVector,
 };
 use thiserror::Error;
 
-use crate::{
-    CartesianCoordinates, FramedPosition, FramedVelocity, InertiaTensor, KinematicError,
-    Orientation, SpacecraftProperties,
-};
+use crate::{CartesianCoordinates, FramedPosition, FramedVelocity, KinematicError};
 
 /// Coordinates tied to the epoch at which they are valid.
 ///
-/// This is deliberately not a complete [`State`]: formats such as CCSDS OEM
-/// provide an epoch and coordinates, but omit mass, orientation, and inertia.
+/// File formats may provide a timed coordinate sample without the mass,
+/// inertia, and attitude required to construct a [`crate::Spacecraft`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CoordinateSample<C> {
     epoch: Epoch,
@@ -25,7 +21,7 @@ pub struct CoordinateSample<C> {
 }
 
 impl<C> CoordinateSample<C> {
-    /// Associates native representation coordinates with an epoch.
+    /// Associates coordinates with an epoch.
     #[must_use]
     pub const fn new(epoch: Epoch, coordinates: C) -> Self {
         Self { epoch, coordinates }
@@ -37,144 +33,102 @@ impl<C> CoordinateSample<C> {
         self.epoch
     }
 
-    /// Returns the native representation coordinates.
+    /// Returns the sampled coordinates.
     #[must_use]
     pub const fn coordinates(&self) -> &C {
         &self.coordinates
     }
 
-    /// Consumes the sample and returns its native coordinates.
+    /// Consumes the sample and returns its coordinates.
     #[must_use]
     pub fn into_coordinates(self) -> C {
         self.coordinates
     }
 }
 
-/// Representation-aware common contract for complete spacecraft states.
-///
-/// The associated [`State::Coordinates`] type prevents a Keplerian or
-/// equinoctial state from pretending to contain Cartesian position and
-/// velocity. Algorithms that require another representation use
-/// [`StateConversion`] explicitly.
-///
-/// ```
-/// use orskit_core::State;
-///
-/// fn epoch<S: State>(state: &S) -> orskit_core::Epoch {
-///     state.epoch()
-/// }
-/// ```
-pub trait State: fmt::Debug + Send + Sync {
-    /// Native coordinate representation stored by this state.
-    type Coordinates;
-
-    /// Returns the epoch and native coordinates.
-    fn sample(&self) -> &CoordinateSample<Self::Coordinates>;
-
-    /// Returns the representation-independent spacecraft properties.
-    fn properties(&self) -> &SpacecraftProperties;
-
-    /// Returns the state epoch.
-    fn epoch(&self) -> Epoch {
-        self.sample().epoch()
-    }
-
-    /// Returns the native representation coordinates.
-    fn coordinates(&self) -> &Self::Coordinates {
-        self.sample().coordinates()
-    }
-
-    /// Returns the spacecraft mass.
-    fn mass(&self) -> Mass {
-        self.properties().mass()
-    }
-
-    /// Returns the explicit spacecraft orientation.
-    fn orientation(&self) -> &Orientation {
-        self.properties().orientation()
-    }
-
-    /// Returns the framed inertia tensor.
-    fn inertia(&self) -> InertiaTensor {
-        self.properties().inertia()
-    }
-
-    /// Returns the symmetric inertia matrix in the tensor's attached frame.
-    fn inertia_matrix(&self) -> [[MomentOfInertia; 3]; 3] {
-        self.inertia().matrix()
-    }
-}
-
-/// Explicit conversion between complete state representations.
-///
-/// Conversion-specific inputs belong to [`StateConversion::Context`]. For
-/// example, Keplerian-to-Cartesian conversion requires a central-body
-/// gravitational parameter, while Keplerian-to-equinoctial conversion does
-/// not. Conversion never stores that context in either state.
-pub trait StateConversion<Target: State>: State {
-    /// Additional data required only while converting.
-    type Context;
-
-    /// Converts this state into `Target`, preserving epoch and spacecraft
-    /// properties.
-    fn convert(&self, context: Self::Context) -> Result<Target, StateError>;
-}
-
-/// Complete state whose native coordinates are Cartesian.
-#[derive(Debug, Clone, PartialEq)]
+/// Cartesian orbital state `(x, y, z, vx, vy, vz)` in one reference frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CartesianState {
-    sample: CoordinateSample<CartesianCoordinates>,
-    properties: SpacecraftProperties,
+    frame: ReferenceFrame,
+    position: Position,
+    velocity: VelocityVector,
 }
 
 impl CartesianState {
-    /// Enriches a timed Cartesian sample with explicit spacecraft properties.
-    #[must_use]
-    pub const fn new(
-        sample: CoordinateSample<CartesianCoordinates>,
-        properties: SpacecraftProperties,
-    ) -> Self {
-        Self { sample, properties }
+    /// Constructs a finite Cartesian state.
+    pub fn new(
+        frame: ReferenceFrame,
+        position: Position,
+        velocity: VelocityVector,
+    ) -> Result<Self, StateError> {
+        if !position.is_finite() {
+            return Err(StateError::NonFiniteCartesianPosition);
+        }
+        if !velocity.is_finite() {
+            return Err(StateError::NonFiniteCartesianVelocity);
+        }
+        Ok(Self {
+            frame,
+            position,
+            velocity,
+        })
     }
 
-    /// Returns the framed Cartesian position.
+    /// Returns the coordinate frame.
     #[must_use]
-    pub const fn position(&self) -> FramedPosition {
-        self.sample.coordinates.position()
+    pub const fn frame(self) -> ReferenceFrame {
+        self.frame
     }
 
-    /// Returns the framed Cartesian velocity.
+    /// Returns `(x, y, z)`.
     #[must_use]
-    pub const fn velocity(&self) -> FramedVelocity {
-        self.sample.coordinates.velocity()
+    pub const fn position(self) -> Position {
+        self.position
+    }
+
+    /// Returns `(vx, vy, vz)`.
+    #[must_use]
+    pub const fn velocity(self) -> VelocityVector {
+        self.velocity
     }
 
     /// Returns the scalar speed.
     #[must_use]
-    pub fn speed(&self) -> Velocity {
-        self.velocity().speed()
+    pub fn speed(self) -> Velocity {
+        self.velocity.speed()
     }
 }
 
-impl State for CartesianState {
-    type Coordinates = CartesianCoordinates;
+impl TryFrom<CartesianCoordinates> for CartesianState {
+    type Error = StateError;
 
-    fn sample(&self) -> &CoordinateSample<Self::Coordinates> {
-        &self.sample
-    }
-
-    fn properties(&self) -> &SpacecraftProperties {
-        &self.properties
+    fn try_from(coordinates: CartesianCoordinates) -> Result<Self, Self::Error> {
+        let position = coordinates.position();
+        let velocity = coordinates.velocity();
+        if position.frame() != velocity.frame() {
+            return Err(StateError::MismatchedCartesianFrames);
+        }
+        Self::new(position.frame(), position.value(), velocity.value())
     }
 }
 
-/// Elliptic osculating Keplerian coordinates.
+impl From<CartesianState> for CartesianCoordinates {
+    fn from(state: CartesianState) -> Self {
+        Self::new(
+            FramedPosition::new(state.position, state.frame)
+                .expect("CartesianState guarantees finite position"),
+            FramedVelocity::new(state.velocity, state.frame)
+                .expect("CartesianState guarantees finite velocity"),
+        )
+    }
+}
+
+/// Elliptic osculating Keplerian state `(a, e, i, Omega, omega, nu)`.
 ///
-/// Angles are inclination `i`, right ascension of the ascending node `Omega`,
-/// argument of periapsis `omega`, and true anomaly `nu`. The supported regime
-/// is `a > 0` and `0 <= e < 1`.
+/// The supported regime is `a > 0` and `0 <= e < 1`. All angles are typed
+/// quantities; `nu` is true anomaly.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct KeplerianCoordinates {
+pub struct KeplerianState {
     frame: ReferenceFrame,
     semi_major_axis: Length,
     eccentricity: Ratio,
@@ -184,8 +138,8 @@ pub struct KeplerianCoordinates {
     true_anomaly: Angle,
 }
 
-impl KeplerianCoordinates {
-    /// Constructs and validates elliptic osculating Keplerian coordinates.
+impl KeplerianState {
+    /// Constructs and validates an elliptic osculating Keplerian state.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         frame: ReferenceFrame,
@@ -221,37 +175,37 @@ impl KeplerianCoordinates {
         self.frame
     }
 
-    /// Returns the semi-major axis.
+    /// Returns `a`.
     #[must_use]
     pub const fn semi_major_axis(self) -> Length {
         self.semi_major_axis
     }
 
-    /// Returns the eccentricity.
+    /// Returns `e`.
     #[must_use]
     pub const fn eccentricity(self) -> Ratio {
         self.eccentricity
     }
 
-    /// Returns the inclination.
+    /// Returns `i`.
     #[must_use]
     pub const fn inclination(self) -> Angle {
         self.inclination
     }
 
-    /// Returns the right ascension of the ascending node.
+    /// Returns `Omega`.
     #[must_use]
     pub const fn right_ascension_of_ascending_node(self) -> Angle {
         self.right_ascension_of_ascending_node
     }
 
-    /// Returns the argument of periapsis.
+    /// Returns `omega`.
     #[must_use]
     pub const fn argument_of_periapsis(self) -> Angle {
         self.argument_of_periapsis
     }
 
-    /// Returns the true anomaly.
+    /// Returns `nu`.
     #[must_use]
     pub const fn true_anomaly(self) -> Angle {
         self.true_anomaly
@@ -269,44 +223,13 @@ impl KeplerianCoordinates {
     }
 }
 
-/// Complete state whose native coordinates are Keplerian.
-#[derive(Debug, Clone, PartialEq)]
-pub struct KeplerianState {
-    sample: CoordinateSample<KeplerianCoordinates>,
-    properties: SpacecraftProperties,
-}
-
-impl KeplerianState {
-    /// Enriches a validated timed Keplerian sample with spacecraft properties.
-    #[must_use]
-    pub const fn new(
-        sample: CoordinateSample<KeplerianCoordinates>,
-        properties: SpacecraftProperties,
-    ) -> Self {
-        Self { sample, properties }
-    }
-}
-
-impl State for KeplerianState {
-    type Coordinates = KeplerianCoordinates;
-
-    fn sample(&self) -> &CoordinateSample<Self::Coordinates> {
-        &self.sample
-    }
-
-    fn properties(&self) -> &SpacecraftProperties {
-        &self.properties
-    }
-}
-
-/// Elliptic equinoctial coordinates `(a, ex, ey, hx, hy, lv)`.
+/// Elliptic equinoctial state `(a, ex, ey, hx, hy, lv)`.
 ///
 /// Definitions are `ex=e cos(omega+Omega)`, `ey=e sin(omega+Omega)`,
 /// `hx=tan(i/2) cos(Omega)`, `hy=tan(i/2) sin(Omega)`, and
-/// `lv=nu+omega+Omega`. Circular and equatorial elliptic orbits remain
-/// nonsingular; the exactly retrograde equatorial case is singular.
+/// `lv=nu+omega+Omega`.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct EquinoctialCoordinates {
+pub struct EquinoctialState {
     frame: ReferenceFrame,
     semi_major_axis: Length,
     eccentricity_x: Ratio,
@@ -316,8 +239,8 @@ pub struct EquinoctialCoordinates {
     true_longitude: Angle,
 }
 
-impl EquinoctialCoordinates {
-    /// Constructs and validates elliptic equinoctial coordinates.
+impl EquinoctialState {
+    /// Constructs and validates an elliptic equinoctial state.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         frame: ReferenceFrame,
@@ -354,7 +277,7 @@ impl EquinoctialCoordinates {
         self.frame
     }
 
-    /// Returns the semi-major axis.
+    /// Returns `a`.
     #[must_use]
     pub const fn semi_major_axis(self) -> Length {
         self.semi_major_axis
@@ -384,136 +307,306 @@ impl EquinoctialCoordinates {
         self.inclination_y
     }
 
-    /// Returns the true longitude argument `lv`.
+    /// Returns `lv`.
     #[must_use]
     pub const fn true_longitude(self) -> Angle {
         self.true_longitude
     }
 }
 
-/// Complete state whose native coordinates are equinoctial.
-#[derive(Debug, Clone, PartialEq)]
-pub struct EquinoctialState {
-    sample: CoordinateSample<EquinoctialCoordinates>,
-    properties: SpacecraftProperties,
+/// The closed set of currently supported six-element spacecraft states.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SpacecraftState {
+    /// Cartesian `(x, y, z, vx, vy, vz)` state.
+    Cartesian(CartesianState),
+    /// Keplerian `(a, e, i, Omega, omega, nu)` state.
+    Keplerian(KeplerianState),
+    /// Equinoctial `(a, ex, ey, hx, hy, lv)` state.
+    Equinoctial(EquinoctialState),
 }
 
-impl EquinoctialState {
-    /// Enriches a validated timed equinoctial sample with spacecraft properties.
+impl SpacecraftState {
+    /// Returns the frame shared by the six elements.
     #[must_use]
-    pub const fn new(
-        sample: CoordinateSample<EquinoctialCoordinates>,
-        properties: SpacecraftProperties,
-    ) -> Self {
-        Self { sample, properties }
-    }
-}
-
-impl State for EquinoctialState {
-    type Coordinates = EquinoctialCoordinates;
-
-    fn sample(&self) -> &CoordinateSample<Self::Coordinates> {
-        &self.sample
-    }
-
-    fn properties(&self) -> &SpacecraftProperties {
-        &self.properties
-    }
-}
-
-impl StateConversion<CartesianState> for KeplerianState {
-    type Context = GravitationalParameter;
-
-    fn convert(
-        &self,
-        gravitational_parameter: Self::Context,
-    ) -> Result<CartesianState, StateError> {
-        let coordinates = cartesian_from_keplerian(
-            gravitational_parameter,
-            self.sample.coordinates.validated()?,
-            self.sample.coordinates.frame,
-        )?;
-        Ok(CartesianState::new(
-            CoordinateSample::new(self.epoch(), coordinates),
-            self.properties.clone(),
-        ))
-    }
-}
-
-impl StateConversion<EquinoctialState> for KeplerianState {
-    type Context = ();
-
-    fn convert(&self, (): Self::Context) -> Result<EquinoctialState, StateError> {
-        let coordinates = self.sample.coordinates;
-        let e = coordinates.eccentricity.get::<ratio>();
-        let i = coordinates.inclination.get::<radian>();
-        if (PI - i).abs() <= 16.0 * f64::EPSILON {
-            return Err(StateError::RetrogradeEquinoctialSingularity);
+    pub const fn frame(self) -> ReferenceFrame {
+        match self {
+            Self::Cartesian(state) => state.frame(),
+            Self::Keplerian(state) => state.frame(),
+            Self::Equinoctial(state) => state.frame(),
         }
-        let raan = coordinates
-            .right_ascension_of_ascending_node
-            .get::<radian>();
-        let periapsis = coordinates.argument_of_periapsis.get::<radian>();
-        let anomaly = coordinates.true_anomaly.get::<radian>();
-        let longitude_of_periapsis = periapsis + raan;
-        let inclination_scale = (i / 2.0).tan();
-        let target = EquinoctialCoordinates::new(
-            coordinates.frame,
-            coordinates.semi_major_axis,
-            Ratio::new::<ratio>(e * longitude_of_periapsis.cos()),
-            Ratio::new::<ratio>(e * longitude_of_periapsis.sin()),
-            Ratio::new::<ratio>(inclination_scale * raan.cos()),
-            Ratio::new::<ratio>(inclination_scale * raan.sin()),
-            Angle::new::<radian>(anomaly + longitude_of_periapsis),
-        )?;
-        Ok(EquinoctialState::new(
-            CoordinateSample::new(self.epoch(), target),
-            self.properties.clone(),
-        ))
     }
 }
 
-impl StateConversion<KeplerianState> for EquinoctialState {
-    type Context = ();
-
-    fn convert(&self, (): Self::Context) -> Result<KeplerianState, StateError> {
-        let source = self.sample.coordinates;
-        let ex = source.eccentricity_x.get::<ratio>();
-        let ey = source.eccentricity_y.get::<ratio>();
-        let hx = source.inclination_x.get::<ratio>();
-        let hy = source.inclination_y.get::<ratio>();
-        let longitude_of_periapsis = ey.atan2(ex);
-        let raan = hy.atan2(hx);
-        let target = KeplerianCoordinates::new(
-            source.frame,
-            source.semi_major_axis,
-            Ratio::new::<ratio>(ex.hypot(ey)),
-            Angle::new::<radian>(2.0 * hx.hypot(hy).atan()),
-            Angle::new::<radian>(raan),
-            Angle::new::<radian>(longitude_of_periapsis - raan),
-            Angle::new::<radian>(source.true_longitude.get::<radian>() - longitude_of_periapsis),
-        )?;
-        Ok(KeplerianState::new(
-            CoordinateSample::new(self.epoch(), target),
-            self.properties.clone(),
-        ))
+impl From<CartesianState> for SpacecraftState {
+    fn from(state: CartesianState) -> Self {
+        Self::Cartesian(state)
     }
 }
 
-impl StateConversion<CartesianState> for EquinoctialState {
-    type Context = GravitationalParameter;
+impl From<KeplerianState> for SpacecraftState {
+    fn from(state: KeplerianState) -> Self {
+        Self::Keplerian(state)
+    }
+}
 
-    fn convert(
-        &self,
-        gravitational_parameter: Self::Context,
-    ) -> Result<CartesianState, StateError> {
-        let keplerian: KeplerianState =
-            <Self as StateConversion<KeplerianState>>::convert(self, ())?;
-        <KeplerianState as StateConversion<CartesianState>>::convert(
-            &keplerian,
+impl From<EquinoctialState> for SpacecraftState {
+    fn from(state: EquinoctialState) -> Self {
+        Self::Equinoctial(state)
+    }
+}
+
+/// Source-side counterpart to [`From`].
+///
+/// This blanket implementation makes `value.to()` equivalent to
+/// `Target::from(value)` while retaining target inference.
+pub trait To<Target>: Sized {
+    /// Performs an infallible conversion.
+    fn to(self) -> Target;
+}
+
+impl<Source, Target> To<Target> for Source
+where
+    Target: From<Source>,
+{
+    fn to(self) -> Target {
+        Target::from(self)
+    }
+}
+
+/// A state plus the explicit context needed to change representation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OrbitalConversion<Source> {
+    source: Source,
+    gravitational_parameter: GravitationalParameter,
+}
+
+impl<Source> OrbitalConversion<Source> {
+    /// Supplies a source state and central-body gravitational parameter.
+    #[must_use]
+    pub const fn new(source: Source, gravitational_parameter: GravitationalParameter) -> Self {
+        Self {
+            source,
             gravitational_parameter,
+        }
+    }
+
+    /// Returns the source state.
+    #[must_use]
+    pub const fn source(&self) -> &Source {
+        &self.source
+    }
+
+    /// Returns the conversion gravitational parameter.
+    #[must_use]
+    pub const fn gravitational_parameter(&self) -> GravitationalParameter {
+        self.gravitational_parameter
+    }
+}
+
+/// Source-side counterpart to [`TryFrom`] for orbital representations.
+pub trait TryTo<Target>: Sized {
+    /// Performs a fallible representation conversion with explicit gravity.
+    fn try_to(self, gravitational_parameter: GravitationalParameter) -> Result<Target, StateError>;
+}
+
+impl<Source, Target> TryTo<Target> for Source
+where
+    Target: TryFrom<OrbitalConversion<Source>, Error = StateError>,
+{
+    fn try_to(self, gravitational_parameter: GravitationalParameter) -> Result<Target, StateError> {
+        Target::try_from(OrbitalConversion::new(self, gravitational_parameter))
+    }
+}
+
+/// Common access to every supported orbital representation.
+///
+/// Implementors do not cache all representations. Each accessor converts from
+/// the native six elements using the supplied central-body gravity.
+pub trait OrbitalElements: Copy {
+    /// Provides Cartesian elements.
+    fn cartesian(
+        self,
+        gravitational_parameter: GravitationalParameter,
+    ) -> Result<CartesianState, StateError>;
+
+    /// Provides Keplerian elements.
+    fn keplerian(
+        self,
+        gravitational_parameter: GravitationalParameter,
+    ) -> Result<KeplerianState, StateError>;
+
+    /// Provides equinoctial elements.
+    fn equinoctial(
+        self,
+        gravitational_parameter: GravitationalParameter,
+    ) -> Result<EquinoctialState, StateError>;
+}
+
+impl<Source> OrbitalElements for Source
+where
+    Source: Copy + TryTo<CartesianState> + TryTo<KeplerianState> + TryTo<EquinoctialState>,
+{
+    fn cartesian(
+        self,
+        gravitational_parameter: GravitationalParameter,
+    ) -> Result<CartesianState, StateError> {
+        TryTo::<CartesianState>::try_to(self, gravitational_parameter)
+    }
+
+    fn keplerian(
+        self,
+        gravitational_parameter: GravitationalParameter,
+    ) -> Result<KeplerianState, StateError> {
+        TryTo::<KeplerianState>::try_to(self, gravitational_parameter)
+    }
+
+    fn equinoctial(
+        self,
+        gravitational_parameter: GravitationalParameter,
+    ) -> Result<EquinoctialState, StateError> {
+        TryTo::<EquinoctialState>::try_to(self, gravitational_parameter)
+    }
+}
+
+macro_rules! identity_try_from {
+    ($state:ty) => {
+        impl TryFrom<OrbitalConversion<$state>> for $state {
+            type Error = StateError;
+
+            fn try_from(conversion: OrbitalConversion<$state>) -> Result<Self, Self::Error> {
+                Ok(conversion.source)
+            }
+        }
+    };
+}
+
+identity_try_from!(CartesianState);
+identity_try_from!(KeplerianState);
+identity_try_from!(EquinoctialState);
+
+impl TryFrom<OrbitalConversion<CartesianState>> for KeplerianState {
+    type Error = StateError;
+
+    fn try_from(conversion: OrbitalConversion<CartesianState>) -> Result<Self, Self::Error> {
+        keplerian_from_cartesian(conversion.gravitational_parameter, conversion.source)
+    }
+}
+
+impl TryFrom<OrbitalConversion<CartesianState>> for EquinoctialState {
+    type Error = StateError;
+
+    fn try_from(conversion: OrbitalConversion<CartesianState>) -> Result<Self, Self::Error> {
+        let keplerian = KeplerianState::try_from(conversion)?;
+        keplerian_to_equinoctial(keplerian)
+    }
+}
+
+impl TryFrom<OrbitalConversion<KeplerianState>> for CartesianState {
+    type Error = StateError;
+
+    fn try_from(conversion: OrbitalConversion<KeplerianState>) -> Result<Self, Self::Error> {
+        cartesian_from_keplerian(
+            conversion.gravitational_parameter,
+            conversion.source.validated()?,
+            conversion.source.frame,
         )
     }
+}
+
+impl TryFrom<OrbitalConversion<KeplerianState>> for EquinoctialState {
+    type Error = StateError;
+
+    fn try_from(conversion: OrbitalConversion<KeplerianState>) -> Result<Self, Self::Error> {
+        keplerian_to_equinoctial(conversion.source)
+    }
+}
+
+impl TryFrom<OrbitalConversion<EquinoctialState>> for KeplerianState {
+    type Error = StateError;
+
+    fn try_from(conversion: OrbitalConversion<EquinoctialState>) -> Result<Self, Self::Error> {
+        equinoctial_to_keplerian(conversion.source)
+    }
+}
+
+impl TryFrom<OrbitalConversion<EquinoctialState>> for CartesianState {
+    type Error = StateError;
+
+    fn try_from(conversion: OrbitalConversion<EquinoctialState>) -> Result<Self, Self::Error> {
+        let keplerian = equinoctial_to_keplerian(conversion.source)?;
+        CartesianState::try_from(OrbitalConversion::new(
+            keplerian,
+            conversion.gravitational_parameter,
+        ))
+    }
+}
+
+macro_rules! enum_try_from {
+    ($target:ty, $method:ident) => {
+        impl TryFrom<OrbitalConversion<SpacecraftState>> for $target {
+            type Error = StateError;
+
+            fn try_from(
+                conversion: OrbitalConversion<SpacecraftState>,
+            ) -> Result<Self, Self::Error> {
+                match conversion.source {
+                    SpacecraftState::Cartesian(state) => {
+                        state.$method(conversion.gravitational_parameter)
+                    }
+                    SpacecraftState::Keplerian(state) => {
+                        state.$method(conversion.gravitational_parameter)
+                    }
+                    SpacecraftState::Equinoctial(state) => {
+                        state.$method(conversion.gravitational_parameter)
+                    }
+                }
+            }
+        }
+    };
+}
+
+enum_try_from!(CartesianState, cartesian);
+enum_try_from!(KeplerianState, keplerian);
+enum_try_from!(EquinoctialState, equinoctial);
+
+fn keplerian_to_equinoctial(source: KeplerianState) -> Result<EquinoctialState, StateError> {
+    let e = source.eccentricity.get::<ratio>();
+    let i = source.inclination.get::<radian>();
+    if (PI - i).abs() <= 16.0 * f64::EPSILON {
+        return Err(StateError::RetrogradeEquinoctialSingularity);
+    }
+    let raan = source.right_ascension_of_ascending_node.get::<radian>();
+    let periapsis = source.argument_of_periapsis.get::<radian>();
+    let anomaly = source.true_anomaly.get::<radian>();
+    let longitude_of_periapsis = periapsis + raan;
+    let inclination_scale = (i / 2.0).tan();
+    EquinoctialState::new(
+        source.frame,
+        source.semi_major_axis,
+        Ratio::new::<ratio>(e * longitude_of_periapsis.cos()),
+        Ratio::new::<ratio>(e * longitude_of_periapsis.sin()),
+        Ratio::new::<ratio>(inclination_scale * raan.cos()),
+        Ratio::new::<ratio>(inclination_scale * raan.sin()),
+        Angle::new::<radian>(anomaly + longitude_of_periapsis),
+    )
+}
+
+fn equinoctial_to_keplerian(source: EquinoctialState) -> Result<KeplerianState, StateError> {
+    let ex = source.eccentricity_x.get::<ratio>();
+    let ey = source.eccentricity_y.get::<ratio>();
+    let hx = source.inclination_x.get::<ratio>();
+    let hy = source.inclination_y.get::<ratio>();
+    let longitude_of_periapsis = ey.atan2(ex);
+    let raan = hy.atan2(hx);
+    KeplerianState::new(
+        source.frame,
+        source.semi_major_axis,
+        Ratio::new::<ratio>(ex.hypot(ey)),
+        Angle::new::<radian>(2.0 * hx.hypot(hy).atan()),
+        Angle::new::<radian>(raan),
+        Angle::new::<radian>(longitude_of_periapsis - raan),
+        Angle::new::<radian>(source.true_longitude.get::<radian>() - longitude_of_periapsis),
+    )
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -565,7 +658,7 @@ fn cartesian_from_keplerian(
     gravitational_parameter: GravitationalParameter,
     elements: ValidatedKeplerian,
     frame: ReferenceFrame,
-) -> Result<CartesianCoordinates, StateError> {
+) -> Result<CartesianState, StateError> {
     let e = elements.eccentricity;
     let nu = elements.true_anomaly_rad;
     let p = elements.semi_major_axis_m * (1.0 - e * e);
@@ -593,16 +686,132 @@ fn cartesian_from_keplerian(
     ];
     let position = rotate(rotation, position_perifocal);
     let velocity = rotate(rotation, velocity_perifocal);
-    Ok(CartesianCoordinates::new(
-        FramedPosition::new(
-            Position::from_metres(position[0], position[1], position[2]),
-            frame,
-        )?,
-        FramedVelocity::new(
-            VelocityVector::from_metres_per_second(velocity[0], velocity[1], velocity[2]),
-            frame,
-        )?,
-    ))
+    CartesianState::new(
+        frame,
+        Position::from_metres(position[0], position[1], position[2]),
+        VelocityVector::from_metres_per_second(velocity[0], velocity[1], velocity[2]),
+    )
+}
+
+fn keplerian_from_cartesian(
+    gravitational_parameter: GravitationalParameter,
+    state: CartesianState,
+) -> Result<KeplerianState, StateError> {
+    if is_known_non_inertial(state.frame.orientation()) {
+        return Err(StateError::NonInertialCartesianFrame);
+    }
+
+    let position_m = state.position.to_metres();
+    let velocity_m_s = state.velocity.to_metres_per_second();
+    let radius = norm(position_m);
+    let speed = norm(velocity_m_s);
+    if radius == 0.0 || speed == 0.0 {
+        return Err(StateError::DegenerateCartesianOrbit);
+    }
+
+    let angular_momentum = cross(position_m, velocity_m_s);
+    let angular_momentum_norm = norm(angular_momentum);
+    if angular_momentum_norm <= 64.0 * f64::EPSILON * radius * speed {
+        return Err(StateError::DegenerateCartesianOrbit);
+    }
+
+    let mu = gravitational_parameter.as_cubic_metres_per_second_squared();
+    let velocity_cross_momentum = cross(velocity_m_s, angular_momentum);
+    let eccentricity_vector = subtract(
+        scale(velocity_cross_momentum, 1.0 / mu),
+        scale(position_m, 1.0 / radius),
+    );
+    let eccentricity = norm(eccentricity_vector);
+    let specific_energy = 0.5 * dot(velocity_m_s, velocity_m_s) - mu / radius;
+    if !specific_energy.is_finite() || specific_energy >= 0.0 || eccentricity >= 1.0 {
+        return Err(StateError::NonEllipticCartesianOrbit);
+    }
+
+    let semi_major_axis = -mu / (2.0 * specific_energy);
+    let inclination = (angular_momentum[2] / angular_momentum_norm)
+        .clamp(-1.0, 1.0)
+        .acos();
+    let node = [-angular_momentum[1], angular_momentum[0], 0.0];
+    let node_norm = norm(node);
+    let equatorial = node_norm <= 64.0 * f64::EPSILON * angular_momentum_norm;
+    let circular = eccentricity <= 64.0 * f64::EPSILON;
+    let raan = if equatorial {
+        0.0
+    } else {
+        node[1].atan2(node[0]).rem_euclid(TAU)
+    };
+
+    let (argument_of_periapsis, true_anomaly) = match (circular, equatorial) {
+        (false, false) => (
+            oriented_angle(node, eccentricity_vector, angular_momentum),
+            oriented_angle(eccentricity_vector, position_m, angular_momentum),
+        ),
+        (false, true) => (
+            (angular_momentum[2].signum() * eccentricity_vector[1])
+                .atan2(eccentricity_vector[0])
+                .rem_euclid(TAU),
+            oriented_angle(eccentricity_vector, position_m, angular_momentum),
+        ),
+        (true, false) => (0.0, oriented_angle(node, position_m, angular_momentum)),
+        (true, true) => (
+            0.0,
+            (angular_momentum[2].signum() * position_m[1])
+                .atan2(position_m[0])
+                .rem_euclid(TAU),
+        ),
+    };
+
+    KeplerianState::new(
+        state.frame,
+        Length::new::<meter>(semi_major_axis),
+        Ratio::new::<ratio>(if circular { 0.0 } else { eccentricity }),
+        Angle::new::<radian>(inclination),
+        Angle::new::<radian>(raan),
+        Angle::new::<radian>(argument_of_periapsis),
+        Angle::new::<radian>(true_anomaly),
+    )
+}
+
+fn dot(left: [f64; 3], right: [f64; 3]) -> f64 {
+    left[0].mul_add(right[0], left[1].mul_add(right[1], left[2] * right[2]))
+}
+
+fn cross(left: [f64; 3], right: [f64; 3]) -> [f64; 3] {
+    [
+        left[1].mul_add(right[2], -left[2] * right[1]),
+        left[2].mul_add(right[0], -left[0] * right[2]),
+        left[0].mul_add(right[1], -left[1] * right[0]),
+    ]
+}
+
+fn norm(vector: [f64; 3]) -> f64 {
+    dot(vector, vector).sqrt()
+}
+
+fn scale(vector: [f64; 3], factor: f64) -> [f64; 3] {
+    vector.map(|component| component * factor)
+}
+
+fn subtract(left: [f64; 3], right: [f64; 3]) -> [f64; 3] {
+    std::array::from_fn(|index| left[index] - right[index])
+}
+
+fn oriented_angle(from: [f64; 3], to: [f64; 3], normal: [f64; 3]) -> f64 {
+    let denominator = norm(from) * norm(to);
+    let cosine = (dot(from, to) / denominator).clamp(-1.0, 1.0);
+    let sine = dot(cross(from, to), normal) / (denominator * norm(normal));
+    sine.atan2(cosine).rem_euclid(TAU)
+}
+
+fn is_known_non_inertial(orientation: FrameOrientation) -> bool {
+    matches!(
+        orientation,
+        FrameOrientation::Itrf(_)
+            | FrameOrientation::Teme
+            | FrameOrientation::Mod
+            | FrameOrientation::Tod
+            | FrameOrientation::Gtod
+    )
 }
 
 fn rotate(matrix: [[f64; 3]; 3], vector: [f64; 3]) -> [f64; 3] {
@@ -640,15 +849,15 @@ fn finite_angle(value: Angle, element: &'static str) -> Result<f64, StateError> 
     }
 }
 
-/// Invalid complete-state, coordinate, or conversion input.
+/// Invalid orbital state or representation conversion input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum StateError {
-    /// Mass is NaN or infinite.
-    #[error("mass must be finite")]
-    NonFiniteMass,
-    /// Mass is zero or negative.
-    #[error("mass must be strictly positive")]
-    NotPositiveMass,
+    /// A Cartesian position component is NaN or infinite.
+    #[error("Cartesian position components must be finite")]
+    NonFiniteCartesianPosition,
+    /// A Cartesian velocity component is NaN or infinite.
+    #[error("Cartesian velocity components must be finite")]
+    NonFiniteCartesianVelocity,
     /// A named orbital element is NaN or infinite.
     #[error("{element} must be finite")]
     NonFiniteElement {
@@ -667,7 +876,19 @@ pub enum StateError {
     /// The selected equinoctial convention is singular at exactly 180 degrees.
     #[error("equinoctial hx/hy are singular for inclination pi radians")]
     RetrogradeEquinoctialSingularity,
-    /// Derived Cartesian coordinates failed finite-value validation.
+    /// Cartesian position and velocity use different frames.
+    #[error("Cartesian position and velocity frames must match")]
+    MismatchedCartesianFrames,
+    /// A rotating or date-dependent frame cannot define osculating elements directly.
+    #[error("Cartesian orbital-element conversion requires inertial axes")]
+    NonInertialCartesianFrame,
+    /// Cartesian state does not define a stable osculating orbital plane.
+    #[error("Cartesian state is degenerate for orbital-element conversion")]
+    DegenerateCartesianOrbit,
+    /// This conversion slice supports bound elliptic Cartesian states only.
+    #[error("Cartesian state must describe a bound elliptic orbit")]
+    NonEllipticCartesianOrbit,
+    /// Coordinate adaptation failed finite-value validation.
     #[error(transparent)]
     DerivedKinematics(#[from] KinematicError),
 }
@@ -675,38 +896,15 @@ pub enum StateError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orskit_frames::{CustomFrameId, FrameOrientation, FrameOrigin};
-    use orskit_units::uom::si::{
-        mass::kilogram, moment_of_inertia::kilogram_square_meter, velocity::meter_per_second,
-    };
-
-    fn properties() -> SpacecraftProperties {
-        let id = CustomFrameId::new(1);
-        let body = ReferenceFrame::new(FrameOrigin::Custom(id), FrameOrientation::Custom(id));
-        let orientation = Orientation::identity(body, ReferenceFrame::GCRF);
-        let inertia = InertiaTensor::principal(
-            body,
-            MomentOfInertia::new::<kilogram_square_meter>(1_000.0),
-            MomentOfInertia::new::<kilogram_square_meter>(1_200.0),
-            MomentOfInertia::new::<kilogram_square_meter>(800.0),
-        )
-        .expect("fixture inertia is physical");
-        SpacecraftProperties::new(Mass::new::<kilogram>(500.0), orientation, inertia)
-            .expect("fixture properties are physical")
-    }
+    use orskit_units::uom::si::velocity::meter_per_second;
 
     fn earth_mu() -> GravitationalParameter {
         GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)
             .expect("Earth gravitational parameter is positive")
     }
 
-    fn keplerian_coordinates(
-        inclination: f64,
-        raan: f64,
-        periapsis: f64,
-        anomaly: f64,
-    ) -> KeplerianCoordinates {
-        KeplerianCoordinates::new(
+    fn keplerian(inclination: f64, raan: f64, periapsis: f64, anomaly: f64) -> KeplerianState {
+        KeplerianState::new(
             ReferenceFrame::GCRF,
             Length::new::<meter>(7_000_000.0),
             Ratio::new::<ratio>(0.0),
@@ -715,7 +913,7 @@ mod tests {
             Angle::new::<radian>(periapsis),
             Angle::new::<radian>(anomaly),
         )
-        .expect("fixture coordinates are valid")
+        .expect("fixture state is valid")
     }
 
     fn assert_vector_close(actual: [f64; 3], expected: [f64; 3], tolerance: f64) {
@@ -728,58 +926,87 @@ mod tests {
     }
 
     #[test]
-    fn state_trait_keeps_native_coordinates() {
-        let coordinates = keplerian_coordinates(0.2, 0.3, 0.4, 0.5);
-        let state = KeplerianState::new(
-            CoordinateSample::new(Epoch::from_tai_seconds(1.0), coordinates),
-            properties(),
-        );
+    fn from_and_to_wrap_all_concrete_states() {
+        let cartesian = CartesianState::new(
+            ReferenceFrame::GCRF,
+            Position::from_metres(7_000_000.0, 0.0, 0.0),
+            VelocityVector::from_metres_per_second(0.0, 7_500.0, 0.0),
+        )
+        .expect("finite state");
+        let keplerian = keplerian(0.2, 0.3, 0.4, 0.5);
+        let equinoctial = keplerian.equinoctial(earth_mu()).expect("convertible");
 
-        assert_eq!(state.epoch(), Epoch::from_tai_seconds(1.0));
-        assert_eq!(state.coordinates(), &coordinates);
-        assert_eq!(state.mass(), Mass::new::<kilogram>(500.0));
+        assert_eq!(SpacecraftState::from(cartesian), cartesian.to());
+        assert_eq!(SpacecraftState::from(keplerian), keplerian.to());
+        assert_eq!(SpacecraftState::from(equinoctial), equinoctial.to());
     }
 
     #[test]
-    fn keplerian_state_has_no_gravity_or_cartesian_dependency() {
-        let state = KeplerianState::new(
-            CoordinateSample::new(
-                Epoch::from_tai_seconds(0.0),
-                keplerian_coordinates(0.0, 0.0, 0.0, 0.0),
-            ),
-            properties(),
-        );
+    fn try_from_try_to_and_orbital_elements_cover_every_pair() {
+        let source = KeplerianState::new(
+            ReferenceFrame::GCRF,
+            Length::new::<meter>(7_200_000.0),
+            Ratio::new::<ratio>(0.1),
+            Angle::new::<radian>(0.7),
+            Angle::new::<radian>(1.1),
+            Angle::new::<radian>(0.4),
+            Angle::new::<radian>(2.0),
+        )
+        .expect("elliptic state");
+        let via_try_from = CartesianState::try_from(OrbitalConversion::new(source, earth_mu()))
+            .expect("TryFrom conversion");
+        let via_try_to: CartesianState = source.try_to(earth_mu()).expect("TryTo conversion");
+        let equinoctial = source.equinoctial(earth_mu()).expect("trait conversion");
+        let enum_state: SpacecraftState = equinoctial.to();
+        let recovered = enum_state.keplerian(earth_mu()).expect("enum conversion");
+        let recovered_cartesian = recovered.cartesian(earth_mu()).expect("conversion");
 
-        assert_eq!(
-            state.coordinates().semi_major_axis(),
-            Length::new::<meter>(7_000_000.0)
+        let concrete_cartesian = via_try_to;
+        let concrete_keplerian = source;
+        let concrete_equinoctial = equinoctial;
+        let _: CartesianState = concrete_cartesian.try_to(earth_mu()).expect("C to C");
+        let _: KeplerianState = concrete_cartesian.try_to(earth_mu()).expect("C to K");
+        let _: EquinoctialState = concrete_cartesian.try_to(earth_mu()).expect("C to E");
+        let _: CartesianState = concrete_keplerian.try_to(earth_mu()).expect("K to C");
+        let _: KeplerianState = concrete_keplerian.try_to(earth_mu()).expect("K to K");
+        let _: EquinoctialState = concrete_keplerian.try_to(earth_mu()).expect("K to E");
+        let _: CartesianState = concrete_equinoctial.try_to(earth_mu()).expect("E to C");
+        let _: KeplerianState = concrete_equinoctial.try_to(earth_mu()).expect("E to K");
+        let _: EquinoctialState = concrete_equinoctial.try_to(earth_mu()).expect("E to E");
+
+        for enum_state in [
+            SpacecraftState::Cartesian(concrete_cartesian),
+            SpacecraftState::Keplerian(concrete_keplerian),
+            SpacecraftState::Equinoctial(concrete_equinoctial),
+        ] {
+            enum_state.cartesian(earth_mu()).expect("enum to C");
+            enum_state.keplerian(earth_mu()).expect("enum to K");
+            enum_state.equinoctial(earth_mu()).expect("enum to E");
+        }
+
+        assert_eq!(via_try_from, via_try_to);
+        assert_vector_close(
+            recovered_cartesian.position().to_metres(),
+            via_try_to.position().to_metres(),
+            1.0e-8,
         );
-        let cartesian: CartesianState = state
-            .convert(earth_mu())
-            .expect("conversion context supplies gravity");
-        assert_eq!(cartesian.epoch(), state.epoch());
+        assert_vector_close(
+            recovered_cartesian.velocity().to_metres_per_second(),
+            via_try_to.velocity().to_metres_per_second(),
+            1.0e-10,
+        );
     }
 
     #[test]
     fn circular_equatorial_conversion_matches_analytic_vector() {
         let radius = 7_000_000.0;
-        let state = KeplerianState::new(
-            CoordinateSample::new(
-                Epoch::from_tai_seconds(0.0),
-                keplerian_coordinates(0.0, 0.0, 0.0, 0.0),
-            ),
-            properties(),
-        );
-        let cartesian: CartesianState = state.convert(earth_mu()).expect("valid conversion");
+        let state = keplerian(0.0, 0.0, 0.0, 0.0);
+        let cartesian = state.cartesian(earth_mu()).expect("valid conversion");
         let expected_speed = (earth_mu().as_cubic_metres_per_second_squared() / radius).sqrt();
 
+        assert_vector_close(cartesian.position().to_metres(), [radius, 0.0, 0.0], 1.0e-8);
         assert_vector_close(
-            cartesian.position().value().to_metres(),
-            [radius, 0.0, 0.0],
-            1.0e-8,
-        );
-        assert_vector_close(
-            cartesian.velocity().value().to_metres_per_second(),
+            cartesian.velocity().to_metres_per_second(),
             [0.0, expected_speed, 0.0],
             1.0e-10,
         );
@@ -790,95 +1017,60 @@ mod tests {
     fn polar_conversion_has_expected_axes() {
         let radius = 7_000_000.0;
         let speed = (earth_mu().as_cubic_metres_per_second_squared() / radius).sqrt();
-        let state = KeplerianState::new(
-            CoordinateSample::new(
-                Epoch::from_tai_seconds(0.0),
-                keplerian_coordinates(PI / 2.0, 0.0, 0.0, PI / 2.0),
-            ),
-            properties(),
-        );
-        let cartesian: CartesianState = state.convert(earth_mu()).expect("valid conversion");
+        let cartesian = keplerian(PI / 2.0, 0.0, 0.0, PI / 2.0)
+            .cartesian(earth_mu())
+            .expect("valid conversion");
 
+        assert_vector_close(cartesian.position().to_metres(), [0.0, 0.0, radius], 1.0e-8);
         assert_vector_close(
-            cartesian.position().value().to_metres(),
-            [0.0, 0.0, radius],
-            1.0e-8,
-        );
-        assert_vector_close(
-            cartesian.velocity().value().to_metres_per_second(),
+            cartesian.velocity().to_metres_per_second(),
             [-speed, 0.0, 0.0],
             1.0e-10,
         );
     }
 
     #[test]
-    fn representation_conversion_is_explicit_and_agrees() {
-        let coordinates = KeplerianCoordinates::new(
-            ReferenceFrame::GCRF,
-            Length::new::<meter>(7_200_000.0),
-            Ratio::new::<ratio>(0.1),
-            Angle::new::<radian>(0.7),
-            Angle::new::<radian>(1.1),
-            Angle::new::<radian>(0.4),
-            Angle::new::<radian>(2.0),
-        )
-        .expect("elliptic coordinates are valid");
-        let keplerian = KeplerianState::new(
-            CoordinateSample::new(Epoch::from_tai_seconds(42.0), coordinates),
-            properties(),
+    fn coordinate_adapter_rejects_mixed_frames() {
+        let coordinates = CartesianCoordinates::new(
+            FramedPosition::new(
+                Position::from_metres(7_000_000.0, 0.0, 0.0),
+                ReferenceFrame::GCRF,
+            )
+            .expect("finite"),
+            FramedVelocity::new(
+                VelocityVector::from_metres_per_second(0.0, 7_500.0, 0.0),
+                ReferenceFrame::EME2000,
+            )
+            .expect("finite"),
         );
-        let equinoctial: EquinoctialState = keplerian.convert(()).expect("valid conversion");
-        let from_keplerian: CartesianState =
-            keplerian.convert(earth_mu()).expect("valid conversion");
-        let from_equinoctial: CartesianState =
-            equinoctial.convert(earth_mu()).expect("valid conversion");
-
-        assert_vector_close(
-            from_equinoctial.position().value().to_metres(),
-            from_keplerian.position().value().to_metres(),
-            1.0e-8,
+        assert_eq!(
+            CartesianState::try_from(coordinates),
+            Err(StateError::MismatchedCartesianFrames)
         );
-        assert_vector_close(
-            from_equinoctial.velocity().value().to_metres_per_second(),
-            from_keplerian.velocity().value().to_metres_per_second(),
-            1.0e-10,
-        );
-        assert_eq!(equinoctial.epoch(), keplerian.epoch());
-        assert_eq!(equinoctial.mass(), keplerian.mass());
     }
 
     #[test]
-    fn invalid_coordinates_and_retrograde_conversion_are_rejected() {
-        assert!(matches!(
-            KeplerianCoordinates::new(
-                ReferenceFrame::GCRF,
-                Length::new::<meter>(7_000_000.0),
-                Ratio::new::<ratio>(1.0),
-                Angle::new::<radian>(0.0),
-                Angle::new::<radian>(0.0),
-                Angle::new::<radian>(0.0),
-                Angle::new::<radian>(0.0),
-            ),
-            Err(StateError::EccentricityOutOfRange)
-        ));
-
+    fn invalid_conics_and_singularities_are_rejected() {
         let retrograde = KeplerianState::new(
-            CoordinateSample::new(
-                Epoch::from_tai_seconds(0.0),
-                KeplerianCoordinates::new(
-                    ReferenceFrame::GCRF,
-                    Length::new::<meter>(7_000_000.0),
-                    Ratio::new::<ratio>(0.1),
-                    Angle::new::<radian>(PI),
-                    Angle::new::<radian>(0.0),
-                    Angle::new::<radian>(0.0),
-                    Angle::new::<radian>(0.0),
-                )
-                .expect("retrograde Keplerian coordinates are valid"),
-            ),
-            properties(),
-        );
-        let result: Result<EquinoctialState, _> = retrograde.convert(());
-        assert_eq!(result, Err(StateError::RetrogradeEquinoctialSingularity));
+            ReferenceFrame::GCRF,
+            Length::new::<meter>(7_000_000.0),
+            Ratio::new::<ratio>(0.1),
+            Angle::new::<radian>(PI),
+            Angle::new::<radian>(0.0),
+            Angle::new::<radian>(0.0),
+            Angle::new::<radian>(0.0),
+        )
+        .expect("valid Keplerian state");
+        let singular: Result<EquinoctialState, _> = retrograde.try_to(earth_mu());
+        assert_eq!(singular, Err(StateError::RetrogradeEquinoctialSingularity));
+
+        let radial = CartesianState::new(
+            ReferenceFrame::GCRF,
+            Position::from_metres(7_000_000.0, 0.0, 0.0),
+            VelocityVector::from_metres_per_second(1_000.0, 0.0, 0.0),
+        )
+        .expect("finite state");
+        let result: Result<KeplerianState, _> = radial.try_to(earth_mu());
+        assert_eq!(result, Err(StateError::DegenerateCartesianOrbit));
     }
 }

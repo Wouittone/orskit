@@ -1287,10 +1287,13 @@ fn required(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orskit_core::{CartesianState, InertiaTensor, Orientation, SpacecraftProperties, State};
+    use orskit_core::{
+        AttitudeState, CartesianState, FramedAngularVelocity, InertiaTensor, Orientation,
+        Spacecraft, SpacecraftShape, SpacecraftView,
+    };
     use orskit_frames::{CustomFrameId, FrameOrientation};
     use orskit_units::uom::si::{mass::kilogram, moment_of_inertia::kilogram_square_meter};
-    use orskit_units::{Mass, MomentOfInertia};
+    use orskit_units::{AngularVelocityVector, Mass, MomentOfInertia};
 
     const SAMPLE: &str = "CCSDS_OEM_VERS = 3.0\n\
 CREATION_DATE = 2024-01-01T00:00:00\n\
@@ -1361,12 +1364,21 @@ META_STOP\n\
     }
 
     #[test]
-    fn oem_coordinates_require_explicit_properties_to_become_a_state() {
+    fn oem_coordinates_require_explicit_properties_to_become_a_spacecraft_view() {
         let message = parse_oem_kvn(SAMPLE).expect("valid CCSDS OEM KVN");
         let coordinates = message.segments()[0].coordinates()[0];
         let id = CustomFrameId::new(7);
         let body = ReferenceFrame::new(FrameOrigin::Custom(id), FrameOrientation::Custom(id));
         let orientation = Orientation::identity(body, coordinates.coordinates().position().frame());
+        let attitude = AttitudeState::new(
+            orientation,
+            FramedAngularVelocity::new(
+                AngularVelocityVector::from_radians_per_second(0.0, 0.0, 0.0),
+                body,
+            )
+            .expect("finite angular velocity"),
+        )
+        .expect("consistent attitude frames");
         let inertia = InertiaTensor::principal(
             body,
             MomentOfInertia::new::<kilogram_square_meter>(1.0),
@@ -1374,13 +1386,23 @@ META_STOP\n\
             MomentOfInertia::new::<kilogram_square_meter>(1.0),
         )
         .expect("fixture inertia is physical");
-        let properties =
-            SpacecraftProperties::new(Mass::new::<kilogram>(500.0), orientation, inertia)
-                .expect("fixture properties are physical");
-        let state = CartesianState::new(coordinates, properties);
+        let state = CartesianState::try_from(*coordinates.coordinates())
+            .expect("OEM position and velocity share one frame");
+        let spacecraft = Spacecraft::new("TEST-SC", SpacecraftShape::Point)
+            .expect("valid spacecraft definition");
+        let view = SpacecraftView::new(
+            &spacecraft,
+            coordinates.epoch(),
+            Mass::new::<kilogram>(500.0),
+            state.into(),
+            inertia,
+            attitude,
+        )
+        .expect("fixture spacecraft view is physical");
 
-        assert_eq!(state.epoch(), coordinates.epoch());
-        assert_eq!(state.mass(), Mass::new::<kilogram>(500.0));
+        assert_eq!(view.spacecraft(), &spacecraft);
+        assert_eq!(view.epoch(), coordinates.epoch());
+        assert_eq!(view.mass(), Mass::new::<kilogram>(500.0));
     }
 
     #[test]
