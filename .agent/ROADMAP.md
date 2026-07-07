@@ -6,7 +6,8 @@ works.
 
 ## Milestone 0 — trustworthy foundation
 
-- Pin an Orekit baseline and turn `PARITY.md` into a versioned inventory.
+- Keep the pinned Orekit baseline and versioned `PARITY.md` inventory current
+  as reference releases and evidence change.
 - Adopt the provenance policy, contributor licensing process, security policy,
   code of conduct, issue templates, and architecture decision records.
 - Correct package naming and establish the public `orskit` facade direction.

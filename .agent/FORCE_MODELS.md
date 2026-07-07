@@ -219,7 +219,7 @@ does not imply that later effects are always physically smaller.
 
 ## Capability references
 
-- [Orekit 13.1.6 force-model overview](https://www.orekit.org/site-orekit-latest/apidocs/org/orekit/forces/package-summary.html)
+- [Orekit 13.1.7 force-model overview](https://www.orekit.org/site-orekit-13.1.7/apidocs/org/orekit/forces/package-summary.html)
   and its public gravity, drag, radiation, empirical, inertia, and manoeuvre
   package summaries provide the parity baseline, not implementation material.
 - [IERS Conventions 2010, Chapter 6](https://iers-conventions.obspm.fr/content/chapter6/icc6.pdf)

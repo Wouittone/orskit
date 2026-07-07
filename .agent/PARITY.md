@@ -5,13 +5,18 @@ claim. It tracks capability families, not one-to-one Java classes.
 
 ## Reference baseline
 
-- **Orekit version:** not yet pinned.
-- **Baseline date:** not yet pinned.
+- **Orekit version:** 13.1.7.
+- **Orekit release date:** 2026-07-03.
+- **Baseline pinned on:** 2026-07-07.
+- **Inventory revision:** `orekit-13.1.7-2026-07-07`.
+- **Baseline record:** `.agent/baselines/orekit-13.1.7.md`.
 - **Inventory method:** public documentation and public behavior only, under
   `PROVENANCE.md`.
 
-Pin these before changing any row to `Validated` or publishing a percentage of
-Orekit parity.
+Do not change any row to `Validated` or publish a percentage of Orekit parity
+unless the row links to acceptance evidence for this pinned baseline. Evidence
+generated against an older Orekit release remains useful only when it is
+explicitly labeled with that older version.
 
 ## Status vocabulary
 
