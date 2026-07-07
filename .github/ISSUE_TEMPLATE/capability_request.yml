@@ -1,0 +1,40 @@
+name: Capability request
+description: Propose a scientific capability, workflow, or parity gap to pursue.
+title: "Capability: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Workflow
+      description: Describe the smallest end-to-end workflow this should enable.
+    validations:
+      required: true
+  - type: textarea
+    id: contract
+    attributes:
+      label: Scientific contract
+      description: Identify inputs, outputs, units, frames, epochs, time scales, data requirements, and valid regimes.
+    validations:
+      required: true
+  - type: input
+    id: parity
+    attributes:
+      label: Parity row
+      description: Which row in .agent/PARITY.md does this affect?
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: References and validation ideas
+      description: Public standards, papers, datasets, reference vectors, or black-box behavior samples that could validate the work.
+    validations:
+      required: false
+  - type: checkboxes
+    id: provenance
+    attributes:
+      label: Provenance
+      options:
+        - label: This request is based on public behavior, standards, papers, or original project needs, not copied implementation material.
+          required: true

@@ -1,0 +1,44 @@
+name: Bug report
+description: Report incorrect behavior, failing checks, or a regression.
+title: "Bug: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is wrong, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Provide the smallest command, input, or code sample that reproduces the issue.
+      placeholder: |
+        cargo test -p orskit-core ...
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Physical context
+      description: List units, frames, epochs, time scales, constants, and data files involved, if applicable.
+    validations:
+      required: false
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence or reference
+      description: Link logs, failing assertions, reference vectors, standards, or parity rows.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I checked the current parity ledger before assuming this feature is supported.
+          required: false
+        - label: I did not include third-party source code, tests, or copied proprietary material.
+          required: true

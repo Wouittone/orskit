@@ -140,11 +140,11 @@ are presented as a stable package.
 
 ## Contributing
 
-Before implementing a model, read the [agent and contributor
-instructions](.agent/AGENTS.md) and the [provenance
-policy](.agent/PROVENANCE.md). Work should advance a specific row in
-the [parity ledger](.agent/PARITY.md) with tests, references, stated
-tolerances, and honest known gaps.
+Start with [CONTRIBUTING.md](CONTRIBUTING.md). Before implementing a model,
+read the [agent instructions](.agent/AGENTS.md) and the [provenance
+policy](.agent/PROVENANCE.md). Work should advance a specific row in the
+[parity ledger](.agent/PARITY.md) with tests, references, stated tolerances,
+and honest known gaps.
 
 The immediate priorities are listed in [the roadmap](.agent/ROADMAP.md).
 

@@ -1,0 +1,33 @@
+name: Provenance or licensing question
+description: Ask whether a reference, dataset, dependency, or reuse proposal is acceptable.
+title: "Provenance: "
+labels: ["provenance"]
+body:
+  - type: textarea
+    id: material
+    attributes:
+      label: Material or dependency
+      description: Identify the source, version, license or terms, and stable locator.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_use
+    attributes:
+      label: Proposed use
+      description: Explain whether this is for capability inventory, public behavior validation, dependency use, dataset use, or source reuse.
+    validations:
+      required: true
+  - type: textarea
+    id: affected
+    attributes:
+      label: Affected code or evidence
+      description: Which crate, task, ADR, parity row, or test would use this material?
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I have not copied the material into orskit-owned files while this question is unresolved.
+          required: true
