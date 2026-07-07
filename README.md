@@ -22,8 +22,10 @@ MIT or Apache-2.0 license.
 > minimal range measurement, representation-preserving analytical elliptic
 > two-body propagation for all current state types, and experimental binding
 > adapters. General composed-force/numerical propagation,
-> complete CCSDS coverage, and complete
-> measurement-participant modeling are intentionally not implemented yet. It is
+> complete CCSDS coverage, and complete measurement-participant modeling are
+> intentionally not implemented yet. Fixed ground stations can now be defined
+> through parent-relative frames, but transforms, geodesy, clocks, and signal
+> paths are absent. It is
 > not suitable for scientific or operational use and does not have Orekit
 > parity.
 
@@ -59,11 +61,11 @@ roadmap. Start with [`.agent/README.md`](.agent/README.md).
 | --- | --- |
 | `crates/units` | `uom`-backed physical quantities and typed Cartesian vectors |
 | `crates/bodies` | Planet, moon, dwarf-planet, custom-body, and explicit body-system identities |
-| `crates/frames` | Reference-frame identities with body-backed and barycentric origins |
+| `crates/frames` | Reference-frame identities plus caller-owned, parent-relative fixed frame definitions |
 | `crates/core` | Six-element orbital states, epoch-qualified orbits, time-independent spacecraft identity/geometry, and complete physical views |
 | `crates/dynamics` | System/force-model composition plus orbit-only analytical elliptic point-mass propagation |
 | `crates/ccsds` | Blocking/Tokio streaming and Rayon collection for CCSDS OEM KVN coordinates |
-| `crates/measurements` | Typed measurement values; future home of ground and spacecraft participant models |
+| `crates/measurements` | Typed measurements and fixed ground-station participants built on parent-relative frames |
 | `crates/utils` | Typed sourced constants; package boundary remains transitional |
 | `bindings/python` | Experimental PyO3 binding workspace |
 | `bindings/java` | Experimental native C ABI and Java FFM build workspace |

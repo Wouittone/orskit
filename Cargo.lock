@@ -466,15 +466,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "measurements"
-version = "0.1.0"
-dependencies = [
- "hifitime",
- "orskit-units",
- "thiserror",
-]
-
-[[package]]
 name = "memchr"
 version = "2.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -633,6 +624,17 @@ name = "orskit-frames"
 version = "0.1.0"
 dependencies = [
  "orskit-bodies",
+ "orskit-units",
+ "thiserror",
+]
+
+[[package]]
+name = "orskit-measurements"
+version = "0.1.0"
+dependencies = [
+ "hifitime",
+ "orskit-frames",
+ "orskit-units",
  "thiserror",
 ]
 

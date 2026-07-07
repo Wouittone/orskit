@@ -9,4 +9,5 @@ description = "Reference-frame identities and contracts for orskit"
 
 [dependencies]
 orskit-bodies = { path = "../bodies" }
+orskit-units = { path = "../units" }
 thiserror.workspace = true

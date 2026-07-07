@@ -566,13 +566,16 @@ pub enum SpacecraftViewError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orskit_frames::{CustomFrameId, FrameOrientation, FrameOrigin};
+    use orskit_frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin};
     use orskit_units::uom::si::{angular_velocity::radian_per_second, velocity::meter_per_second};
     use orskit_units::{Position, VelocityVector};
 
     fn body_frame(id: u64) -> ReferenceFrame {
         let id = CustomFrameId::new(id);
-        ReferenceFrame::new(FrameOrigin::Custom(id), FrameOrientation::Custom(id))
+        ReferenceFrame::new(
+            FrameOrigin::Custom(id),
+            FrameOrientation::custom(id, FrameMotion::NonInertial),
+        )
     }
 
     fn attitude(body: ReferenceFrame) -> AttitudeState {

@@ -1,11 +1,12 @@
 //! Measurement and observation handling.
 //!
-//! This crate owns the eventual participant-centric measurement model. Ground
-//! assets are measurement participants rather than a separate domain crate,
-//! alongside spacecraft and other observers. Participant paths, ground
-//! geometry, clocks, and corrections will be designed together rather than
-//! copied from Orekit's station API.
+//! This crate owns the participant-centric measurement model. Ground stations
+//! are represented here as parent-relative frame participants rather than in a
+//! separate station domain. Participant paths, clocks, corrections, and richer
+//! ground geometry will be added here without copying Orekit's station API.
 
 pub mod measurement;
+pub mod station;
 
 pub use measurement::{MeasurementError, RangeMeasurement};
+pub use station::{GroundStation, GroundStationError};

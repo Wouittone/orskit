@@ -2,7 +2,7 @@ use std::f64::consts::{PI, TAU};
 
 use hifitime::Duration;
 use orskit_bodies::Body;
-use orskit_core::frames::{FrameOrientation, FrameOrigin, ReferenceFrame};
+use orskit_core::frames::{FrameOrigin, ReferenceFrame};
 use orskit_core::{KeplerianState, Orbit, OrbitalElements, SpacecraftState, StateError};
 use orskit_units::uom::si::{angle::radian, length::meter, ratio::ratio};
 use orskit_units::Angle;
@@ -166,15 +166,8 @@ fn ensure_model_frame(
             frame,
         });
     }
-    if matches!(
-        frame.orientation(),
-        FrameOrientation::Itrf(_)
-            | FrameOrientation::Teme
-            | FrameOrientation::Mod
-            | FrameOrientation::Tod
-            | FrameOrientation::Gtod
-    ) {
-        return Err(TwoBodyPropagationError::NonInertialFrame { frame });
+    if !frame.is_inertial() {
+        return Err(TwoBodyPropagationError::FrameNotExplicitlyInertial { frame });
     }
     Ok(())
 }
@@ -254,9 +247,9 @@ pub enum TwoBodyPropagationError {
         /// State coordinate frame rejected by the propagator.
         frame: ReferenceFrame,
     },
-    /// A rotating or date-dependent frame cannot be propagated as inertial.
-    #[error("elliptic point-mass propagation requires inertial axes, not {frame}")]
-    NonInertialFrame {
+    /// The frame axes were not affirmatively classified as inertial.
+    #[error("elliptic point-mass propagation requires explicitly inertial axes, not {frame}")]
+    FrameNotExplicitlyInertial {
         /// State coordinate frame rejected by the propagator.
         frame: ReferenceFrame,
     },
@@ -269,6 +262,7 @@ pub enum TwoBodyPropagationError {
 mod tests {
     use super::*;
     use hifitime::Epoch;
+    use orskit_core::frames::{CustomFrameId, FrameMotion, FrameOrientation};
     use orskit_core::CartesianState;
     use orskit_units::{GravitationalParameter, Length, Ratio};
 
@@ -533,9 +527,34 @@ mod tests {
                 &earth_model(earth_mu()),
                 Duration::from_seconds(60.0)
             ),
-            Err(TwoBodyPropagationError::NonInertialFrame {
+            Err(TwoBodyPropagationError::FrameNotExplicitlyInertial {
                 frame: ReferenceFrame::ITRF2020,
             })
+        ));
+
+        let id = CustomFrameId::new(23);
+        let unspecified_frame = ReferenceFrame::new(
+            FrameOrigin::Body(Body::EARTH),
+            FrameOrientation::custom(id, FrameMotion::Unspecified),
+        );
+        let unspecified = KeplerianState::new(
+            unspecified_frame,
+            Length::new::<meter>(7_200_000.0),
+            Ratio::new::<ratio>(0.1),
+            Angle::new::<radian>(0.7),
+            Angle::new::<radian>(1.1),
+            Angle::new::<radian>(0.4),
+            Angle::new::<radian>(2.0),
+        )
+        .expect("elements are valid");
+        assert!(matches!(
+            EllipticTwoBodyPropagator::new().propagate(
+                Orbit::new(initial.epoch(), unspecified.into()),
+                &earth_model(earth_mu()),
+                Duration::from_seconds(60.0)
+            ),
+            Err(TwoBodyPropagationError::FrameNotExplicitlyInertial { frame })
+                if frame == unspecified_frame
         ));
     }
 

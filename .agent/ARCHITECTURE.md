@@ -39,10 +39,14 @@ missing abstraction or an incorrectly placed type.
 - **Bodies:** reusable celestial-body identities and explicit body-system
   membership, followed by reference ellipsoids, geodetic conversion, rotation,
   and ephemeris providers. Identity does not imply a physical-data model.
-- **Frames:** origins compose a body, body-system barycenter, or explicit custom
-  origin with an orientation. Transform-provider contracts admit optional
-  external adapters for kinematic transforms, Earth orientation, and transform
-  composition.
+- **Frames:** lightweight identities compose a body, body-system barycenter, or
+  explicit custom origin with an orientation. `DerivedFrame` definitions add a
+  caller-owned direct parent and a fixed, typed origin offset in the parent
+  axes; definitions can form explicit chains without a global registry.
+  Orientations declare inertial, non-inertial, or unspecified motion;
+  algorithms requiring inertial axes accept only an affirmative inertial
+  declaration. Transform-provider contracts admit optional external adapters
+  for kinematic transforms, Earth orientation, and transform composition.
 - **Orbits:** frame- and epoch-qualified states, element sets, conversions,
   Jacobians, interpolation, and covariance representations.
 
@@ -70,9 +74,10 @@ missing abstraction or an incorrectly placed type.
 - **Attitude:** rotations, angular derivatives, attitude providers, and
   spacecraft geometry.
 - **Measurements:** typed observations, participants, timing, modifiers,
-  uncertainties, ground assets, spacecraft links, and correction models. A
-  ground observer is a measurement participant, not a separate top-level
-  domain or crate.
+  uncertainties, ground assets, spacecraft links, and correction models. The
+  initial `GroundStation` participant owns a parent-relative fixed frame;
+  clocks, displacement, topocentric axes, and signal paths remain future
+  contracts. A ground observer is not a separate top-level domain or crate.
 - **Estimation:** parameters, residuals, least squares, filters, covariance,
   and state-transition/sensitivity machinery.
 
@@ -117,7 +122,9 @@ missing abstraction or an incorrectly placed type.
   consistently.
 - Algorithms declare their frame compatibility. Until supplied with a transform
   provider, an algorithm rejects combinations it cannot evaluate rather than
-  narrowing what a `SpacecraftState` may represent.
+  narrowing what a `SpacecraftState` may represent. Unknown or future frame
+  orientations never become inertial merely because they are absent from a
+  non-inertial blacklist.
 - External scientific data enters through an immutable `DataContext`-style
   value or trait-backed provider. Algorithms declare their required data.
 - Constants identify their convention and source; there is no anonymous

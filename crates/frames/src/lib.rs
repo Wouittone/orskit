@@ -1,13 +1,18 @@
 //! Reference-frame identities for orskit.
 //!
-//! A frame is modeled as a body-backed, barycentric, or custom origin plus an
-//! orientation. Transform algorithms will be added behind provider traits once
-//! their data and accuracy contracts are defined; state values can already
-//! carry an unambiguous frame identity.
+//! A frame identity is modeled as a body-backed, barycentric, or custom origin
+//! plus an orientation. A [`DerivedFrame`] associates a parent-aligned custom
+//! identity with a fixed origin offset expressed in its parent frame. This
+//! supports caller-owned hierarchies such as an Earth-fixed ground site without
+//! pretending that general frame transforms or geodesy already exist.
+//! Orientations explicitly declare whether their axes are inertial,
+//! non-inertial, or unspecified. Transform algorithms will be added behind
+//! provider traits once their data and accuracy contracts are defined.
 
 use std::{fmt, str::FromStr};
 
 pub use orskit_bodies::{Body, BodySystem, CustomBodyId};
+use orskit_units::Position;
 use thiserror::Error;
 
 /// Typed identifier reserved for application-defined frame components.
@@ -40,6 +45,28 @@ pub enum FrameOrigin {
     Custom(CustomFrameId),
 }
 
+/// Whether frame axes are suitable for equations requiring inertial axes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum FrameMotion {
+    /// Axes are explicitly defined as inertial.
+    Inertial,
+    /// Axes rotate or otherwise vary with time.
+    NonInertial,
+    /// No inertial-motion claim has been supplied.
+    Unspecified,
+}
+
+impl fmt::Display for FrameMotion {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Inertial => "INERTIAL",
+            Self::NonInertial => "NON_INERTIAL",
+            Self::Unspecified => "UNSPECIFIED",
+        })
+    }
+}
+
 /// Orientation of a reference frame's axes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
@@ -60,8 +87,39 @@ pub enum FrameOrientation {
     Tod,
     /// Greenwich true-of-date rotating frame.
     Gtod,
-    /// Application-defined orientation.
-    Custom(CustomFrameId),
+    /// Application-defined orientation with explicit motion semantics.
+    Custom {
+        /// Application-defined orientation identity.
+        id: CustomFrameId,
+        /// Whether the axes are inertial.
+        motion: FrameMotion,
+    },
+}
+
+impl FrameOrientation {
+    /// Constructs an application-defined orientation with explicit motion.
+    #[must_use]
+    pub const fn custom(id: CustomFrameId, motion: FrameMotion) -> Self {
+        Self::Custom { id, motion }
+    }
+
+    /// Returns the axes' declared motion semantics.
+    #[must_use]
+    pub const fn motion(self) -> FrameMotion {
+        match self {
+            Self::Icrf | Self::Gcrf | Self::Eme2000 => FrameMotion::Inertial,
+            Self::Itrf(_) | Self::Teme | Self::Mod | Self::Tod | Self::Gtod => {
+                FrameMotion::NonInertial
+            }
+            Self::Custom { motion, .. } => motion,
+        }
+    }
+
+    /// Returns whether the axes are affirmatively classified as inertial.
+    #[must_use]
+    pub const fn is_inertial(self) -> bool {
+        matches!(self.motion(), FrameMotion::Inertial)
+    }
 }
 
 /// Complete reference-frame identity: origin plus orientation.
@@ -106,6 +164,88 @@ impl ReferenceFrame {
     #[must_use]
     pub const fn orientation(self) -> FrameOrientation {
         self.orientation
+    }
+
+    /// Returns the axes' declared motion semantics.
+    #[must_use]
+    pub const fn motion(self) -> FrameMotion {
+        self.orientation.motion()
+    }
+
+    /// Returns whether the axes are affirmatively classified as inertial.
+    #[must_use]
+    pub const fn is_inertial(self) -> bool {
+        self.orientation.is_inertial()
+    }
+}
+
+/// A custom frame whose axes are aligned with a direct parent frame.
+///
+/// `origin_offset` is the vector from the parent origin to the derived origin,
+/// expressed in the parent axes. The derived frame inherits the parent's
+/// orientation identity and motion classification. A chain is represented by
+/// retaining each [`DerivedFrame`] definition and using one definition's
+/// [`DerivedFrame::reference_frame`] as the next definition's parent.
+///
+/// This type records hierarchy and fixed geometry only. It does not transform
+/// coordinates, apply body rotation, or establish geodetic meaning.
+///
+/// ```
+/// use orskit_frames::{CustomFrameId, DerivedFrame, ReferenceFrame};
+/// use orskit_units::Position;
+///
+/// let site = DerivedFrame::parent_aligned(
+///     CustomFrameId::new(42),
+///     ReferenceFrame::ITRF2020,
+///     Position::from_metres(6_378_137.0, 0.0, 0.0),
+/// )?;
+/// assert_eq!(site.parent(), ReferenceFrame::ITRF2020);
+/// # Ok::<(), orskit_frames::FrameDefinitionError>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DerivedFrame {
+    reference_frame: ReferenceFrame,
+    parent: ReferenceFrame,
+    origin_offset: Position,
+}
+
+impl DerivedFrame {
+    /// Creates a parent-aligned custom frame at a fixed offset from `parent`.
+    pub fn parent_aligned(
+        id: CustomFrameId,
+        parent: ReferenceFrame,
+        origin_offset: Position,
+    ) -> Result<Self, FrameDefinitionError> {
+        if !origin_offset.is_finite() {
+            return Err(FrameDefinitionError::NonFiniteOriginOffset);
+        }
+        let reference_frame = ReferenceFrame::new(FrameOrigin::Custom(id), parent.orientation());
+        if reference_frame == parent {
+            return Err(FrameDefinitionError::SelfParent);
+        }
+        Ok(Self {
+            reference_frame,
+            parent,
+            origin_offset,
+        })
+    }
+
+    /// Returns the identity carried by coordinate-dependent values.
+    #[must_use]
+    pub const fn reference_frame(self) -> ReferenceFrame {
+        self.reference_frame
+    }
+
+    /// Returns the direct parent frame.
+    #[must_use]
+    pub const fn parent(self) -> ReferenceFrame {
+        self.parent
+    }
+
+    /// Returns the parent-to-child origin offset in the parent axes.
+    #[must_use]
+    pub const fn origin_offset(self) -> Position {
+        self.origin_offset
     }
 }
 
@@ -176,7 +316,9 @@ impl fmt::Display for FrameOrientation {
             Self::Mod => formatter.write_str("MOD"),
             Self::Tod => formatter.write_str("TOD"),
             Self::Gtod => formatter.write_str("GTOD"),
-            Self::Custom(id) => write!(formatter, "CUSTOM({})", id.value()),
+            Self::Custom { id, motion } => {
+                write!(formatter, "CUSTOM({},{motion})", id.value())
+            }
         }
     }
 }
@@ -228,6 +370,18 @@ pub struct FrameOriginParseError;
 #[error("unknown reference frame orientation")]
 pub struct FrameOrientationParseError;
 
+/// Invalid parent-relative frame definition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum FrameDefinitionError {
+    /// At least one parent-frame offset component is NaN or infinite.
+    #[error("derived-frame origin offset must be finite")]
+    NonFiniteOriginOffset,
+    /// The resulting frame identity is identical to its direct parent.
+    #[error("a derived frame cannot be its own parent")]
+    SelfParent,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,5 +426,85 @@ mod tests {
 
         assert_eq!(system, BodySystem::EARTH_MOON);
         assert_eq!(system.bodies(), &[Body::EARTH, Body::MOON]);
+    }
+
+    #[test]
+    fn inertial_eligibility_is_affirmative() {
+        assert_eq!(ReferenceFrame::ICRF.motion(), FrameMotion::Inertial);
+        assert_eq!(ReferenceFrame::GCRF.motion(), FrameMotion::Inertial);
+        assert_eq!(ReferenceFrame::EME2000.motion(), FrameMotion::Inertial);
+        assert_eq!(ReferenceFrame::ITRF2020.motion(), FrameMotion::NonInertial);
+        assert_eq!(ReferenceFrame::TEME.motion(), FrameMotion::NonInertial);
+
+        let id = CustomFrameId::new(42);
+        let unspecified = FrameOrientation::custom(id, FrameMotion::Unspecified);
+        let inertial = FrameOrientation::custom(id, FrameMotion::Inertial);
+        assert!(!unspecified.is_inertial());
+        assert!(inertial.is_inertial());
+        assert_eq!(unspecified.to_string(), "CUSTOM(42,UNSPECIFIED)");
+    }
+
+    #[test]
+    fn parent_aligned_frame_retains_parent_and_typed_offset() {
+        let offset = Position::from_metres(6_378_137.0, 0.0, 0.0);
+        let site = DerivedFrame::parent_aligned(
+            CustomFrameId::new(1001),
+            ReferenceFrame::ITRF2020,
+            offset,
+        )
+        .expect("finite fixed site");
+
+        assert_eq!(site.parent(), ReferenceFrame::ITRF2020);
+        assert_eq!(site.origin_offset(), offset);
+        assert_eq!(
+            site.reference_frame().origin(),
+            FrameOrigin::Custom(CustomFrameId::new(1001))
+        );
+        assert_eq!(
+            site.reference_frame().orientation(),
+            ReferenceFrame::ITRF2020.orientation()
+        );
+        assert_eq!(site.reference_frame().motion(), FrameMotion::NonInertial);
+    }
+
+    #[test]
+    fn derived_frames_can_form_explicit_parent_chains() {
+        let site = DerivedFrame::parent_aligned(
+            CustomFrameId::new(1001),
+            ReferenceFrame::ITRF2020,
+            Position::from_metres(6_378_137.0, 0.0, 0.0),
+        )
+        .expect("site frame");
+        let instrument = DerivedFrame::parent_aligned(
+            CustomFrameId::new(1002),
+            site.reference_frame(),
+            Position::from_metres(0.0, 0.0, 2.0),
+        )
+        .expect("instrument frame");
+
+        assert_eq!(instrument.parent(), site.reference_frame());
+        assert_eq!(
+            instrument.reference_frame().orientation(),
+            FrameOrientation::Itrf(2020)
+        );
+    }
+
+    #[test]
+    fn derived_frame_rejects_invalid_geometry_and_self_parenting() {
+        assert_eq!(
+            DerivedFrame::parent_aligned(
+                CustomFrameId::new(1),
+                ReferenceFrame::ITRF2020,
+                Position::from_metres(f64::NAN, 0.0, 0.0),
+            ),
+            Err(FrameDefinitionError::NonFiniteOriginOffset)
+        );
+
+        let id = CustomFrameId::new(2);
+        let parent = ReferenceFrame::new(FrameOrigin::Custom(id), FrameOrientation::Gcrf);
+        assert_eq!(
+            DerivedFrame::parent_aligned(id, parent, Position::from_metres(0.0, 0.0, 0.0)),
+            Err(FrameDefinitionError::SelfParent)
+        );
     }
 }

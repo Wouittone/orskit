@@ -5,7 +5,7 @@ use std::ptr;
 use orskit_core::{
     AttitudeState, CartesianState, FramedAngularVelocity, InertiaTensor, Orientation,
 };
-use orskit_frames::{CustomFrameId, FrameOrientation, FrameOrigin, ReferenceFrame};
+use orskit_frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin, ReferenceFrame};
 use orskit_units::uom::si::{moment_of_inertia::kilogram_square_meter, ratio::ratio};
 use orskit_units::{AngularVelocityVector, MomentOfInertia, Position, Ratio, VelocityVector};
 
@@ -62,7 +62,7 @@ pub extern "C" fn spacecraft_state_new(
     let body_id = CustomFrameId::new(body_frame_id);
     let body_frame = ReferenceFrame::new(
         FrameOrigin::Custom(body_id),
-        FrameOrientation::Custom(body_id),
+        FrameOrientation::custom(body_id, FrameMotion::NonInertial),
     );
     let Ok(orientation) = Orientation::from_quaternion(
         body_frame,

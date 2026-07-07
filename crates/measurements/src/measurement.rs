@@ -14,12 +14,15 @@ pub struct RangeMeasurement {
 }
 
 impl RangeMeasurement {
-    /// Constructs a finite range observation with positive uncertainty.
+    /// Constructs a finite non-negative range observation with positive uncertainty.
     pub fn new(epoch: Epoch, range: Length, uncertainty: Length) -> Result<Self, MeasurementError> {
         let range_m = range.get::<meter>();
         let uncertainty_m = uncertainty.get::<meter>();
         if !range_m.is_finite() || !uncertainty_m.is_finite() {
             return Err(MeasurementError::NonFinite);
+        }
+        if range_m < 0.0 {
+            return Err(MeasurementError::NegativeRange);
         }
         if uncertainty_m <= 0.0 {
             return Err(MeasurementError::NotPositiveUncertainty);
@@ -56,6 +59,9 @@ pub enum MeasurementError {
     /// The measurement or uncertainty is NaN or infinite.
     #[error("measurement values must be finite")]
     NonFinite,
+    /// A geometric range cannot be negative.
+    #[error("measurement range must be non-negative")]
+    NegativeRange,
     /// One-sigma uncertainty is zero or negative.
     #[error("measurement uncertainty must be strictly positive")]
     NotPositiveUncertainty,
@@ -74,6 +80,18 @@ mod tests {
                 Length::new::<meter>(0.0),
             ),
             Err(MeasurementError::NotPositiveUncertainty)
+        );
+    }
+
+    #[test]
+    fn range_must_not_be_negative() {
+        assert_eq!(
+            RangeMeasurement::new(
+                Epoch::from_tai_seconds(0.0),
+                Length::new::<meter>(-1.0),
+                Length::new::<meter>(1.0),
+            ),
+            Err(MeasurementError::NegativeRange)
         );
     }
 }

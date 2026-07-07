@@ -64,7 +64,8 @@ outputs across documented regimes.
 
 ## Milestone 4 — observations and estimation
 
-- Replace placeholder measurements with typed participant/time-aware models.
+- Extend the initial parent-relative ground-station type into typed
+  participant/time-aware models.
 - Model ordered participant paths that support ground–spacecraft,
   spacecraft–spacecraft, and multi-leg observations without a separate station
   subsystem or an Orekit-shaped station API.

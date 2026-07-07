@@ -1291,7 +1291,7 @@ mod tests {
         AttitudeState, CartesianState, FramedAngularVelocity, InertiaTensor, Orbit, Orientation,
         Spacecraft, SpacecraftShape, SpacecraftView,
     };
-    use orskit_frames::{CustomFrameId, FrameOrientation};
+    use orskit_frames::{CustomFrameId, FrameMotion, FrameOrientation};
     use orskit_units::uom::si::{mass::kilogram, moment_of_inertia::kilogram_square_meter};
     use orskit_units::{AngularVelocityVector, Mass, MomentOfInertia};
 
@@ -1368,7 +1368,10 @@ META_STOP\n\
         let message = parse_oem_kvn(SAMPLE).expect("valid CCSDS OEM KVN");
         let coordinates = message.segments()[0].coordinates()[0];
         let id = CustomFrameId::new(7);
-        let body = ReferenceFrame::new(FrameOrigin::Custom(id), FrameOrientation::Custom(id));
+        let body = ReferenceFrame::new(
+            FrameOrigin::Custom(id),
+            FrameOrientation::custom(id, FrameMotion::NonInertial),
+        );
         let orientation = Orientation::identity(body, coordinates.coordinates().position().frame());
         let attitude = AttitudeState::new(
             orientation,

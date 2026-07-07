@@ -1,7 +1,7 @@
 use std::f64::consts::{PI, TAU};
 
 use hifitime::Epoch;
-use orskit_frames::{FrameOrientation, ReferenceFrame};
+use orskit_frames::ReferenceFrame;
 use orskit_units::uom::si::{angle::radian, length::meter, ratio::ratio};
 use orskit_units::{
     Angle, GravitationalParameter, Length, Position, Ratio, Velocity, VelocityVector,
@@ -727,8 +727,8 @@ fn keplerian_from_cartesian(
     gravitational_parameter: GravitationalParameter,
     state: CartesianState,
 ) -> Result<KeplerianState, StateError> {
-    if is_known_non_inertial(state.frame.orientation()) {
-        return Err(StateError::NonInertialCartesianFrame);
+    if !state.frame.is_inertial() {
+        return Err(StateError::CartesianFrameNotExplicitlyInertial);
     }
 
     let position_m = state.position.to_metres();
@@ -833,17 +833,6 @@ fn oriented_angle(from: [f64; 3], to: [f64; 3], normal: [f64; 3]) -> f64 {
     sine.atan2(cosine).rem_euclid(TAU)
 }
 
-fn is_known_non_inertial(orientation: FrameOrientation) -> bool {
-    matches!(
-        orientation,
-        FrameOrientation::Itrf(_)
-            | FrameOrientation::Teme
-            | FrameOrientation::Mod
-            | FrameOrientation::Tod
-            | FrameOrientation::Gtod
-    )
-}
-
 fn rotate(matrix: [[f64; 3]; 3], vector: [f64; 3]) -> [f64; 3] {
     matrix.map(|row| row[0].mul_add(vector[0], row[1].mul_add(vector[1], row[2] * vector[2])))
 }
@@ -909,9 +898,9 @@ pub enum StateError {
     /// Cartesian position and velocity use different frames.
     #[error("Cartesian position and velocity frames must match")]
     MismatchedCartesianFrames,
-    /// A rotating or date-dependent frame cannot define osculating elements directly.
-    #[error("Cartesian orbital-element conversion requires inertial axes")]
-    NonInertialCartesianFrame,
+    /// The frame axes were not affirmatively classified as inertial.
+    #[error("Cartesian orbital-element conversion requires explicitly inertial axes")]
+    CartesianFrameNotExplicitlyInertial,
     /// Cartesian state does not define a stable osculating orbital plane.
     #[error("Cartesian state is degenerate for orbital-element conversion")]
     DegenerateCartesianOrbit,
@@ -926,6 +915,7 @@ pub enum StateError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use orskit_frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin};
     use orskit_units::uom::si::velocity::meter_per_second;
 
     fn earth_mu() -> GravitationalParameter {
@@ -1102,5 +1092,32 @@ mod tests {
         .expect("finite state");
         let result: Result<KeplerianState, _> = radial.try_to(earth_mu());
         assert_eq!(result, Err(StateError::DegenerateCartesianOrbit));
+    }
+
+    #[test]
+    fn cartesian_conversion_requires_explicitly_inertial_axes() {
+        let id = CustomFrameId::new(17);
+        let custom_frame = |motion| {
+            ReferenceFrame::new(
+                FrameOrigin::Body(orskit_frames::Body::EARTH),
+                FrameOrientation::custom(id, motion),
+            )
+        };
+        let state = |motion| {
+            CartesianState::new(
+                custom_frame(motion),
+                Position::from_metres(7_000_000.0, 0.0, 0.0),
+                VelocityVector::from_metres_per_second(0.0, 7_500.0, 0.0),
+            )
+            .expect("finite state")
+        };
+
+        assert_eq!(
+            state(FrameMotion::Unspecified).keplerian(earth_mu()),
+            Err(StateError::CartesianFrameNotExplicitlyInertial)
+        );
+        state(FrameMotion::Inertial)
+            .keplerian(earth_mu())
+            .expect("explicit custom inertial axes are supported");
     }
 }

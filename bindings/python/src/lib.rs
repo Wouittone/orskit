@@ -3,7 +3,7 @@
 use orskit_core::{
     AttitudeState, CartesianState, Epoch, FramedAngularVelocity, InertiaTensor, Orientation,
 };
-use orskit_frames::{CustomFrameId, FrameOrientation, FrameOrigin, ReferenceFrame};
+use orskit_frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin, ReferenceFrame};
 use orskit_units::uom::si::{
     mass::kilogram, moment_of_inertia::kilogram_square_meter, ratio::ratio,
 };
@@ -67,7 +67,7 @@ impl SpacecraftStateWrapper {
         let body_id = CustomFrameId::new(body_frame_id);
         let body_frame = ReferenceFrame::new(
             FrameOrigin::Custom(body_id),
-            FrameOrientation::Custom(body_id),
+            FrameOrientation::custom(body_id, FrameMotion::NonInertial),
         );
         let orientation = Orientation::from_quaternion(
             body_frame,
