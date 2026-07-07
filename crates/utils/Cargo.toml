@@ -1,5 +1,5 @@
 [package]
-name = "utils"
+name = "orskit-utils"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

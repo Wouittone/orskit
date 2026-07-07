@@ -11,7 +11,8 @@ works.
 - Keep the provenance policy, contributor licensing process, security policy,
   code of conduct, issue templates, and architecture decision records current
   as governance requirements evolve.
-- Correct package naming and establish the public `orskit` facade direction.
+- Curate the public `orskit` facade into stable, documented workflows once the
+  Rust core contracts settle.
 - Establish CI for formatting, Clippy, tests, docs, dependency licenses,
   advisories, MSRV, and native binding smoke tests.
 - Define units, time/frame association, error, tolerance, data-context, and

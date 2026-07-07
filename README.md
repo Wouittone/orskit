@@ -59,6 +59,7 @@ roadmap. Start with [`.agent/README.md`](.agent/README.md).
 
 | Path | Current role |
 | --- | --- |
+| `crates/orskit` | Thin public facade and conservative prelude over the focused Rust crates |
 | `crates/units` | `uom`-backed physical quantities and typed Cartesian vectors |
 | `crates/bodies` | Planet, moon, dwarf-planet, custom-body, and explicit body-system identities |
 | `crates/frames` | Reference-frame identities plus caller-owned, parent-relative fixed frame definitions |
@@ -80,6 +81,15 @@ The core crates form a Cargo workspace:
 ```powershell
 cargo build --workspace
 cargo test --workspace
+```
+
+Small Rust examples can start from the facade crate:
+
+```rust
+use orskit::prelude::*;
+
+let frame = ReferenceFrame::GCRF;
+assert!(frame.is_inertial());
 ```
 
 ### Stream a CCSDS OEM

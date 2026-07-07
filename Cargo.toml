@@ -6,6 +6,7 @@ members = [
     "crates/dynamics",
     "crates/frames",
     "crates/measurements",
+    "crates/orskit",
     "crates/units",
     "crates/utils",
 ]

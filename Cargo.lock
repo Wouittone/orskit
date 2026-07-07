@@ -578,6 +578,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
+name = "orskit"
+version = "0.1.0"
+dependencies = [
+ "orskit-bodies",
+ "orskit-ccsds",
+ "orskit-core",
+ "orskit-dynamics",
+ "orskit-frames",
+ "orskit-measurements",
+ "orskit-units",
+ "orskit-utils",
+]
+
+[[package]]
 name = "orskit-bodies"
 version = "0.1.0"
 dependencies = [
@@ -644,6 +658,13 @@ version = "0.1.0"
 dependencies = [
  "thiserror",
  "uom",
+]
+
+[[package]]
+name = "orskit-utils"
+version = "0.1.0"
+dependencies = [
+ "orskit-units",
 ]
 
 [[package]]
@@ -937,13 +958,6 @@ checksum = "a739f83872836c82a4f2527d4e54b37007b3de68cafe7edde95fd695968bf4b9"
 dependencies = [
  "num-traits",
  "typenum",
-]
-
-[[package]]
-name = "utils"
-version = "0.1.0"
-dependencies = [
- "orskit-units",
 ]
 
 [[package]]

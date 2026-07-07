@@ -168,19 +168,19 @@ There is no ambient mutable "current data context."
 
 ## Crate evolution
 
-The current `bodies`, `core`, `dynamics`, `frames`, `measurements`, `units`, and
-`utils` crates are an initial scaffold. Generic names such as `core` and
-`utils` are transitional.
+The focused packages use the `orskit-*` namespace, and the `orskit` package is
+the thin public facade over them. Directory names such as `crates/core` are
+workspace layout details; package names remain namespaced for publication.
 New boundaries should use namespaced package names such as `orskit-time` and
 `orskit-frames`. Split crates only when the domain boundary and dependency
 direction are clear; do not create one crate per noun pre-emptively.
 
-Likely long-term packages include a public `orskit` facade and focused packages
-for time/data, frames/bodies, orbits, propagation/forces/events, attitude,
-measurements/estimation, I/O, and FFI. The exact split requires architecture
-decision records and evidence from real vertical slices.
+Likely long-term focused packages include time/data, frames/bodies, orbits,
+propagation/forces/events, attitude, measurements/estimation, I/O, and FFI.
+The exact split requires architecture decision records and evidence from real
+vertical slices.
 
-The initial split now includes `orskit-units` for typed quantities,
+The initial split now includes the `orskit` facade, `orskit-units` for typed quantities,
 `orskit-bodies` for celestial and body-system identities, `orskit-frames` for
 body-backed frame identity, and a closed `SpacecraftState` enum with Cartesian,
 elliptic Keplerian, and elliptic equinoctial six-element representations.
