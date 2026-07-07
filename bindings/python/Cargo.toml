@@ -18,5 +18,5 @@ pyo3 = { version = "0.21", features = ["extension-module"] }
 orskit-core = { path = "../../crates/core" }
 orskit-frames = { path = "../../crates/frames" }
 orskit-units = { path = "../../crates/units" }
-measurements = { path = "../../crates/measurements" }
-utils = { path = "../../crates/utils" }
+orskit-measurements = { path = "../../crates/measurements" }
+orskit-utils = { path = "../../crates/utils" }

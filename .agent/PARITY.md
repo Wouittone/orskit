@@ -63,8 +63,8 @@ explicitly labeled with that older version.
 | I/O | CCSDS orbit, attitude, tracking, and navigation messages | Partial | Conformance corpus; lossless semantic round trips | CCSDS 502.0-B-3 OEM KVN blocking/Tokio event ingestion and ordered Rayon collection into typed Cartesian coordinates; explicit enrichment supplies physical state properties absent from OEM; XML, covariance, other message families, conformance corpus, and writing remain pending |
 | I/O | TLE, SP3, RINEX, gravity, EOP, ephemeris, space weather | Not assessed | Format-specific conformance and malformed-input tests | None |
 | Bindings | Stable public Rust facade | Partial | Coherent documented workflow API | Thin pre-alpha `orskit` facade re-exports focused crates as named modules and provides a conservative prelude; stable workflow curation remains pending |
-| Bindings | Python package | Partial | Build/import smoke tests; typed API/error parity | PyO3 orbital-state scaffold |
-| Bindings | JVM-language package | Partial | Native load/FFM smoke tests; ownership/error parity | C ABI orbital-state scaffold |
+| Bindings | Python package | Partial | Build/import smoke tests; typed API/error parity | PyO3 orbital-state scaffold; native Cargo smoke check runs in CI with locked dependencies |
+| Bindings | JVM-language package | Partial | Native load/FFM smoke tests; ownership/error parity | C ABI orbital-state scaffold; native Cargo smoke test runs in CI with locked dependencies |
 
 ## Validation record requirements
 

@@ -103,18 +103,21 @@ Run the checks applicable to a change from the repository root:
 
 ```powershell
 cargo fmt --all --check
-cargo check --workspace --all-targets
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo doc --workspace --no-deps
+cargo check --workspace --all-targets --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+cargo doc --workspace --no-deps --locked
 ```
 
 Bindings are currently separate Cargo workspaces and need explicit checks:
 
 ```powershell
 cargo check --manifest-path bindings/python/Cargo.toml
-cargo check --manifest-path bindings/java/Cargo.toml
+cargo test --manifest-path bindings/java/Cargo.toml
 ```
 
-Add package-level smoke tests as the bindings mature. If an environmental
-dependency prevents a check, report exactly what ran and what did not.
+CI runs these native binding smoke checks with locked dependency graphs. They
+preserve compilation only; binding feature stabilization remains deferred until
+the Rust facade and core contracts are intentionally curated. Add package-level
+smoke tests as the bindings mature. If an environmental dependency prevents a
+check, report exactly what ran and what did not.

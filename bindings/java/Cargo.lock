@@ -254,15 +254,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "measurements"
-version = "0.1.0"
-dependencies = [
- "hifitime",
- "orskit-units",
- "thiserror",
-]
-
-[[package]]
 name = "nalgebra"
 version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -385,6 +376,7 @@ name = "orskit-frames"
 version = "0.1.0"
 dependencies = [
  "orskit-bodies",
+ "orskit-units",
  "thiserror",
 ]
 
@@ -392,11 +384,21 @@ dependencies = [
 name = "orskit-jni"
 version = "0.1.0"
 dependencies = [
- "measurements",
  "orskit-core",
  "orskit-frames",
+ "orskit-measurements",
  "orskit-units",
- "utils",
+ "orskit-utils",
+]
+
+[[package]]
+name = "orskit-measurements"
+version = "0.1.0"
+dependencies = [
+ "hifitime",
+ "orskit-frames",
+ "orskit-units",
+ "thiserror",
 ]
 
 [[package]]
@@ -405,6 +407,13 @@ version = "0.1.0"
 dependencies = [
  "thiserror",
  "uom",
+]
+
+[[package]]
+name = "orskit-utils"
+version = "0.1.0"
+dependencies = [
+ "orskit-units",
 ]
 
 [[package]]
@@ -578,13 +587,6 @@ checksum = "a739f83872836c82a4f2527d4e54b37007b3de68cafe7edde95fd695968bf4b9"
 dependencies = [
  "num-traits",
  "typenum",
-]
-
-[[package]]
-name = "utils"
-version = "0.1.0"
-dependencies = [
- "orskit-units",
 ]
 
 [[package]]
