@@ -1,7 +1,8 @@
 [package]
-name = "orskit-measurements"
+name = "measurements"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -9,6 +10,6 @@ description = "Measurement and observation utilities for orskit"
 
 [dependencies]
 hifitime.workspace = true
-orskit-frames = { path = "../frames" }
-orskit-units = { path = "../units" }
+frames = { path = "../frames" }
+units = { path = "../units" }
 thiserror.workspace = true

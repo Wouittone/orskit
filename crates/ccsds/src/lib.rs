@@ -8,7 +8,7 @@
 //!
 //! ```no_run
 //! use std::{fs::File, io::BufReader};
-//! use orskit_ccsds::{OemEvent, OemKvnReader};
+//! use ccsds::{OemEvent, OemKvnReader};
 //!
 //! let reader = OemKvnReader::new(BufReader::new(File::open("orbit.oem")?));
 //! for event in reader {

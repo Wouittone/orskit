@@ -1,12 +1,10 @@
 use std::f64::consts::{PI, TAU};
 
+use frames::ReferenceFrame;
 use hifitime::Epoch;
-use orskit_frames::ReferenceFrame;
-use orskit_units::uom::si::{angle::radian, length::meter, ratio::ratio};
-use orskit_units::{
-    Angle, GravitationalParameter, Length, Position, Ratio, Velocity, VelocityVector,
-};
 use thiserror::Error;
+use units::uom::si::{angle::radian, length::meter, ratio::ratio};
+use units::{Angle, GravitationalParameter, Length, Position, Ratio, Velocity, VelocityVector};
 
 use crate::{CartesianCoordinates, FramedPosition, FramedVelocity, KinematicError};
 
@@ -915,8 +913,8 @@ pub enum StateError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orskit_frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin};
-    use orskit_units::uom::si::velocity::meter_per_second;
+    use frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin};
+    use units::uom::si::velocity::meter_per_second;
 
     fn earth_mu() -> GravitationalParameter {
         GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)
@@ -1099,7 +1097,7 @@ mod tests {
         let id = CustomFrameId::new(17);
         let custom_frame = |motion| {
             ReferenceFrame::new(
-                FrameOrigin::Body(orskit_frames::Body::EARTH),
+                FrameOrigin::Body(frames::Body::EARTH),
                 FrameOrientation::custom(id, motion),
             )
         };

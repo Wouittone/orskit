@@ -18,6 +18,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
+name = "bodies"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -34,6 +41,26 @@ name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
+
+[[package]]
+name = "core"
+version = "0.1.0"
+dependencies = [
+ "frames",
+ "hifitime",
+ "nalgebra",
+ "thiserror",
+ "units",
+]
+
+[[package]]
+name = "frames"
+version = "0.1.0"
+dependencies = [
+ "bodies",
+ "thiserror",
+ "units",
+]
 
 [[package]]
 name = "futures-core"
@@ -191,6 +218,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "jni"
+version = "0.1.0"
+dependencies = [
+ "core",
+ "frames",
+ "measurements",
+ "units",
+ "utils",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -251,6 +289,16 @@ checksum = "a06de3016e9fae57a36fd14dba131fccf49f74b40b7fbdb472f96e361ec71a08"
 dependencies = [
  "autocfg",
  "rawpointer",
+]
+
+[[package]]
+name = "measurements"
+version = "0.1.0"
+dependencies = [
+ "frames",
+ "hifitime",
+ "thiserror",
+ "units",
 ]
 
 [[package]]
@@ -352,69 +400,6 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
-
-[[package]]
-name = "orskit-bodies"
-version = "0.1.0"
-dependencies = [
- "thiserror",
-]
-
-[[package]]
-name = "orskit-core"
-version = "0.1.0"
-dependencies = [
- "hifitime",
- "nalgebra",
- "orskit-frames",
- "orskit-units",
- "thiserror",
-]
-
-[[package]]
-name = "orskit-frames"
-version = "0.1.0"
-dependencies = [
- "orskit-bodies",
- "orskit-units",
- "thiserror",
-]
-
-[[package]]
-name = "orskit-jni"
-version = "0.1.0"
-dependencies = [
- "orskit-core",
- "orskit-frames",
- "orskit-measurements",
- "orskit-units",
- "orskit-utils",
-]
-
-[[package]]
-name = "orskit-measurements"
-version = "0.1.0"
-dependencies = [
- "hifitime",
- "orskit-frames",
- "orskit-units",
- "thiserror",
-]
-
-[[package]]
-name = "orskit-units"
-version = "0.1.0"
-dependencies = [
- "thiserror",
- "uom",
-]
-
-[[package]]
-name = "orskit-utils"
-version = "0.1.0"
-dependencies = [
- "orskit-units",
-]
 
 [[package]]
 name = "paste"
@@ -580,6 +565,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
+name = "units"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "uom",
+]
+
+[[package]]
 name = "uom"
 version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -587,6 +580,13 @@ checksum = "a739f83872836c82a4f2527d4e54b37007b3de68cafe7edde95fd695968bf4b9"
 dependencies = [
  "num-traits",
  "typenum",
+]
+
+[[package]]
+name = "utils"
+version = "0.1.0"
+dependencies = [
+ "units",
 ]
 
 [[package]]

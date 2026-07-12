@@ -5,8 +5,8 @@
 //! prevents positions, velocities, and accelerations from being interchanged.
 //!
 //! ```compile_fail
-//! use orskit_units::{Length, Mass};
-//! use orskit_units::uom::si::{length::meter, mass::kilogram};
+//! use units::{Length, Mass};
+//! use units::uom::si::{length::meter, mass::kilogram};
 //!
 //! let distance = Length::new::<meter>(1.0);
 //! let mass = Mass::new::<kilogram>(1.0);

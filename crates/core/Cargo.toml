@@ -1,15 +1,19 @@
 [package]
-name = "orskit-core"
+name = "core"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Core orbital mechanics library for orskit"
 
+[lib]
+name = "astrodynamics_core"
+
 [dependencies]
 hifitime.workspace = true
 nalgebra.workspace = true
-orskit-frames = { path = "../frames" }
-orskit-units = { path = "../units" }
+frames = { path = "../frames" }
+units = { path = "../units" }
 thiserror.workspace = true

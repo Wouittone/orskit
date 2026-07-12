@@ -1,7 +1,7 @@
 use std::{error::Error, fmt};
 
+use core_crate::Orbit;
 use hifitime::{Duration, Epoch};
-use orskit_core::Orbit;
 
 use crate::ForceModel;
 

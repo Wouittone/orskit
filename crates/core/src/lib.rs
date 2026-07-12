@@ -11,12 +11,11 @@ mod kinematics;
 mod spacecraft;
 mod state;
 
+pub use frames;
 pub use hifitime::Epoch;
 pub use kinematics::{
     CartesianCoordinates, FramedAcceleration, FramedPosition, FramedVelocity, KinematicError,
 };
-pub use orskit_frames as frames;
-pub use orskit_units as units;
 pub use spacecraft::{
     AttitudeError, AttitudeState, FramedAngularVelocity, InertiaError, InertiaTensor, Orientation,
     OrientationError, QuaternionAttitude, ShapeError, Spacecraft, SpacecraftError, SpacecraftShape,
@@ -26,3 +25,4 @@ pub use state::{
     CartesianState, CoordinateSample, EquinoctialState, KeplerianState, Orbit, OrbitalConversion,
     OrbitalElements, SpacecraftState, StateError, To, TryTo,
 };
+pub use units;

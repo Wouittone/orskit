@@ -109,7 +109,7 @@ tasks.jar {
             "Implementation-Title" to project.name,
             "Implementation-Version" to project.version,
             "Implementation-Vendor" to "Wouittone",
-            "Specification-Title" to "orskit-jni",
+            "Specification-Title" to "jni",
             "Specification-Version" to project.version,
             "Bundle-License" to "MIT OR Apache-2.0"
         )

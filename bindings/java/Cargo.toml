@@ -2,9 +2,10 @@
 members = ["."]
 
 [package]
-name = "orskit-jni"
+name = "jni"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.96.1"
 authors = ["Wouittone"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Wouittone/orskit"
@@ -14,8 +15,8 @@ description = "Java FFM bindings for orskit orbital mechanics library"
 crate-type = ["cdylib"]
 
 [dependencies]
-orskit-core = { path = "../../crates/core" }
-orskit-frames = { path = "../../crates/frames" }
-orskit-units = { path = "../../crates/units" }
-orskit-measurements = { path = "../../crates/measurements" }
-orskit-utils = { path = "../../crates/utils" }
+core_crate = { package = "core", path = "../../crates/core" }
+frames = { path = "../../crates/frames" }
+units = { path = "../../crates/units" }
+measurements = { path = "../../crates/measurements" }
+utils = { path = "../../crates/utils" }

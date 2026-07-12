@@ -168,20 +168,19 @@ There is no ambient mutable "current data context."
 
 ## Crate evolution
 
-The focused packages use the `orskit-*` namespace, and the `orskit` package is
-the thin public facade over them. Directory names such as `crates/core` are
-workspace layout details; package names remain namespaced for publication.
-New boundaries should use namespaced package names such as `orskit-time` and
-`orskit-frames`. Split crates only when the domain boundary and dependency
-direction are clear; do not create one crate per noun pre-emptively.
+Focused packages use concise domain names such as `core`, `frames`, and
+`units`. Directory names such as `crates/core` match the package layout.
+New boundaries should use concise domain names such as `time` and `frames`.
+Split crates only when the domain boundary and dependency direction are clear;
+do not create one crate per noun pre-emptively.
 
 Likely long-term focused packages include time/data, frames/bodies, orbits,
 propagation/forces/events, attitude, measurements/estimation, I/O, and FFI.
 The exact split requires architecture decision records and evidence from real
 vertical slices.
 
-The initial split now includes the `orskit` facade, `orskit-units` for typed quantities,
-`orskit-bodies` for celestial and body-system identities, `orskit-frames` for
+The initial split includes `units` for typed quantities, `bodies` for celestial
+and body-system identities, `frames` for
 body-backed frame identity, and a closed `SpacecraftState` enum with Cartesian,
 elliptic Keplerian, and elliptic equinoctial six-element representations.
 `lox-frames` is scientifically promising but still alpha; ANISE is mature but
@@ -189,7 +188,7 @@ owns a broader almanac/orbit context than this foundational slice needs. Keep
 the boundary adapter-friendly and revisit both for transform providers rather
 than leaking either API into spacecraft state.
 
-`orskit-dynamics` currently describes spacecraft-state dependencies, split
+`dynamics` currently describes spacecraft-state dependencies, split
 conservative/non-conservative force models, and deterministic model composition.
 Its first `Propagator<ForceModel>` implementation analytically advances an
 epoch-qualified Cartesian, Keplerian, or equinoctial elliptic `Orbit` with an

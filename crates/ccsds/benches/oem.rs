@@ -1,7 +1,7 @@
 use std::{hint::black_box, io::Cursor};
 
+use ccsds::{parse_oem_kvn, parse_oem_kvn_parallel, OemKvnReader};
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use orskit_ccsds::{parse_oem_kvn, parse_oem_kvn_parallel, OemKvnReader};
 
 const TARGET_BYTES: usize = 100 * 1024 * 1024;
 
@@ -43,7 +43,7 @@ fn benchmark_oem(c: &mut Criterion) {
             for event in reader {
                 if matches!(
                     event.expect("generated benchmark OEM is valid"),
-                    orskit_ccsds::OemEvent::Coordinates(_)
+                    ccsds::OemEvent::Coordinates(_)
                 ) {
                     states += 1;
                 }

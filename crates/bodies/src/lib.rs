@@ -5,7 +5,7 @@
 //! sourced data and do not belong in a body identifier.
 //!
 //! ```
-//! use orskit_bodies::{Body, BodySystem};
+//! use bodies::{Body, BodySystem};
 //!
 //! assert!(BodySystem::EARTH_MOON.contains(Body::EARTH));
 //! assert!(BodySystem::EARTH_MOON.contains(Body::MOON));

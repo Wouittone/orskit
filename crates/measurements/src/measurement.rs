@@ -1,9 +1,9 @@
 //! Typed measurement data structures.
 
 use hifitime::Epoch;
-use orskit_units::uom::si::length::meter;
-use orskit_units::Length;
 use thiserror::Error;
+use units::uom::si::length::meter;
+use units::Length;
 
 /// A scalar range observation and its one-sigma uncertainty.
 #[derive(Debug, Clone, Copy, PartialEq)]

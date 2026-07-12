@@ -11,9 +11,9 @@
 
 use std::{fmt, str::FromStr};
 
-pub use orskit_bodies::{Body, BodySystem, CustomBodyId};
-use orskit_units::Position;
+pub use bodies::{Body, BodySystem, CustomBodyId};
 use thiserror::Error;
+use units::Position;
 
 /// Typed identifier reserved for application-defined frame components.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -191,8 +191,8 @@ impl ReferenceFrame {
 /// coordinates, apply body rotation, or establish geodetic meaning.
 ///
 /// ```
-/// use orskit_frames::{CustomFrameId, DerivedFrame, ReferenceFrame};
-/// use orskit_units::Position;
+/// use frames::{CustomFrameId, DerivedFrame, ReferenceFrame};
+/// use units::Position;
 ///
 /// let site = DerivedFrame::parent_aligned(
 ///     CustomFrameId::new(42),
@@ -200,7 +200,7 @@ impl ReferenceFrame {
 ///     Position::from_metres(6_378_137.0, 0.0, 0.0),
 /// )?;
 /// assert_eq!(site.parent(), ReferenceFrame::ITRF2020);
-/// # Ok::<(), orskit_frames::FrameDefinitionError>(())
+/// # Ok::<(), frames::FrameDefinitionError>(())
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DerivedFrame {

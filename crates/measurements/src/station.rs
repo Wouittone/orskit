@@ -1,8 +1,8 @@
 //! Ground participants used by measurement workflows.
 
-use orskit_frames::{CustomFrameId, DerivedFrame, FrameDefinitionError, ReferenceFrame};
-use orskit_units::Position;
+use frames::{CustomFrameId, DerivedFrame, FrameDefinitionError, ReferenceFrame};
 use thiserror::Error;
+use units::Position;
 
 /// A fixed ground measurement participant defined relative to a parent frame.
 ///
@@ -16,9 +16,9 @@ use thiserror::Error;
 /// constructor and remain future measurement-domain capabilities.
 ///
 /// ```
-/// use orskit_frames::{CustomFrameId, ReferenceFrame};
-/// use orskit_measurements::GroundStation;
-/// use orskit_units::Position;
+/// use frames::{CustomFrameId, ReferenceFrame};
+/// use measurements::GroundStation;
+/// use units::Position;
 ///
 /// let station = GroundStation::new(
 ///     "TLS-01",
@@ -27,7 +27,7 @@ use thiserror::Error;
 ///     Position::from_metres(4_201_000.0, 172_000.0, 4_780_000.0),
 /// )?;
 /// assert_eq!(station.parent_frame(), ReferenceFrame::ITRF2020);
-/// # Ok::<(), orskit_measurements::GroundStationError>(())
+/// # Ok::<(), measurements::GroundStationError>(())
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroundStation {
@@ -99,7 +99,7 @@ pub enum GroundStationError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orskit_frames::{Body, FrameOrigin};
+    use frames::{Body, FrameOrigin};
 
     #[test]
     fn earth_station_is_a_parent_relative_measurement_participant() {
@@ -129,9 +129,9 @@ mod tests {
     fn station_contract_is_body_agnostic() {
         let mars_fixed = ReferenceFrame::new(
             FrameOrigin::Body(Body::MARS),
-            orskit_frames::FrameOrientation::custom(
+            frames::FrameOrientation::custom(
                 CustomFrameId::new(8000),
-                orskit_frames::FrameMotion::NonInertial,
+                frames::FrameMotion::NonInertial,
             ),
         );
         let station = GroundStation::new(

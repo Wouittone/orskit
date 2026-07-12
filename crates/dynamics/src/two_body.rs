@@ -1,12 +1,12 @@
 use std::f64::consts::{PI, TAU};
 
+use bodies::Body;
+use core_crate::frames::{FrameOrigin, ReferenceFrame};
+use core_crate::{KeplerianState, Orbit, OrbitalElements, SpacecraftState, StateError};
 use hifitime::Duration;
-use orskit_bodies::Body;
-use orskit_core::frames::{FrameOrigin, ReferenceFrame};
-use orskit_core::{KeplerianState, Orbit, OrbitalElements, SpacecraftState, StateError};
-use orskit_units::uom::si::{angle::radian, length::meter, ratio::ratio};
-use orskit_units::Angle;
 use thiserror::Error;
+use units::uom::si::{angle::radian, length::meter, ratio::ratio};
+use units::Angle;
 
 use crate::{PointMassGravityModel, Propagator};
 
@@ -261,10 +261,10 @@ pub enum TwoBodyPropagationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core_crate::frames::{CustomFrameId, FrameMotion, FrameOrientation};
+    use core_crate::CartesianState;
     use hifitime::Epoch;
-    use orskit_core::frames::{CustomFrameId, FrameMotion, FrameOrientation};
-    use orskit_core::CartesianState;
-    use orskit_units::{GravitationalParameter, Length, Ratio};
+    use units::{GravitationalParameter, Length, Ratio};
 
     fn earth_mu() -> GravitationalParameter {
         GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)

@@ -12,4 +12,4 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "orskit-jni"
+rootProject.name = "jni"

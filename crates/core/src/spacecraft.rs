@@ -1,14 +1,12 @@
+use frames::ReferenceFrame;
 use hifitime::Epoch;
 use nalgebra::{Matrix3, Quaternion, UnitQuaternion};
-use orskit_frames::ReferenceFrame;
-use orskit_units::uom::si::{
+use thiserror::Error;
+use units::uom::si::{
     angle::radian, length::meter, mass::kilogram, moment_of_inertia::kilogram_square_meter,
     ratio::ratio,
 };
-use orskit_units::{
-    Angle, AngularVelocity, AngularVelocityVector, Length, Mass, MomentOfInertia, Ratio,
-};
-use thiserror::Error;
+use units::{Angle, AngularVelocity, AngularVelocityVector, Length, Mass, MomentOfInertia, Ratio};
 
 use crate::{Orbit, SpacecraftState};
 
@@ -566,9 +564,9 @@ pub enum SpacecraftViewError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orskit_frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin};
-    use orskit_units::uom::si::{angular_velocity::radian_per_second, velocity::meter_per_second};
-    use orskit_units::{Position, VelocityVector};
+    use frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin};
+    use units::uom::si::{angular_velocity::radian_per_second, velocity::meter_per_second};
+    use units::{Position, VelocityVector};
 
     fn body_frame(id: u64) -> ReferenceFrame {
         let id = CustomFrameId::new(id);

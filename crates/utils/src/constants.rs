@@ -1,7 +1,7 @@
 //! Typed physical and astronomical constants.
 
-use orskit_units::uom::si::{length::meter, velocity::meter_per_second};
-use orskit_units::{GravitationalConstant, GravitationalParameter, Length, Velocity};
+use units::uom::si::{length::meter, velocity::meter_per_second};
+use units::{GravitationalConstant, GravitationalParameter, Length, Velocity};
 
 /// WGS 84 geocentric gravitational parameter in `m^3/s^2`.
 ///

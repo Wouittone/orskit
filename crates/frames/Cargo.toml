@@ -1,13 +1,14 @@
 [package]
-name = "orskit-frames"
+name = "frames"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Reference-frame identities and contracts for orskit"
 
 [dependencies]
-orskit-bodies = { path = "../bodies" }
-orskit-units = { path = "../units" }
+bodies = { path = "../bodies" }
+units = { path = "../units" }
 thiserror.workspace = true

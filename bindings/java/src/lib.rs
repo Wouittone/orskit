@@ -2,12 +2,12 @@
 
 use std::ptr;
 
-use orskit_core::{
+use core_crate::{
     AttitudeState, CartesianState, FramedAngularVelocity, InertiaTensor, Orientation,
 };
-use orskit_frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin, ReferenceFrame};
-use orskit_units::uom::si::{moment_of_inertia::kilogram_square_meter, ratio::ratio};
-use orskit_units::{AngularVelocityVector, MomentOfInertia, Position, Ratio, VelocityVector};
+use frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin, ReferenceFrame};
+use units::uom::si::{moment_of_inertia::kilogram_square_meter, ratio::ratio};
+use units::{AngularVelocityVector, MomentOfInertia, Position, Ratio, VelocityVector};
 
 /// Opaque handle owned by the foreign caller.
 pub struct FFMSpacecraftState {

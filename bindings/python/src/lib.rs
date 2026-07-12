@@ -1,13 +1,13 @@
 //! Experimental Python bindings for typed orskit spacecraft states.
 
-use orskit_core::{
+use core_crate::{
     AttitudeState, CartesianState, Epoch, FramedAngularVelocity, InertiaTensor, Orientation,
 };
-use orskit_frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin, ReferenceFrame};
-use orskit_units::uom::si::{
+use frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin, ReferenceFrame};
+use units::uom::si::{
     mass::kilogram, moment_of_inertia::kilogram_square_meter, ratio::ratio,
 };
-use orskit_units::{AngularVelocityVector, Mass, MomentOfInertia, Position, Ratio, VelocityVector};
+use units::{AngularVelocityVector, Mass, MomentOfInertia, Position, Ratio, VelocityVector};
 use pyo3::{exceptions::PyValueError, prelude::*};
 
 /// Python-facing spacecraft state.
@@ -157,7 +157,7 @@ impl SpacecraftStateWrapper {
 }
 
 #[pymodule]
-fn orskit_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<SpacecraftStateWrapper>()?;
     Ok(())
 }

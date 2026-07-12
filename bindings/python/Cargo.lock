@@ -24,6 +24,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4388bee8683e3d04af747c73422af53102d2bd24d9eadb6cbc100baef4b43f8"
 
 [[package]]
+name = "bodies"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -40,6 +47,26 @@ name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
+
+[[package]]
+name = "core"
+version = "0.1.0"
+dependencies = [
+ "frames",
+ "hifitime",
+ "nalgebra",
+ "thiserror",
+ "units",
+]
+
+[[package]]
+name = "frames"
+version = "0.1.0"
+dependencies = [
+ "bodies",
+ "thiserror",
+ "units",
+]
 
 [[package]]
 name = "futures-core"
@@ -290,6 +317,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "measurements"
+version = "0.1.0"
+dependencies = [
+ "frames",
+ "hifitime",
+ "thiserror",
+ "units",
+]
+
+[[package]]
 name = "memoffset"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -399,70 +436,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
-name = "orskit-bodies"
-version = "0.1.0"
-dependencies = [
- "thiserror",
-]
-
-[[package]]
-name = "orskit-core"
-version = "0.1.0"
-dependencies = [
- "hifitime",
- "nalgebra",
- "orskit-frames",
- "orskit-units",
- "thiserror",
-]
-
-[[package]]
-name = "orskit-frames"
-version = "0.1.0"
-dependencies = [
- "orskit-bodies",
- "orskit-units",
- "thiserror",
-]
-
-[[package]]
-name = "orskit-measurements"
-version = "0.1.0"
-dependencies = [
- "hifitime",
- "orskit-frames",
- "orskit-units",
- "thiserror",
-]
-
-[[package]]
-name = "orskit-py"
-version = "0.1.0"
-dependencies = [
- "orskit-core",
- "orskit-frames",
- "orskit-measurements",
- "orskit-units",
- "orskit-utils",
- "pyo3",
-]
-
-[[package]]
-name = "orskit-units"
-version = "0.1.0"
-dependencies = [
- "thiserror",
- "uom",
-]
-
-[[package]]
-name = "orskit-utils"
-version = "0.1.0"
-dependencies = [
- "orskit-units",
-]
-
-[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -510,6 +483,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "py"
+version = "0.1.0"
+dependencies = [
+ "core",
+ "frames",
+ "measurements",
+ "pyo3",
+ "units",
+ "utils",
 ]
 
 [[package]]
@@ -751,6 +736,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7264e107f553ccae879d21fbea1d6724ac785e8c3bfc762137959b5802826ef3"
 
 [[package]]
+name = "units"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "uom",
+]
+
+[[package]]
 name = "uom"
 version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -758,6 +751,13 @@ checksum = "a739f83872836c82a4f2527d4e54b37007b3de68cafe7edde95fd695968bf4b9"
 dependencies = [
  "num-traits",
  "typenum",
+]
+
+[[package]]
+name = "utils"
+version = "0.1.0"
+dependencies = [
+ "units",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
-use orskit_frames::ReferenceFrame;
-use orskit_units::{Acceleration, AccelerationVector, Length, Position, Velocity, VelocityVector};
+use frames::ReferenceFrame;
 use thiserror::Error;
+use units::{Acceleration, AccelerationVector, Length, Position, Velocity, VelocityVector};
 
 /// A position vector expressed in its attached reference frame.
 #[derive(Debug, Clone, Copy, PartialEq)]

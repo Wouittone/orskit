@@ -1,7 +1,8 @@
 [package]
-name = "orskit-dynamics"
+name = "dynamics"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -9,7 +10,7 @@ description = "Composable system-dynamics and force-model descriptions for orski
 
 [dependencies]
 hifitime.workspace = true
-orskit-bodies = { path = "../bodies" }
-orskit-core = { path = "../core" }
-orskit-units = { path = "../units" }
+bodies = { path = "../bodies" }
+core_crate = { package = "core", path = "../core" }
+units = { path = "../units" }
 thiserror.workspace = true

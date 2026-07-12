@@ -8,9 +8,9 @@
 //! numerical integration, events, and variational equations remain absent.
 //!
 //! ```
-//! use orskit_bodies::Body;
-//! use orskit_dynamics::{PointMassGravityModel, SystemDynamics, TwoBodyDynamics};
-//! use orskit_units::GravitationalParameter;
+//! use bodies::Body;
+//! use dynamics::{PointMassGravityModel, SystemDynamics, TwoBodyDynamics};
+//! use units::GravitationalParameter;
 //!
 //! let mu = GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)?;
 //! let gravity = PointMassGravityModel::new(Body::EARTH, mu);
@@ -21,14 +21,14 @@
 //!     "gravity"
 //! );
 //! assert!(model.non_conservative_force_models().is_empty());
-//! # Ok::<(), orskit_units::QuantityError>(())
+//! # Ok::<(), units::QuantityError>(())
 //! ```
 
 use std::{fmt, sync::Arc};
 
-use orskit_bodies::Body;
-use orskit_units::GravitationalParameter;
+use bodies::Body;
 use thiserror::Error;
+use units::GravitationalParameter;
 
 mod propagator;
 mod two_body;

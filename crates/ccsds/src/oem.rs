@@ -2,13 +2,13 @@
 
 use std::{fmt, io::BufRead, str::FromStr};
 
-use orskit_core::{
+use core_crate::{
     CartesianCoordinates, CoordinateSample, Epoch, FramedAcceleration, FramedPosition,
     FramedVelocity, KinematicError,
 };
-use orskit_frames::{Body, FrameOrientation, FrameOrigin, ReferenceFrame};
-use orskit_units::{AccelerationVector, Position, VelocityVector};
+use frames::{Body, FrameOrientation, FrameOrigin, ReferenceFrame};
 use thiserror::Error;
+use units::{AccelerationVector, Position, VelocityVector};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -1287,13 +1287,13 @@ fn required(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orskit_core::{
+    use core_crate::{
         AttitudeState, CartesianState, FramedAngularVelocity, InertiaTensor, Orbit, Orientation,
         Spacecraft, SpacecraftShape, SpacecraftView,
     };
-    use orskit_frames::{CustomFrameId, FrameMotion, FrameOrientation};
-    use orskit_units::uom::si::{mass::kilogram, moment_of_inertia::kilogram_square_meter};
-    use orskit_units::{AngularVelocityVector, Mass, MomentOfInertia};
+    use frames::{CustomFrameId, FrameMotion, FrameOrientation};
+    use units::uom::si::{mass::kilogram, moment_of_inertia::kilogram_square_meter};
+    use units::{AngularVelocityVector, Mass, MomentOfInertia};
 
     const SAMPLE: &str = "CCSDS_OEM_VERS = 3.0\n\
 CREATION_DATE = 2024-01-01T00:00:00\n\
