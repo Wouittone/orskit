@@ -68,25 +68,30 @@ roadmap. Start with [`.agent/README.md`](.agent/README.md).
 | `crates/ccsds` | Blocking/Tokio streaming and Rayon collection for CCSDS OEM KVN coordinates |
 | `crates/measurements` | Typed measurements and fixed ground-station participants built on parent-relative frames |
 | `crates/utils` | Typed sourced constants; package boundary remains transitional |
-| `bindings/python` | Experimental PyO3 binding workspace |
-| `bindings/java` | Experimental native C ABI and Java FFM build workspace |
+| `bindings/python` | Disabled experimental PyO3 binding workspace |
+| `bindings/java` | Disabled experimental native C ABI and Java FFM build workspace |
 
 See the [capability parity ledger](.agent/PARITY.md) for an honest accounting of
 what exists and what still needs to be researched, designed, and validated.
 
 ## Build the current scaffold
 
-The core crates form a Cargo workspace:
+The core crates form a Cargo workspace. The currently validated Rust toolchain
+is pinned in `rust-toolchain.toml` and package metadata. Install
+[`cargo-nextest`](https://nexte.st/) before running the test commands.
 
 ```powershell
 cargo build --workspace
-cargo test --workspace
+cargo nextest run --workspace
 ```
 
-Small Rust examples can start from the facade crate:
+Small Rust examples can import the focused crates directly:
+
+The Cargo package named `core` exposes the Rust library
+`astrodynamics_core`, avoiding a collision with Rust's built-in `core` crate.
 
 ```rust
-use orskit::prelude::*;
+use frames::ReferenceFrame;
 
 let frame = ReferenceFrame::GCRF;
 assert!(frame.is_inertial());
@@ -98,7 +103,7 @@ The current I/O slice emits timed coordinates without retaining a complete messa
 
 ```rust
 use std::{fs::File, io::BufReader};
-use orskit_ccsds::{OemEvent, OemKvnReader};
+use ccsds::{OemEvent, OemKvnReader};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reader = OemKvnReader::new(BufReader::new(File::open("orbit.oem")?));
@@ -123,30 +128,10 @@ CCSDS 502.0-B-3 OEM KVN coordinate
 ingestion only. XML,
 covariance, OPM/OMM/OCM, attitude, and tracking messages remain explicit gaps.
 
-The binding projects are separate workspaces for now.
-
-### Python
-
-Install [uv](https://docs.astral.sh/uv/), then from PowerShell:
-
-```powershell
-Push-Location bindings/python
-uv run --with maturin maturin develop
-Pop-Location
-```
-
-### JVM languages
-
-The current experiment is the native side of a future Java Foreign Function &
-Memory API package:
-
-```powershell
-cargo test --manifest-path bindings/java/Cargo.toml
-```
-
-The safe JVM wrapper and complete Gradle packaging are still planned work.
-Platform/toolchain support will be documented and tested before the bindings
-are presented as a stable package.
+The Python and JVM binding experiments are currently disabled while the Rust
+core API is stabilized. Their separate workspaces remain in the repository but
+are not built or tested in CI. Platform/toolchain support and stable package
+workflows will be documented when binding work resumes.
 
 ## Contributing
 

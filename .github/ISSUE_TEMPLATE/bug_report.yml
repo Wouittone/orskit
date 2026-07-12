@@ -16,7 +16,7 @@ body:
       label: Reproduction
       description: Provide the smallest command, input, or code sample that reproduces the issue.
       placeholder: |
-        cargo test -p orskit-core ...
+        cargo nextest run -p core ...
     validations:
       required: true
   - type: textarea

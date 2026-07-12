@@ -35,11 +35,11 @@ explicitly labeled with that older version.
 
 | Domain | Capability family | Status | Acceptance evidence required | Current evidence |
 | --- | --- | --- | --- | --- |
-| Foundations | Units, dimensions, constants, and numerical policies | Partial | Typed/convention-explicit APIs; sourced constants; dimensional tests | `orskit-units`; `uom` compile-fail example; typed constants |
+| Foundations | Units, dimensions, constants, and numerical policies | Partial | Typed/convention-explicit APIs; sourced constants; dimensional tests | `units`; `uom` compile-fail example; typed constants |
 | Foundations | Time scales, calendars, durations, leap seconds | Partial | Standard vectors; leap-boundary tests; scale round trips | Hifitime 4.3 adopted directly; orskit validation pending |
 | Foundations | Explicit scientific data context and providers | Not assessed | Version/checksum behavior; offline deterministic scenario | None |
 | Geometry | Frames, transforms, Earth orientation | Partial | Transform composition/inverse; independent frame vectors | Typed origin/orientation identities compose body-backed or barycentric origins; `FrameMotion` makes inertial eligibility affirmative; `DerivedFrame` records caller-owned parent-aligned fixed offsets and explicit chains; transform evaluation is not implemented |
-| Geometry | Celestial bodies, ephemerides, ellipsoids, geodesy | Partial | Standard geodetic vectors; ephemeris comparison | `orskit-bodies` provides classified immutable body identities, validated explicit body-system membership, and custom identities; masses, shapes, rotation, ephemerides, and geodesy remain pending |
+| Geometry | Celestial bodies, ephemerides, ellipsoids, geodesy | Partial | Standard geodetic vectors; ephemeris comparison | `bodies` provides classified immutable body identities, validated explicit body-system membership, and custom identities; masses, shapes, rotation, ephemerides, and geodesy remain pending |
 | Orbits | Epoch/frame-qualified Cartesian states | Partial | Invariant-bearing API; units/frame/time tests | `CartesianState` stores `(x, y, z, vx, vy, vz)` in an explicit frame; `SpacecraftState` closes the supported representation set; `Orbit` qualifies a representation with its epoch; time-independent `Spacecraft` identity/geometry and complete `SpacecraftView` physical data remain separate; bound osculating conversion has typed frame/degeneracy/conic errors |
 | Orbits | Keplerian, circular, equinoctial, and nonsingular elements | Partial | Round trips across regimes; singularity policy | Six-element elliptic `KeplerianState` and `(a, ex, ey, hx, hy, lv)` `EquinoctialState` implement `OrbitalElements`; `From`/`To` enum wrapping and contextual `TryFrom`/`TryTo` conversions cover every current pair; analytic circular/polar vectors, representation round trips, and singularity errors pass; other conics/anomalies remain pending |
 | Orbits | Anomalies, Jacobians, interpolation, covariance mapping | Not assessed | Analytic/reference comparisons and round-trip bounds | None |
@@ -54,7 +54,7 @@ explicitly labeled with that older version.
 | Propagation | Semi-analytical propagation | Not assessed | Long-arc reference scenarios with error budgets | None |
 | Propagation | Variational equations, STM, and covariance propagation | Not assessed | Finite-difference/analytic sensitivities | None |
 | Attitude | Rotations, angular states, and attitude providers | Partial | Composition, interpolation, and reference scenarios | Closed `AttitudeState` currently wraps `QuaternionAttitude`, exposing framed orientation angles and body-frame angular velocity without generics or trait objects; angular-velocity/inertia body-frame consistency is validated; providers, interpolation, and dynamics remain pending |
-| Observation | Ground participants, displacement, clocks, weather | Partial | Frame/time-aware ground-observer scenarios | `orskit-measurements::GroundStation` owns a stable identity and parent-relative fixed Cartesian frame; geodetic conversion, local topocentric axes, displacement, clocks, weather, and signal paths remain pending |
+| Observation | Ground participants, displacement, clocks, weather | Partial | Frame/time-aware ground-observer scenarios | `measurements::GroundStation` owns a stable identity and parent-relative fixed Cartesian frame; geodetic conversion, local topocentric axes, displacement, clocks, weather, and signal paths remain pending |
 | Observation | Range, range-rate, angles, Doppler, GNSS, inter-satellite | Partial | Per-type reference vectors and participant timing | Typed range measurement only |
 | Observation | Measurement modifiers and corrections | Not assessed | Model-specific correction vectors | None |
 | Estimation | Parameter drivers and measurement generation | Not assessed | Parameter scaling/selection and simulation scenarios | None |
@@ -62,9 +62,9 @@ explicitly labeled with that older version.
 | Mission analysis | Visibility, eclipse, occultation, FOV, access | Not assessed | Geometry edge cases and event scenarios | None |
 | I/O | CCSDS orbit, attitude, tracking, and navigation messages | Partial | Conformance corpus; lossless semantic round trips | CCSDS 502.0-B-3 OEM KVN blocking/Tokio event ingestion and ordered Rayon collection into typed Cartesian coordinates; explicit enrichment supplies physical state properties absent from OEM; XML, covariance, other message families, conformance corpus, and writing remain pending |
 | I/O | TLE, SP3, RINEX, gravity, EOP, ephemeris, space weather | Not assessed | Format-specific conformance and malformed-input tests | None |
-| Bindings | Stable public Rust facade | Partial | Coherent documented workflow API | Thin pre-alpha `orskit` facade re-exports focused crates as named modules and provides a conservative prelude; stable workflow curation remains pending |
-| Bindings | Python package | Partial | Build/import smoke tests; typed API/error parity | PyO3 orbital-state scaffold; native Cargo smoke check runs in CI with locked dependencies |
-| Bindings | JVM-language package | Partial | Native load/FFM smoke tests; ownership/error parity | C ABI orbital-state scaffold; native Cargo smoke test runs in CI with locked dependencies |
+| Bindings | Stable public Rust facade | Not assessed | Coherent documented workflow API | No public Rust facade is provided; applications import focused crates directly. |
+| Bindings | Python package | Not assessed | Build/import smoke tests; typed API/error parity | Experimental PyO3 workspace retained but disabled while the Rust core API stabilizes; no CI validation currently runs |
+| Bindings | JVM-language package | Not assessed | Native load/FFM smoke tests; ownership/error parity | Experimental C ABI/FFM workspace retained but disabled while the Rust core API stabilizes; no CI validation currently runs |
 
 ## Validation record requirements
 

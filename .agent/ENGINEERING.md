@@ -99,25 +99,21 @@ and an intentional tolerance-aware comparison.
 
 ## Baseline checks
 
+The currently validated Rust toolchain and package `rust-version` are pinned to
+Rust 1.96.1. A lower MSRV may be declared only after it is tested in CI against
+the full Rust workspace.
+
 Run the checks applicable to a change from the repository root:
 
 ```powershell
 cargo fmt --all --check
 cargo check --workspace --all-targets --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
+cargo nextest run --workspace --locked
 cargo doc --workspace --no-deps --locked
 ```
 
-Bindings are currently separate Cargo workspaces and need explicit checks:
-
-```powershell
-cargo check --manifest-path bindings/python/Cargo.toml
-cargo test --manifest-path bindings/java/Cargo.toml
-```
-
-CI runs these native binding smoke checks with locked dependency graphs. They
-preserve compilation only; binding feature stabilization remains deferred until
-the Rust facade and core contracts are intentionally curated. Add package-level
-smoke tests as the bindings mature. If an environmental dependency prevents a
-check, report exactly what ran and what did not.
+Python and JVM binding workspaces are intentionally disabled while the Rust
+core API stabilizes. They are excluded from local baseline checks and CI. When
+binding work resumes, add package-level smoke tests and platform/toolchain
+support before treating either package as available.
