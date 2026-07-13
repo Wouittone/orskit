@@ -21,6 +21,8 @@ actual resource contract.
 4. Counters reset only at validated header, metadata, and data boundaries.
 5. Limit failures report the limit kind, section, source line, configured
    limit, and observed value.
+6. Streaming readers fail as soon as an unterminated line cannot possibly fit
+   the configured content limit, without waiting for newline or EOF.
 
 ## Consequences
 

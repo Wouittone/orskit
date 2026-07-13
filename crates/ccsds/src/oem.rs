@@ -66,9 +66,7 @@ impl fmt::Display for OemLimitKind {
 /// Finite allocation and work limits shared by every OEM KVN decoder mode.
 ///
 /// Byte limits count source content only; LF and CRLF terminators do not count.
-/// Section counters reset after each structural section boundary. The defaults
-/// admit the documented approximately 100 MiB workload while keeping every
-/// decoder entry point finite.
+/// Section counters reset after each structural section boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OemDecoderLimits {
     max_line_bytes: usize,
@@ -804,6 +802,13 @@ fn read_bounded_line<R: BufRead>(
                 BoundedLine::Line
             });
         }
+        if raw_bytes > max_bytes.saturating_add(1)
+            || (raw_bytes > max_bytes && last_byte != Some(b'\r'))
+        {
+            return Ok(BoundedLine::TooLong {
+                observed: raw_bytes,
+            });
+        }
     }
 }
 
@@ -855,6 +860,13 @@ async fn read_bounded_line_async<R: AsyncBufRead + Unpin>(
                 BoundedLine::TooLong { observed }
             } else {
                 BoundedLine::Line
+            });
+        }
+        if raw_bytes > max_bytes.saturating_add(1)
+            || (raw_bytes > max_bytes && last_byte != Some(b'\r'))
+        {
+            return Ok(BoundedLine::TooLong {
+                observed: raw_bytes,
             });
         }
     }
@@ -2358,6 +2370,31 @@ META_STOP\n\
                 ..
             } if configured == longest - 1 && observed == longest
         ));
+    }
+
+    #[test]
+    fn unterminated_oversized_line_fails_without_waiting_for_eof() {
+        let mut reader = std::io::BufReader::with_capacity(4, std::io::Cursor::new(b"abcde"));
+        let mut buffer = Vec::new();
+
+        assert_eq!(
+            read_bounded_line(&mut reader, &mut buffer, 3).expect("bounded read"),
+            BoundedLine::TooLong { observed: 4 }
+        );
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test]
+    async fn async_unterminated_oversized_line_fails_without_waiting_for_eof() {
+        let mut reader = tokio::io::BufReader::with_capacity(4, &b"abcde"[..]);
+        let mut buffer = Vec::new();
+
+        assert_eq!(
+            read_bounded_line_async(&mut reader, &mut buffer, 3)
+                .await
+                .expect("bounded read"),
+            BoundedLine::TooLong { observed: 4 }
+        );
     }
 
     #[test]
