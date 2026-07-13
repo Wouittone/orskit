@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! CCSDS navigation-message ingestion at the orskit I/O boundary.
 //!
 //! The first supported vertical slice is the CCSDS 502.0-B-3 Orbit

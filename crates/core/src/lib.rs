@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Core state types for orskit.
 //!
 //! Physical scalars and vectors are strongly typed, epochs use Hifitime

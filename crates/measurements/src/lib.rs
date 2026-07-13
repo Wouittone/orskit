@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Measurement and observation handling.
 //!
 //! This crate owns the participant-centric measurement model. Every range

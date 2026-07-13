@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Reference-frame identities for orskit.
 //!
 //! A frame identity is modeled as a body-backed, barycentric, or custom origin

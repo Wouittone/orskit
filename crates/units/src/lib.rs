@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Strongly typed physical quantities used by orskit.
 //!
 //! Scalar quantities use [`uom`] so dimensional mistakes are compile-time

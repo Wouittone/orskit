@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Composable descriptions of spacecraft dynamics and force models.
 //!
 //! This crate primarily describes model topology. A force interaction targets
