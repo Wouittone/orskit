@@ -105,6 +105,9 @@ impl OemDecoderLimits {
             if value == 0 {
                 return Err(OemDecoderLimitsError::Zero { kind });
             }
+            if value == usize::MAX {
+                return Err(OemDecoderLimitsError::Unbounded { kind });
+            }
         }
         Ok(Self {
             max_line_bytes,
@@ -165,6 +168,12 @@ pub enum OemDecoderLimitsError {
     /// A decoder limit was configured as zero.
     #[error("OEM decoder {kind} limit must be non-zero")]
     Zero {
+        /// Invalid limit kind.
+        kind: OemLimitKind,
+    },
+    /// A saturating counter could never exceed the configured maximum.
+    #[error("OEM decoder {kind} limit must be less than usize::MAX")]
+    Unbounded {
         /// Invalid limit kind.
         kind: OemLimitKind,
     },
@@ -2415,6 +2424,28 @@ META_STOP\n\
                     configured.4,
                 ),
                 Err(OemDecoderLimitsError::Zero { kind: expected })
+            );
+        }
+    }
+
+    #[test]
+    fn decoder_limits_reject_saturating_maxima() {
+        for (configured, expected) in [
+            ((usize::MAX, 1, 1, 1, 1), OemLimitKind::LineBytes),
+            ((1, usize::MAX, 1, 1, 1), OemLimitKind::SectionBytes),
+            ((1, 1, usize::MAX, 1, 1), OemLimitKind::SectionLines),
+            ((1, 1, 1, usize::MAX, 1), OemLimitKind::DocumentBytes),
+            ((1, 1, 1, 1, usize::MAX), OemLimitKind::DocumentLines),
+        ] {
+            assert_eq!(
+                OemDecoderLimits::new(
+                    configured.0,
+                    configured.1,
+                    configured.2,
+                    configured.3,
+                    configured.4,
+                ),
+                Err(OemDecoderLimitsError::Unbounded { kind: expected })
             );
         }
     }

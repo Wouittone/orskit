@@ -19,6 +19,7 @@ actual resource contract.
    whole-document content bytes/lines. Whole-document counters never reset, so
    they also bound the number of segments and records a collector can retain.
    Callers may select other non-zero finite limits.
+   `usize::MAX` is rejected because saturating counters could never exceed it.
 3. LF and CRLF terminators are excluded consistently from byte accounting.
 4. Counters reset only at validated header, metadata, and data boundaries.
 5. Limit failures report the limit kind, section, source line, configured
