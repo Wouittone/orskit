@@ -15,8 +15,10 @@ actual resource contract.
 
 1. Every blocking, async, sequential, and parallel OEM KVN entrypoint uses an
    `OemDecoderLimits` value.
-2. Finite defaults bound line content bytes, section content bytes, and section
-   physical-line count. Callers may select other non-zero finite limits.
+2. Finite defaults bound line content bytes, section content bytes/lines, and
+   whole-document content bytes/lines. Whole-document counters never reset, so
+   they also bound the number of segments and records a collector can retain.
+   Callers may select other non-zero finite limits.
 3. LF and CRLF terminators are excluded consistently from byte accounting.
 4. Counters reset only at validated header, metadata, and data boundaries.
 5. Limit failures report the limit kind, section, source line, configured
@@ -26,15 +28,16 @@ actual resource contract.
 
 ## Consequences
 
-- Endless short comments and other low-byte/high-line inputs terminate with a
-  typed error.
+- Endless short comments, repeated small segments, and other
+  low-byte/high-line inputs terminate with a typed error.
 - Existing large-file workloads remain supported by documented finite defaults.
 - Chronology and semantic-provenance preservation are separate contracts.
 
 ## Validation
 
 Tests cover exact inclusive boundaries, endless-comment exhaustion, section
-reset, invalid zero limits, and LF/CRLF equivalence in every decoder mode.
+reset, non-resetting document exhaustion across decoder modes, invalid zero
+limits, and LF/CRLF equivalence.
 
 ## Provenance
 

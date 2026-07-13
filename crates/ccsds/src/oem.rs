@@ -18,6 +18,8 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt};
 const DEFAULT_MAX_LINE_BYTES: usize = 64 * 1024;
 const DEFAULT_MAX_SECTION_BYTES: usize = 256 * 1024 * 1024;
 const DEFAULT_MAX_SECTION_LINES: usize = 4_000_000;
+const DEFAULT_MAX_DOCUMENT_BYTES: usize = 512 * 1024 * 1024;
+const DEFAULT_MAX_DOCUMENT_LINES: usize = 8_000_000;
 
 /// OEM KVN section in which a decoder resource limit was reached.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,6 +53,10 @@ pub enum OemLimitKind {
     SectionBytes,
     /// Physical lines in one header, metadata, or data section.
     SectionLines,
+    /// Cumulative content bytes in the complete document.
+    DocumentBytes,
+    /// Cumulative physical lines in the complete document.
+    DocumentLines,
 }
 
 impl fmt::Display for OemLimitKind {
@@ -59,6 +65,8 @@ impl fmt::Display for OemLimitKind {
             Self::LineBytes => "line bytes",
             Self::SectionBytes => "section bytes",
             Self::SectionLines => "section lines",
+            Self::DocumentBytes => "document bytes",
+            Self::DocumentLines => "document lines",
         })
     }
 }
@@ -66,12 +74,16 @@ impl fmt::Display for OemLimitKind {
 /// Finite allocation and work limits shared by every OEM KVN decoder mode.
 ///
 /// Byte limits count source content only; LF and CRLF terminators do not count.
-/// Section counters reset after each structural section boundary.
+/// Section counters reset after each structural section boundary; document
+/// counters never reset. Document line/byte budgets also bound the possible
+/// number of segments and records because every one consumes source lines.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OemDecoderLimits {
     max_line_bytes: usize,
     max_section_bytes: usize,
     max_section_lines: usize,
+    max_document_bytes: usize,
+    max_document_lines: usize,
 }
 
 impl OemDecoderLimits {
@@ -80,11 +92,15 @@ impl OemDecoderLimits {
         max_line_bytes: usize,
         max_section_bytes: usize,
         max_section_lines: usize,
+        max_document_bytes: usize,
+        max_document_lines: usize,
     ) -> Result<Self, OemDecoderLimitsError> {
         for (kind, value) in [
             (OemLimitKind::LineBytes, max_line_bytes),
             (OemLimitKind::SectionBytes, max_section_bytes),
             (OemLimitKind::SectionLines, max_section_lines),
+            (OemLimitKind::DocumentBytes, max_document_bytes),
+            (OemLimitKind::DocumentLines, max_document_lines),
         ] {
             if value == 0 {
                 return Err(OemDecoderLimitsError::Zero { kind });
@@ -94,6 +110,8 @@ impl OemDecoderLimits {
             max_line_bytes,
             max_section_bytes,
             max_section_lines,
+            max_document_bytes,
+            max_document_lines,
         })
     }
 
@@ -114,6 +132,18 @@ impl OemDecoderLimits {
     pub const fn max_section_lines(self) -> usize {
         self.max_section_lines
     }
+
+    /// Returns the maximum cumulative content bytes in the complete document.
+    #[must_use]
+    pub const fn max_document_bytes(self) -> usize {
+        self.max_document_bytes
+    }
+
+    /// Returns the maximum cumulative physical lines in the complete document.
+    #[must_use]
+    pub const fn max_document_lines(self) -> usize {
+        self.max_document_lines
+    }
 }
 
 impl Default for OemDecoderLimits {
@@ -122,6 +152,8 @@ impl Default for OemDecoderLimits {
             max_line_bytes: DEFAULT_MAX_LINE_BYTES,
             max_section_bytes: DEFAULT_MAX_SECTION_BYTES,
             max_section_lines: DEFAULT_MAX_SECTION_LINES,
+            max_document_bytes: DEFAULT_MAX_DOCUMENT_BYTES,
+            max_document_lines: DEFAULT_MAX_DOCUMENT_LINES,
         }
     }
 }
@@ -1291,6 +1323,8 @@ struct Decoder {
     limits: OemDecoderLimits,
     section_bytes: usize,
     section_lines: usize,
+    document_bytes: usize,
+    document_lines: usize,
     header: HeaderBuilder,
     metadata: MetadataBuilder,
     next_segment_index: usize,
@@ -1334,6 +1368,8 @@ impl Decoder {
             limits,
             section_bytes: 0,
             section_lines: 0,
+            document_bytes: 0,
+            document_lines: 0,
             header: HeaderBuilder::default(),
             metadata: MetadataBuilder::default(),
             next_segment_index: 0,
@@ -1376,6 +1412,8 @@ impl Decoder {
 
         self.section_bytes = self.section_bytes.saturating_add(bytes);
         self.section_lines = self.section_lines.saturating_add(1);
+        self.document_bytes = self.document_bytes.saturating_add(bytes);
+        self.document_lines = self.document_lines.saturating_add(1);
         if self.section_bytes > self.limits.max_section_bytes {
             return Err(OemError::ResourceLimitExceeded {
                 line: self.line,
@@ -1392,6 +1430,24 @@ impl Decoder {
                 kind: OemLimitKind::SectionLines,
                 configured: self.limits.max_section_lines,
                 observed: self.section_lines,
+            });
+        }
+        if self.document_bytes > self.limits.max_document_bytes {
+            return Err(OemError::ResourceLimitExceeded {
+                line: self.line,
+                section,
+                kind: OemLimitKind::DocumentBytes,
+                configured: self.limits.max_document_bytes,
+                observed: self.document_bytes,
+            });
+        }
+        if self.document_lines > self.limits.max_document_lines {
+            return Err(OemError::ResourceLimitExceeded {
+                line: self.line,
+                section,
+                kind: OemLimitKind::DocumentLines,
+                configured: self.limits.max_document_lines,
+                observed: self.document_lines,
             });
         }
         Ok(())
@@ -1982,8 +2038,28 @@ META_STOP\n\
         max_section_bytes: usize,
         max_section_lines: usize,
     ) -> OemDecoderLimits {
-        OemDecoderLimits::new(max_line_bytes, max_section_bytes, max_section_lines)
-            .expect("test decoder limits are non-zero")
+        OemDecoderLimits::new(
+            max_line_bytes,
+            max_section_bytes,
+            max_section_lines,
+            DEFAULT_MAX_DOCUMENT_BYTES,
+            DEFAULT_MAX_DOCUMENT_LINES,
+        )
+        .expect("test decoder limits are non-zero")
+    }
+
+    fn limits_with_document(
+        max_document_bytes: usize,
+        max_document_lines: usize,
+    ) -> OemDecoderLimits {
+        OemDecoderLimits::new(
+            DEFAULT_MAX_LINE_BYTES,
+            DEFAULT_MAX_SECTION_BYTES,
+            DEFAULT_MAX_SECTION_LINES,
+            max_document_bytes,
+            max_document_lines,
+        )
+        .expect("test decoder limits are non-zero")
     }
 
     fn maximum_section_totals(input: &str) -> (usize, usize) {
@@ -2323,12 +2399,20 @@ META_STOP\n\
     #[test]
     fn decoder_limits_must_be_non_zero() {
         for (configured, expected) in [
-            ((0, 1, 1), OemLimitKind::LineBytes),
-            ((1, 0, 1), OemLimitKind::SectionBytes),
-            ((1, 1, 0), OemLimitKind::SectionLines),
+            ((0, 1, 1, 1, 1), OemLimitKind::LineBytes),
+            ((1, 0, 1, 1, 1), OemLimitKind::SectionBytes),
+            ((1, 1, 0, 1, 1), OemLimitKind::SectionLines),
+            ((1, 1, 1, 0, 1), OemLimitKind::DocumentBytes),
+            ((1, 1, 1, 1, 0), OemLimitKind::DocumentLines),
         ] {
             assert_eq!(
-                OemDecoderLimits::new(configured.0, configured.1, configured.2),
+                OemDecoderLimits::new(
+                    configured.0,
+                    configured.1,
+                    configured.2,
+                    configured.3,
+                    configured.4,
+                ),
                 Err(OemDecoderLimitsError::Zero { kind: expected })
             );
         }
@@ -2441,6 +2525,54 @@ META_STOP\n\
                 configured: 3,
                 observed: 4,
             })
+        ));
+    }
+
+    #[test]
+    fn document_limit_does_not_reset_between_segments_or_modes() {
+        let max_lines = SAMPLE.lines().count() - 1;
+        let limits = limits_with_document(DEFAULT_MAX_DOCUMENT_BYTES, max_lines);
+        let assert_document_limit = |error: OemError| {
+            assert!(matches!(
+                error,
+                OemError::ResourceLimitExceeded {
+                    kind: OemLimitKind::DocumentLines,
+                    configured,
+                    observed,
+                    ..
+                } if configured == max_lines && observed == max_lines + 1
+            ));
+        };
+
+        assert_document_limit(parse_oem_kvn_with_limits(SAMPLE, limits).expect_err("sequential"));
+        #[cfg(feature = "parallel")]
+        assert_document_limit(
+            parse_oem_kvn_parallel_with_limits(SAMPLE, limits).expect_err("parallel"),
+        );
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test]
+    async fn async_document_limit_does_not_reset_between_segments() {
+        let max_lines = SAMPLE.lines().count() - 1;
+        let limits = limits_with_document(DEFAULT_MAX_DOCUMENT_BYTES, max_lines);
+        let mut reader =
+            AsyncOemKvnReader::with_limits(tokio::io::BufReader::new(SAMPLE.as_bytes()), limits);
+        let error = loop {
+            match reader.next_event().await {
+                Some(Err(error)) => break error,
+                Some(Ok(_)) => {}
+                None => panic!("document limit must reject the source"),
+            }
+        };
+        assert!(matches!(
+            error,
+            OemError::ResourceLimitExceeded {
+                kind: OemLimitKind::DocumentLines,
+                configured,
+                observed,
+                ..
+            } if configured == max_lines && observed == max_lines + 1
         ));
     }
 
