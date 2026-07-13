@@ -1,16 +1,21 @@
 use std::f64::consts::{PI, TAU};
 use std::sync::Arc;
 
-use core_crate::{KeplerianState, Orbit, SharedCentralGravity, SpacecraftState, StateError};
+use core_crate::{
+    EquinoctialState, KeplerianState, Orbit, SharedCentralGravity, SpacecraftState, StateError,
+};
 use hifitime::Duration;
 use thiserror::Error;
 use units::uom::si::{angle::radian, length::meter, ratio::ratio};
-use units::Angle;
+use units::{Angle, Length};
 
 use crate::{Propagator, TwoBodyDynamics};
 
 const DEFAULT_TOLERANCE_RADIANS: f64 = 1.0e-13;
 const DEFAULT_MAX_ITERATIONS: usize = 32;
+const DEFAULT_PHASE_ERROR_BUDGET_RADIANS: f64 = 1.0e-10;
+const NANOSECONDS_PER_SECOND: u128 = 1_000_000_000;
+const MAX_EXACT_F64_INTEGER: u128 = 1_u128 << f64::MANTISSA_DIGITS;
 
 /// Analytical point-mass propagation for bound elliptic spacecraft states.
 ///
@@ -18,6 +23,21 @@ const DEFAULT_MAX_ITERATIONS: usize = 32;
 /// `M = E - e sin(E)` by bounded Newton iteration, and converts eccentric
 /// anomaly back to true anomaly. These relations follow the public
 /// [NASA GMAT Mathematical Specifications](https://ntrs.nasa.gov/citations/20080031744).
+/// Hifitime supplies an exact signed nanosecond count `N`; this solver computes
+/// `dt = N / 10^9` without first rounding the complete duration to `f64`.
+/// Before range reduction, it estimates a conservative floating-point phase
+/// bound `B_phi = |n| B_dt + |dt| B_n + B_mul + B_reduce` for
+/// `Delta M = n dt` and rejects requests exceeding the configured budget.
+/// Here `B_dt` bounds nanosecond-to-seconds conversion, `B_n` bounds evaluation
+/// of `sqrt(mu / a^3)`, and the remaining terms bound multiplication and
+/// periodic reduction. The estimate depends on `|N|`, so acceptance is
+/// symmetric for equal forward and backward durations.
+///
+/// Equinoctial states are advanced without conversion through Keplerian
+/// inclination. With eccentric longitude `F`, mean longitude is solved from
+/// `L = F - ex sin(F) + ey cos(F)` while `a`, `ex`, `ey`, `hx`, and `hy` stay
+/// constant. This keeps every finite supported `hx`/`hy` valid near the
+/// retrograde singular limit of the intermediate Keplerian representation.
 ///
 /// The solver implements [`Propagator<TwoBodyDynamics>`]; the problem owns the
 /// two-body topology and gravity provider, while this type owns only analytical
@@ -31,6 +51,7 @@ const DEFAULT_MAX_ITERATIONS: usize = 32;
 pub struct EllipticKeplerPropagator {
     tolerance_radians: f64,
     max_iterations: usize,
+    phase_error_budget_radians: f64,
 }
 
 impl Default for EllipticKeplerPropagator {
@@ -40,12 +61,16 @@ impl Default for EllipticKeplerPropagator {
 }
 
 impl EllipticKeplerPropagator {
-    /// Creates an elliptic analytical propagator with documented defaults.
+    /// Creates an elliptic analytical propagator.
+    ///
+    /// Defaults are a `1e-13` radian anomaly residual tolerance, 32 Newton
+    /// iterations, and a `1e-10` radian floating phase-error budget.
     #[must_use]
     pub const fn new() -> Self {
         Self {
             tolerance_radians: DEFAULT_TOLERANCE_RADIANS,
             max_iterations: DEFAULT_MAX_ITERATIONS,
+            phase_error_budget_radians: DEFAULT_PHASE_ERROR_BUDGET_RADIANS,
         }
     }
 
@@ -73,6 +98,37 @@ impl EllipticKeplerPropagator {
         Ok(self)
     }
 
+    /// Sets the maximum estimated floating phase error in radians.
+    ///
+    /// This budget covers mean-motion evaluation, duration conversion, phase
+    /// multiplication, and periodic range reduction. It does not replace the
+    /// separately configured anomaly-solver residual tolerance.
+    ///
+    /// ```
+    /// use dynamics::EllipticKeplerPropagator;
+    ///
+    /// let propagator = EllipticKeplerPropagator::new()
+    ///     .with_phase_error_budget_radians(1.0e-8)?;
+    /// assert_eq!(propagator.phase_error_budget_radians(), 1.0e-8);
+    /// # Ok::<(), dynamics::EllipticKeplerError>(())
+    /// ```
+    pub fn with_phase_error_budget_radians(
+        mut self,
+        phase_error_budget_radians: f64,
+    ) -> Result<Self, EllipticKeplerError> {
+        if !phase_error_budget_radians.is_finite() || phase_error_budget_radians <= 0.0 {
+            return Err(EllipticKeplerError::InvalidPhaseErrorBudget);
+        }
+        self.phase_error_budget_radians = phase_error_budget_radians;
+        Ok(self)
+    }
+
+    /// Returns the configured floating phase-error budget in radians.
+    #[must_use]
+    pub const fn phase_error_budget_radians(&self) -> f64 {
+        self.phase_error_budget_radians
+    }
+
     fn propagate_keplerian(
         &self,
         initial: KeplerianState,
@@ -80,30 +136,16 @@ impl EllipticKeplerPropagator {
         duration: Duration,
     ) -> Result<KeplerianState, EllipticKeplerError> {
         ensure_problem_gravity(initial.central_gravity(), problem.central_gravity())?;
-        let elapsed_seconds = duration.to_seconds();
-        if !elapsed_seconds.is_finite() {
-            return Err(EllipticKeplerError::NonFiniteDuration);
-        }
-
-        let semi_major_axis_m = initial.semi_major_axis().get::<meter>();
         let eccentricity = initial.eccentricity().get::<ratio>();
         let initial_true_anomaly = initial.true_anomaly().get::<radian>();
         let initial_eccentric_anomaly = true_to_eccentric(initial_true_anomaly, eccentricity);
         let initial_mean_anomaly =
             initial_eccentric_anomaly - eccentricity * initial_eccentric_anomaly.sin();
-        let mean_motion = (problem
-            .central_gravity()
-            .gravitational_parameter()
-            .as_cubic_metres_per_second_squared()
-            / semi_major_axis_m.powi(3))
-        .sqrt();
-        let propagated_mean_anomaly = initial_mean_anomaly + mean_motion * elapsed_seconds;
-        if !propagated_mean_anomaly.is_finite() {
-            return Err(EllipticKeplerError::NonFiniteMeanAnomaly);
-        }
+        let phase_advance = self.phase_advance(initial.semi_major_axis(), problem, duration)?;
+        let propagated_mean_anomaly = normalize_signed(initial_mean_anomaly + phase_advance);
 
         let eccentric_anomaly = solve_elliptic_kepler(
-            normalize_signed(propagated_mean_anomaly),
+            propagated_mean_anomaly,
             eccentricity,
             self.tolerance_radians,
             self.max_iterations,
@@ -121,6 +163,92 @@ impl EllipticKeplerPropagator {
         )?)
     }
 
+    fn phase_advance(
+        &self,
+        semi_major_axis: Length,
+        problem: &TwoBodyDynamics,
+        duration: Duration,
+    ) -> Result<f64, EllipticKeplerError> {
+        let mean_motion = (problem
+            .central_gravity()
+            .gravitational_parameter()
+            .as_cubic_metres_per_second_squared()
+            / semi_major_axis.get::<meter>().powi(3))
+        .sqrt();
+        if !mean_motion.is_finite() || mean_motion <= 0.0 {
+            return Err(EllipticKeplerError::InvalidMeanMotion);
+        }
+        let exact_duration = ExactNanosecondDuration::from(duration);
+        let phase_magnitude = mean_motion * exact_duration.seconds_magnitude;
+        if !phase_magnitude.is_finite() {
+            return Err(EllipticKeplerError::NonFiniteMeanAnomaly);
+        }
+
+        let estimated_phase_error_radians = phase_error_bound_radians(
+            mean_motion,
+            phase_magnitude,
+            exact_duration.seconds_magnitude,
+            exact_duration.seconds_error_bound,
+        );
+        if estimated_phase_error_radians > self.phase_error_budget_radians {
+            return Err(EllipticKeplerError::AccuracyBudgetExceeded {
+                estimated_phase_error_radians,
+                budget_radians: self.phase_error_budget_radians,
+            });
+        }
+
+        let signed_phase = if exact_duration.is_negative {
+            -phase_magnitude
+        } else {
+            phase_magnitude
+        };
+        Ok(normalize_signed(signed_phase))
+    }
+
+    fn propagate_equinoctial(
+        &self,
+        initial: EquinoctialState,
+        problem: &TwoBodyDynamics,
+        duration: Duration,
+    ) -> Result<EquinoctialState, EllipticKeplerError> {
+        ensure_problem_gravity(initial.central_gravity(), problem.central_gravity())?;
+        let ex = initial.eccentricity_x().get::<ratio>();
+        let ey = initial.eccentricity_y().get::<ratio>();
+        let eccentricity_complement = (1.0 - ex.hypot(ey).powi(2)).sqrt();
+        let initial_true_longitude = initial.true_longitude().get::<radian>();
+        let true_projection = ex * initial_true_longitude.cos() + ey * initial_true_longitude.sin();
+        let true_cross = ex * initial_true_longitude.sin() - ey * initial_true_longitude.cos();
+        let initial_eccentric_longitude = initial_true_longitude
+            - 2.0 * true_cross.atan2(1.0 + eccentricity_complement + true_projection);
+        let initial_mean_longitude = initial_eccentric_longitude
+            - ex * initial_eccentric_longitude.sin()
+            + ey * initial_eccentric_longitude.cos();
+        let phase_advance = self.phase_advance(initial.semi_major_axis(), problem, duration)?;
+        let propagated_mean_longitude = normalize_signed(initial_mean_longitude + phase_advance);
+        let eccentric_longitude = solve_equinoctial_kepler(
+            propagated_mean_longitude,
+            ex,
+            ey,
+            self.tolerance_radians,
+            self.max_iterations,
+        )?;
+        let eccentric_projection = ex * eccentric_longitude.cos() + ey * eccentric_longitude.sin();
+        let eccentric_cross = ex * eccentric_longitude.sin() - ey * eccentric_longitude.cos();
+        let true_longitude = eccentric_longitude
+            + 2.0 * eccentric_cross.atan2(1.0 + eccentricity_complement - eccentric_projection);
+
+        Ok(EquinoctialState::new(
+            initial.inertial_frame(),
+            initial.central_gravity().clone(),
+            initial.semi_major_axis(),
+            initial.eccentricity_x(),
+            initial.eccentricity_y(),
+            initial.inclination_x(),
+            initial.inclination_y(),
+            Angle::new::<radian>(normalize_signed(true_longitude)),
+        )?)
+    }
+
     fn propagate_state(
         &self,
         initial: SpacecraftState,
@@ -132,10 +260,7 @@ impl EllipticKeplerPropagator {
                 Ok(self.propagate_keplerian(state, problem, duration)?.into())
             }
             SpacecraftState::Equinoctial(state) => {
-                ensure_problem_gravity(state.central_gravity(), problem.central_gravity())?;
-                let keplerian = state.to_keplerian()?;
-                let propagated = self.propagate_keplerian(keplerian, problem, duration)?;
-                Ok(SpacecraftState::Equinoctial(propagated.to_equinoctial()?))
+                Ok(self.propagate_equinoctial(state, problem, duration)?.into())
             }
             SpacecraftState::Cartesian(state) => {
                 let keplerian = state.to_keplerian(problem.central_gravity())?;
@@ -157,6 +282,9 @@ impl Propagator<TwoBodyDynamics> for EllipticKeplerPropagator {
         problem: &TwoBodyDynamics,
         duration: Duration,
     ) -> Result<Orbit, Self::Error> {
+        if duration.total_nanoseconds() == 0 {
+            return Ok(initial);
+        }
         let state = self.propagate_state(initial.state(), problem, duration)?;
         Ok(Orbit::new(initial.epoch() + duration, state))
     }
@@ -170,6 +298,85 @@ fn ensure_problem_gravity(
         return Err(EllipticKeplerError::CentralGravityMismatch);
     }
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ExactNanosecondDuration {
+    is_negative: bool,
+    seconds_magnitude: f64,
+    seconds_error_bound: f64,
+}
+
+impl From<Duration> for ExactNanosecondDuration {
+    fn from(duration: Duration) -> Self {
+        let total_nanoseconds = duration.total_nanoseconds();
+        let magnitude_nanoseconds = total_nanoseconds.unsigned_abs();
+        let whole_seconds = magnitude_nanoseconds / NANOSECONDS_PER_SECOND;
+        let subsecond_nanoseconds = magnitude_nanoseconds % NANOSECONDS_PER_SECOND;
+        let whole_seconds_f64 = whole_seconds as f64;
+        let whole_seconds_error = if whole_seconds <= MAX_EXACT_F64_INTEGER {
+            0.0
+        } else {
+            0.5 * positive_ulp(whole_seconds_f64)
+        };
+        let fractional_seconds = subsecond_nanoseconds as f64 / NANOSECONDS_PER_SECOND as f64;
+        let fractional_seconds_error = if subsecond_nanoseconds == 0 {
+            0.0
+        } else {
+            0.5 * positive_ulp(fractional_seconds)
+        };
+        let seconds_magnitude = whole_seconds_f64 + fractional_seconds;
+        let addition_error = if subsecond_nanoseconds == 0 {
+            0.0
+        } else {
+            0.5 * positive_ulp(seconds_magnitude)
+        };
+
+        Self {
+            is_negative: total_nanoseconds < 0,
+            seconds_magnitude,
+            seconds_error_bound: whole_seconds_error + fractional_seconds_error + addition_error,
+        }
+    }
+}
+
+fn phase_error_bound_radians(
+    mean_motion_radians_per_second: f64,
+    phase_magnitude_radians: f64,
+    duration_seconds_magnitude: f64,
+    duration_error_seconds: f64,
+) -> f64 {
+    let duration_contribution = mean_motion_radians_per_second.abs() * duration_error_seconds;
+    // Two multiplications for a^3, one division, and one square root are
+    // covered by a deliberately conservative eight-epsilon relative bound.
+    let mean_motion_contribution =
+        8.0 * f64::EPSILON * mean_motion_radians_per_second.abs() * duration_seconds_magnitude;
+    let multiplication_rounding = 0.5 * positive_ulp(phase_magnitude_radians);
+    let reduction_contribution = if phase_magnitude_radians <= PI {
+        0.0
+    } else {
+        let tau_multiples = (phase_magnitude_radians / TAU).floor() + 1.0;
+        positive_ulp(phase_magnitude_radians)
+            + tau_multiples * 0.5 * positive_ulp(TAU)
+            + positive_ulp(TAU)
+    };
+
+    duration_contribution
+        + mean_motion_contribution
+        + multiplication_rounding
+        + reduction_contribution
+        + positive_ulp(TAU)
+}
+
+fn positive_ulp(value: f64) -> f64 {
+    let magnitude = value.abs();
+    if magnitude == 0.0 {
+        f64::from_bits(1)
+    } else if magnitude.is_finite() {
+        f64::from_bits(magnitude.to_bits() + 1) - magnitude
+    } else {
+        f64::INFINITY
+    }
 }
 
 fn true_to_eccentric(true_anomaly: f64, eccentricity: f64) -> f64 {
@@ -213,23 +420,87 @@ fn solve_elliptic_kepler(
     })
 }
 
+fn solve_equinoctial_kepler(
+    mean_longitude: f64,
+    eccentricity_x: f64,
+    eccentricity_y: f64,
+    tolerance: f64,
+    max_iterations: usize,
+) -> Result<f64, EllipticKeplerError> {
+    let eccentricity = eccentricity_x.hypot(eccentricity_y);
+    let longitude_of_periapsis = eccentricity_y.atan2(eccentricity_x);
+    let mean_anomaly = normalize_signed(mean_longitude - longitude_of_periapsis);
+    let target_mean_longitude = mean_anomaly + longitude_of_periapsis;
+    let mut eccentric_longitude = if eccentricity < 0.8 {
+        target_mean_longitude
+    } else {
+        PI.copysign(mean_anomaly) + longitude_of_periapsis
+    };
+
+    for _ in 0..max_iterations {
+        let residual = eccentric_longitude - eccentricity_x * eccentric_longitude.sin()
+            + eccentricity_y * eccentric_longitude.cos()
+            - target_mean_longitude;
+        let derivative = 1.0
+            - eccentricity_x * eccentric_longitude.cos()
+            - eccentricity_y * eccentric_longitude.sin();
+        let correction = residual / derivative;
+        eccentric_longitude -= correction;
+        if correction.abs() <= tolerance {
+            let final_residual = eccentric_longitude - eccentricity_x * eccentric_longitude.sin()
+                + eccentricity_y * eccentric_longitude.cos()
+                - target_mean_longitude;
+            if final_residual.abs() <= tolerance {
+                return Ok(normalize_signed(eccentric_longitude));
+            }
+        }
+    }
+
+    Err(EllipticKeplerError::DidNotConverge {
+        iterations: max_iterations,
+    })
+}
+
 fn normalize_signed(angle: f64) -> f64 {
-    (angle + PI).rem_euclid(TAU) - PI
+    if (-PI..=PI).contains(&angle) {
+        angle
+    } else {
+        let reduced = angle.rem_euclid(TAU);
+        if reduced > PI {
+            reduced - TAU
+        } else {
+            reduced
+        }
+    }
 }
 
 /// Error returned by analytical elliptic Kepler propagation.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum EllipticKeplerError {
-    /// The elapsed duration could not be represented as finite seconds.
-    #[error("propagation duration must be finite")]
-    NonFiniteDuration,
+    /// Mean motion could not be represented as a positive finite value.
+    #[error("mean motion must be representable as a positive finite value")]
+    InvalidMeanMotion,
     /// Mean anomaly overflowed after applying the requested duration.
     #[error("propagated mean anomaly must be finite")]
     NonFiniteMeanAnomaly,
     /// The configured anomaly tolerance was not positive and finite.
     #[error("anomaly tolerance must be positive and finite")]
     InvalidTolerance,
+    /// The configured phase-error budget was not positive and finite.
+    #[error("phase-error budget must be positive and finite")]
+    InvalidPhaseErrorBudget,
+    /// The estimated floating phase error exceeds the declared budget.
+    #[error(
+        "estimated phase error {estimated_phase_error_radians:e} rad exceeds budget {budget_radians:e} rad"
+    )]
+    AccuracyBudgetExceeded {
+        /// Conservative bound for mean-motion evaluation, duration conversion,
+        /// multiplication, and periodic range reduction.
+        estimated_phase_error_radians: f64,
+        /// Maximum phase error accepted by the configured solver.
+        budget_radians: f64,
+    },
     /// At least one anomaly-solver iteration is required.
     #[error("maximum anomaly iterations must be greater than zero")]
     ZeroIterations,
@@ -541,6 +812,152 @@ mod tests {
     }
 
     #[test]
+    fn zero_duration_is_exact_identity_for_every_representation() {
+        let central_gravity = earth_gravity(earth_mu());
+        let problem = problem(&central_gravity);
+        let keplerian = initial(&central_gravity, 0.2, 1.3);
+        let elements = match keplerian.state() {
+            SpacecraftState::Keplerian(state) => state,
+            _ => unreachable!(),
+        };
+        let equinoctial = Orbit::new(
+            keplerian.epoch(),
+            elements
+                .clone()
+                .to_equinoctial()
+                .expect("fixture conversion")
+                .into(),
+        );
+        let cartesian = Orbit::new(
+            keplerian.epoch(),
+            elements
+                .to_cartesian(&central_gravity)
+                .expect("fixture conversion")
+                .into(),
+        );
+        let propagator = EllipticKeplerPropagator::new();
+
+        for initial in [keplerian, equinoctial, cartesian] {
+            let propagated = propagator
+                .propagate(
+                    initial.clone(),
+                    &problem,
+                    Duration::from_total_nanoseconds(0),
+                )
+                .expect("zero propagation succeeds");
+            assert_eq!(propagated, initial);
+        }
+    }
+
+    #[test]
+    fn exact_nanosecond_duration_changes_the_propagated_phase() {
+        let central_gravity = earth_gravity(earth_mu());
+        let problem = problem(&central_gravity);
+        let initial = initial(&central_gravity, 0.2, 1.3);
+        let whole_seconds = 3_600_i128 * NANOSECONDS_PER_SECOND as i128;
+        let propagator = EllipticKeplerPropagator::new();
+        let at_whole_second = propagator
+            .propagate(
+                initial.clone(),
+                &problem,
+                Duration::from_total_nanoseconds(whole_seconds),
+            )
+            .expect("whole-second propagation succeeds");
+        let one_nanosecond_later = propagator
+            .propagate(
+                initial,
+                &problem,
+                Duration::from_total_nanoseconds(whole_seconds + 1),
+            )
+            .expect("nanosecond-resolved propagation succeeds");
+        let anomaly = |orbit: Orbit| match orbit.state() {
+            SpacecraftState::Keplerian(state) => state.true_anomaly().get::<radian>(),
+            _ => unreachable!(),
+        };
+
+        assert_ne!(anomaly(at_whole_second), anomaly(one_nanosecond_later));
+    }
+
+    #[test]
+    fn long_duration_budget_rejection_is_deterministic_and_symmetric() {
+        const LONG_DURATION_NANOSECONDS: i128 =
+            1_000_000_000_000_i128 * NANOSECONDS_PER_SECOND as i128;
+
+        let central_gravity = earth_gravity(earth_mu());
+        let problem = problem(&central_gravity);
+        let initial = initial(&central_gravity, 0.2, 1.3);
+        let propagator = EllipticKeplerPropagator::new();
+        let rejected_bound = |nanoseconds| match propagator.propagate(
+            initial.clone(),
+            &problem,
+            Duration::from_total_nanoseconds(nanoseconds),
+        ) {
+            Err(EllipticKeplerError::AccuracyBudgetExceeded {
+                estimated_phase_error_radians,
+                budget_radians,
+            }) => (estimated_phase_error_radians, budget_radians),
+            result => panic!("expected accuracy-budget rejection, got {result:?}"),
+        };
+
+        let forward = rejected_bound(LONG_DURATION_NANOSECONDS);
+        let backward = rejected_bound(-LONG_DURATION_NANOSECONDS);
+        assert_eq!(forward, backward);
+        assert!(forward.0 > forward.1);
+
+        let relaxed = EllipticKeplerPropagator::new()
+            .with_phase_error_budget_radians(1.0e-5)
+            .expect("positive finite budget");
+        assert_eq!(relaxed.phase_error_budget_radians(), 1.0e-5);
+        relaxed
+            .propagate(
+                initial,
+                &problem,
+                Duration::from_total_nanoseconds(LONG_DURATION_NANOSECONDS),
+            )
+            .expect("declared relaxed budget accepts the same duration");
+    }
+
+    #[test]
+    fn direct_equinoctial_step_preserves_large_finite_inclination_components() {
+        let central_gravity = earth_gravity(earth_mu());
+        let problem = problem(&central_gravity);
+        let state = EquinoctialState::new(
+            InertialFrame::GCRF,
+            central_gravity,
+            Length::new::<meter>(7_200_000.0),
+            Ratio::new::<ratio>(0.1),
+            Ratio::new::<ratio>(0.05),
+            Ratio::new::<ratio>(1.0e16),
+            Ratio::new::<ratio>(0.0),
+            Angle::new::<radian>(2.0),
+        )
+        .expect("large finite hx is a valid equinoctial state");
+        let initial_longitude = state.true_longitude();
+        let propagated = EllipticKeplerPropagator::new()
+            .propagate(
+                Orbit::new(Epoch::from_tai_seconds(1_000.0), state.into()),
+                &problem,
+                Duration::from_total_nanoseconds(60 * NANOSECONDS_PER_SECOND as i128),
+            )
+            .expect("direct equinoctial propagation avoids retrograde conversion");
+        let propagated = match propagated.state() {
+            SpacecraftState::Equinoctial(state) => state,
+            _ => panic!("propagator must preserve the equinoctial variant"),
+        };
+
+        assert!(Arc::ptr_eq(
+            propagated.central_gravity(),
+            problem.central_gravity()
+        ));
+        assert_eq!(propagated.semi_major_axis().get::<meter>(), 7_200_000.0);
+        assert_eq!(propagated.eccentricity_x().get::<ratio>(), 0.1);
+        assert_eq!(propagated.eccentricity_y().get::<ratio>(), 0.05);
+        assert_eq!(propagated.inclination_x().get::<ratio>(), 1.0e16);
+        assert_eq!(propagated.inclination_y().get::<ratio>(), 0.0);
+        assert_ne!(propagated.true_longitude(), initial_longitude);
+    }
+
+    #[test]
     fn invalid_solver_configuration_and_iteration_limit_are_reported() {
         let propagator = EllipticKeplerPropagator::new();
         assert!(matches!(
@@ -550,6 +967,14 @@ mod tests {
         assert!(matches!(
             propagator.clone().with_max_iterations(0),
             Err(EllipticKeplerError::ZeroIterations)
+        ));
+        assert!(matches!(
+            propagator.clone().with_phase_error_budget_radians(0.0),
+            Err(EllipticKeplerError::InvalidPhaseErrorBudget)
+        ));
+        assert!(matches!(
+            propagator.clone().with_phase_error_budget_radians(f64::NAN),
+            Err(EllipticKeplerError::InvalidPhaseErrorBudget)
         ));
         let one_iteration = propagator
             .with_max_iterations(1)
