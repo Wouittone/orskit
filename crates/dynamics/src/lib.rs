@@ -1,9 +1,10 @@
 //! Composable descriptions of spacecraft dynamics and force models.
 //!
 //! This crate primarily describes model topology. A force interaction targets
-//! one spacecraft and may depend on its position, speed, orientation, and
-//! inertia. Environmental bodies and other configuration belong to the force
-//! model, not to the interaction input. The first narrow evaluator provides
+//! one spacecraft and declares its required position, velocity, mass, attitude,
+//! angular velocity, and inertia components. Environmental bodies and other
+//! configuration belong to the force model, not to the interaction input. The
+//! first narrow evaluator provides
 //! orbit-only analytical elliptic two-body propagation; general state derivatives,
 //! numerical integration, events, and variational equations remain absent. The
 //! concrete [`TwoBodyDynamics`] description is deliberately strict: it contains
@@ -12,12 +13,27 @@
 //! acceleration-assembly contracts are explicit.
 //!
 //! ```
+//! use std::sync::Arc;
+//!
 //! use bodies::Body;
+//! use core_crate::frames::FrameOrigin;
+//! use core_crate::{
+//!     PointMassGravity, ReferenceSource, SharedCentralGravity, SharedScientificSource,
+//! };
 //! use dynamics::{PointMassGravityModel, SystemDynamics, TwoBodyDynamics};
 //! use units::GravitationalParameter;
 //!
-//! let mu = GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)?;
-//! let gravity = PointMassGravityModel::new(Body::EARTH, mu);
+//! let mu = GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)
+//!     .expect("positive gravitational parameter");
+//! let source: SharedScientificSource = Arc::new(
+//!     ReferenceSource::new("IERS", "IERS Conventions", "2010", "IERS TN 36")
+//!         .expect("complete source record"),
+//! );
+//! let central_gravity: SharedCentralGravity = Arc::new(
+//!     PointMassGravity::new(FrameOrigin::Body(Body::EARTH), mu, source)
+//!         .expect("complete source record"),
+//! );
+//! let gravity = PointMassGravityModel::new(central_gravity);
 //! let model = TwoBodyDynamics::new(gravity);
 //! assert_eq!(model.conservative_force_models().len(), 1);
 //! assert_eq!(
@@ -25,74 +41,61 @@
 //!     "gravity"
 //! );
 //! assert!(model.non_conservative_force_models().is_empty());
-//! # Ok::<(), units::QuantityError>(())
 //! ```
 
 use std::{fmt, sync::Arc};
 
-use bodies::Body;
-use units::GravitationalParameter;
+use core_crate::SharedCentralGravity;
 
 mod propagator;
 mod two_body;
 
 pub use propagator::Propagator;
-pub use two_body::{EllipticTwoBodyPropagator, TwoBodyPropagationError};
+pub use two_body::{EllipticKeplerError, EllipticKeplerPropagator};
 
-/// Spacecraft-state components a force interaction is allowed to inspect.
+/// Spacecraft-state components required to evaluate a force model.
 ///
-/// This value describes access only; it does not evaluate the force. A future
-/// evaluator will map these requirements to an explicit spacecraft-state
-/// representation before invoking a model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SpacecraftStateDependencies {
-    position: bool,
-    speed: bool,
-    orientation: bool,
-    inertia: bool,
-}
+/// Requirements compose through [`Self::union`] and are queried through
+/// [`Self::contains`]. The opaque representation permits future state
+/// components without adding positional constructor arguments.
+///
+/// ```
+/// use dynamics::SpacecraftStateRequirements;
+///
+/// let requirements = SpacecraftStateRequirements::POSITION
+///     .union(SpacecraftStateRequirements::VELOCITY);
+/// assert!(requirements.contains(SpacecraftStateRequirements::POSITION));
+/// assert!(!requirements.contains(SpacecraftStateRequirements::MASS));
+/// ```
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SpacecraftStateRequirements(u8);
 
-impl SpacecraftStateDependencies {
+impl SpacecraftStateRequirements {
     /// No spacecraft-state component is required.
-    pub const NONE: Self = Self::new(false, false, false, false);
-    /// Only spacecraft position is required.
-    pub const POSITION: Self = Self::new(true, false, false, false);
-    /// Every currently defined spacecraft-state component is required.
-    pub const ALL: Self = Self::new(true, true, true, true);
+    pub const NONE: Self = Self(0);
+    /// The framed spacecraft position vector is required.
+    pub const POSITION: Self = Self(1 << 0);
+    /// The framed spacecraft velocity vector is required.
+    pub const VELOCITY: Self = Self(1 << 1);
+    /// The current spacecraft mass is required.
+    pub const MASS: Self = Self(1 << 2);
+    /// The current spacecraft attitude is required.
+    pub const ATTITUDE: Self = Self(1 << 3);
+    /// The framed spacecraft angular-velocity vector is required.
+    pub const ANGULAR_VELOCITY: Self = Self(1 << 4);
+    /// The framed spacecraft inertia tensor is required.
+    pub const INERTIA: Self = Self(1 << 5);
 
-    /// Defines the spacecraft-state components required by a force model.
+    /// Combines two sets of spacecraft-state requirements.
     #[must_use]
-    pub const fn new(position: bool, speed: bool, orientation: bool, inertia: bool) -> Self {
-        Self {
-            position,
-            speed,
-            orientation,
-            inertia,
-        }
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
     }
 
-    /// Returns whether spacecraft position is required.
+    /// Returns whether every component in `required` is present.
     #[must_use]
-    pub const fn position(self) -> bool {
-        self.position
-    }
-
-    /// Returns whether spacecraft speed is required.
-    #[must_use]
-    pub const fn speed(self) -> bool {
-        self.speed
-    }
-
-    /// Returns whether spacecraft orientation is required.
-    #[must_use]
-    pub const fn orientation(self) -> bool {
-        self.orientation
-    }
-
-    /// Returns whether spacecraft inertia is required.
-    #[must_use]
-    pub const fn inertia(self) -> bool {
-        self.inertia
+    pub const fn contains(self, required: Self) -> bool {
+        self.0 & required.0 == required.0
     }
 }
 
@@ -109,10 +112,10 @@ pub trait Force: fmt::Debug + Send + Sync {
 
 /// Common descriptive contract for a model of a force acting on a spacecraft.
 ///
-/// The force model owns all environmental configuration. Its interaction with
-/// the propagated object is restricted to the spacecraft-state components
-/// declared by [`ForceModel::state_dependencies`]. No evaluation method is
-/// defined until the state representation and data context are designed.
+/// The force model owns all environmental configuration and declares the
+/// spacecraft-state components required by its evaluation. No evaluation
+/// method is defined until the state representation and data context are
+/// designed.
 pub trait ForceModel: fmt::Debug + Send + Sync {
     /// Returns a stable human-readable implementation name for diagnostics.
     fn model_name(&self) -> &str;
@@ -124,8 +127,8 @@ pub trait ForceModel: fmt::Debug + Send + Sync {
     /// composed in one dynamics description.
     fn force(&self) -> &dyn Force;
 
-    /// Returns the spacecraft-state components inspected by this model.
-    fn state_dependencies(&self) -> SpacecraftStateDependencies;
+    /// Returns the spacecraft-state components required by this model.
+    fn state_requirements(&self) -> SpacecraftStateRequirements;
 }
 
 /// Description of a potential-derived force-model contribution.
@@ -176,37 +179,27 @@ impl Force for GravityForce {
 
 static GRAVITY_FORCE: GravityForce = GravityForce;
 
-/// Point-mass model of gravity from one configured attracting body.
+/// Point-mass model of gravity from one shared, sourced gravity provider.
 ///
 /// Only spacecraft position is an interaction dependency. The attracting body
-/// and its sourced gravitational parameter are explicit model configuration;
-/// neither value is inferred from the other.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// or barycenter origin, gravitational parameter, and provenance remain bound
+/// together; none is inferred from another field.
+#[derive(Debug, Clone)]
 pub struct PointMassGravityModel {
-    attractor: Body,
-    gravitational_parameter: GravitationalParameter,
+    central_gravity: SharedCentralGravity,
 }
 
 impl PointMassGravityModel {
-    /// Describes a point-mass gravity model for the selected body.
+    /// Describes point-mass gravity using the supplied sourced provider.
     #[must_use]
-    pub const fn new(attractor: Body, gravitational_parameter: GravitationalParameter) -> Self {
-        Self {
-            attractor,
-            gravitational_parameter,
-        }
+    pub fn new(central_gravity: SharedCentralGravity) -> Self {
+        Self { central_gravity }
     }
 
-    /// Returns the configured attracting body.
+    /// Returns the sourced central-gravity provider used by this model.
     #[must_use]
-    pub const fn attractor(self) -> Body {
-        self.attractor
-    }
-
-    /// Returns the explicitly configured gravitational parameter.
-    #[must_use]
-    pub const fn gravitational_parameter(self) -> GravitationalParameter {
-        self.gravitational_parameter
+    pub const fn central_gravity(&self) -> &SharedCentralGravity {
+        &self.central_gravity
     }
 }
 
@@ -219,8 +212,8 @@ impl ForceModel for PointMassGravityModel {
         &GRAVITY_FORCE
     }
 
-    fn state_dependencies(&self) -> SpacecraftStateDependencies {
-        SpacecraftStateDependencies::POSITION
+    fn state_requirements(&self) -> SpacecraftStateRequirements {
+        SpacecraftStateRequirements::POSITION
     }
 }
 
@@ -251,10 +244,10 @@ impl TwoBodyDynamics {
         }
     }
 
-    /// Returns the configured attracting body.
+    /// Returns the sourced gravity provider of the central point-mass model.
     #[must_use]
-    pub fn attractor(&self) -> Body {
-        self.central_gravity_model.attractor()
+    pub fn central_gravity(&self) -> &SharedCentralGravity {
+        self.central_gravity_model.central_gravity()
     }
 
     /// Returns the sole central point-mass gravity model.
@@ -290,13 +283,68 @@ impl SystemDynamics for TwoBodyDynamics {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
+    use bodies::Body;
+    use core_crate::frames::FrameOrigin;
+    use core_crate::{CentralGravity, ScientificSource};
+    use units::GravitationalParameter;
+
+    #[derive(Debug)]
+    struct TestSource {
+        product: String,
+    }
+
+    impl ScientificSource for TestSource {
+        fn authority(&self) -> &str {
+            "orskit test"
+        }
+
+        fn product(&self) -> &str {
+            &self.product
+        }
+
+        fn version_or_scenario(&self) -> &str {
+            "test scenario"
+        }
+
+        fn locator(&self) -> &str {
+            "crates/dynamics/src/lib.rs"
+        }
+    }
+
+    #[derive(Debug)]
+    struct TestCentralGravity {
+        origin: FrameOrigin,
+        gravitational_parameter: GravitationalParameter,
+        source: TestSource,
+    }
+
+    impl CentralGravity for TestCentralGravity {
+        fn origin(&self) -> FrameOrigin {
+            self.origin
+        }
+
+        fn gravitational_parameter(&self) -> GravitationalParameter {
+            self.gravitational_parameter
+        }
+
+        fn source(&self) -> &dyn ScientificSource {
+            &self.source
+        }
+    }
 
     fn point_mass(body: Body, mu_m3_s2: f64) -> PointMassGravityModel {
-        PointMassGravityModel::new(
-            body,
+        let gravitational_parameter =
             GravitationalParameter::from_cubic_metres_per_second_squared(mu_m3_s2)
-                .expect("fixture gravitational parameter is positive"),
-        )
+                .expect("fixture gravitational parameter is positive");
+        PointMassGravityModel::new(Arc::new(TestCentralGravity {
+            origin: FrameOrigin::Body(body),
+            gravitational_parameter,
+            source: TestSource {
+                product: format!("{body} point-mass fixture"),
+            },
+        }))
     }
 
     fn earth_gravity() -> PointMassGravityModel {
@@ -305,16 +353,16 @@ mod tests {
 
     #[test]
     fn two_body_preserves_exactly_one_central_point_mass_model() {
-        let expected_mu = earth_gravity().gravitational_parameter();
-        let dynamics = TwoBodyDynamics::new(earth_gravity());
+        let gravity = earth_gravity();
+        let expected_gravity = gravity.central_gravity().clone();
+        let dynamics = TwoBodyDynamics::new(gravity);
 
         assert_eq!(dynamics.name(), "two-body spacecraft dynamics");
-        assert_eq!(dynamics.attractor(), Body::EARTH);
-        assert_eq!(dynamics.central_gravity_model().attractor(), Body::EARTH);
-        assert_eq!(
-            dynamics.central_gravity_model().gravitational_parameter(),
-            expected_mu
-        );
+        assert!(Arc::ptr_eq(dynamics.central_gravity(), &expected_gravity));
+        assert!(Arc::ptr_eq(
+            dynamics.central_gravity_model().central_gravity(),
+            &expected_gravity
+        ));
         assert_eq!(dynamics.conservative_force_models().len(), 1);
         assert!(dynamics.non_conservative_force_models().is_empty());
         assert_eq!(
@@ -326,18 +374,25 @@ mod tests {
             "point-mass gravity model"
         );
         assert_eq!(
-            dynamics.conservative_force_models()[0].state_dependencies(),
-            SpacecraftStateDependencies::POSITION
+            dynamics.conservative_force_models()[0].state_requirements(),
+            SpacecraftStateRequirements::POSITION
         );
     }
 
     #[test]
-    fn state_dependencies_are_limited_to_the_spacecraft_state_contract() {
-        let dependencies = SpacecraftStateDependencies::new(true, true, false, true);
+    fn state_requirements_compose_without_positional_booleans() {
+        let requirements = SpacecraftStateRequirements::POSITION
+            .union(SpacecraftStateRequirements::VELOCITY)
+            .union(SpacecraftStateRequirements::MASS)
+            .union(SpacecraftStateRequirements::ANGULAR_VELOCITY);
 
-        assert!(dependencies.position());
-        assert!(dependencies.speed());
-        assert!(!dependencies.orientation());
-        assert!(dependencies.inertia());
+        assert!(requirements.contains(SpacecraftStateRequirements::POSITION));
+        assert!(requirements.contains(SpacecraftStateRequirements::VELOCITY));
+        assert!(requirements.contains(
+            SpacecraftStateRequirements::POSITION.union(SpacecraftStateRequirements::MASS)
+        ));
+        assert!(requirements.contains(SpacecraftStateRequirements::NONE));
+        assert!(!requirements.contains(SpacecraftStateRequirements::ATTITUDE));
+        assert!(!requirements.contains(SpacecraftStateRequirements::INERTIA));
     }
 }

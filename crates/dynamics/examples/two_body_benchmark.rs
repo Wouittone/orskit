@@ -1,9 +1,12 @@
-use std::{hint::black_box, time::Instant};
+use std::{hint::black_box, sync::Arc, time::Instant};
 
 use bodies::Body;
-use core_crate::frames::ReferenceFrame;
-use core_crate::{CartesianState, Orbit, SpacecraftState};
-use dynamics::{EllipticTwoBodyPropagator, PointMassGravityModel, Propagator};
+use core_crate::frames::{FrameOrigin, ReferenceFrame};
+use core_crate::{
+    CartesianState, Orbit, PointMassGravity, ReferenceSource, SharedCentralGravity,
+    SharedScientificSource, SpacecraftState,
+};
+use dynamics::{EllipticKeplerPropagator, PointMassGravityModel, Propagator, TwoBodyDynamics};
 use hifitime::{Duration, Epoch};
 use units::{GravitationalParameter, Position, VelocityVector};
 
@@ -22,17 +25,31 @@ fn main() {
     assert!(iterations > 0, "iterations must be positive");
 
     let initial = initial_orbit();
-    let gravity = PointMassGravityModel::new(
-        Body::EARTH,
-        GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)
-            .expect("positive gravitational parameter"),
+    let source: SharedScientificSource = Arc::new(
+        ReferenceSource::new(
+            "International Earth Rotation and Reference Systems Service",
+            "IERS Conventions",
+            "2010",
+            "IERS Technical Note 36",
+        )
+        .expect("complete benchmark source"),
     );
-    let propagator = EllipticTwoBodyPropagator::new();
+    let gravity: SharedCentralGravity = Arc::new(
+        PointMassGravity::new(
+            FrameOrigin::Body(Body::EARTH),
+            GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)
+                .expect("positive gravitational parameter"),
+            source,
+        )
+        .expect("complete benchmark source"),
+    );
+    let problem = TwoBodyDynamics::new(PointMassGravityModel::new(gravity));
+    let propagator = EllipticKeplerPropagator::new();
 
     let _warmup_checksum = run_queries(
         black_box(&propagator),
-        black_box(initial),
-        black_box(&gravity),
+        black_box(initial.clone()),
+        black_box(&problem),
         WARMUP_ITERATIONS,
     );
 
@@ -40,7 +57,7 @@ fn main() {
     let checksum = run_queries(
         black_box(&propagator),
         black_box(initial),
-        black_box(&gravity),
+        black_box(&problem),
         iterations,
     );
     let elapsed_ns = started.elapsed().as_nanos();
@@ -51,9 +68,9 @@ fn main() {
 }
 
 fn run_queries(
-    propagator: &EllipticTwoBodyPropagator,
+    propagator: &EllipticKeplerPropagator,
     initial: Orbit,
-    gravity: &PointMassGravityModel,
+    problem: &TwoBodyDynamics,
     iterations: usize,
 ) -> f64 {
     let mut checksum = 0.0;
@@ -61,8 +78,8 @@ fn run_queries(
         let elapsed_seconds = query_offset_seconds(index);
         let state = propagator
             .propagate(
-                black_box(initial),
-                black_box(gravity),
+                black_box(initial.clone()),
+                black_box(problem),
                 Duration::from_seconds(black_box(elapsed_seconds)),
             )
             .expect("benchmark query must remain in the supported elliptic regime");

@@ -190,13 +190,14 @@ owns a broader almanac/orbit context than this foundational slice needs. Keep
 the boundary adapter-friendly and revisit both for transform providers rather
 than leaking either API into spacecraft state.
 
-`dynamics` currently describes spacecraft-state dependencies and open
+`dynamics` currently describes named spacecraft-state requirements and open
 conservative/non-conservative force-model contracts. Concrete
 `TwoBodyDynamics` is intentionally stricter and owns exactly one central
-point-mass model.
-Its first `Propagator<ForceModel>` implementation analytically advances an
+point-mass model sharing an application-extensible central-gravity object.
+Its object-safe `Propagator<Problem>` contract separates solution method from
+physical topology. `EllipticKeplerPropagator` analytically advances an
 epoch-qualified Cartesian, Keplerian, or equinoctial elliptic `Orbit` with an
-explicit point-mass gravity model and returns the same native enum variant.
+explicit `TwoBodyDynamics` problem and returns the same native enum variant.
 Complete spacecraft views are composed separately from properties known to be
 valid at the propagated epoch.
 General force evaluation and numerical propagation remain deferred; their design must
