@@ -372,24 +372,62 @@ pub enum SpacecraftShape {
     /// Geometry is intentionally unresolved or irrelevant to the calculation.
     Point,
     /// Sphere with a strictly positive radius.
-    Sphere { radius: Length },
+    Sphere(SphereShape),
     /// Body-axis-aligned cuboid with strictly positive x/y/z dimensions.
-    Cuboid { dimensions: [Length; 3] },
+    Cuboid(CuboidShape),
+}
+
+/// Validated spherical spacecraft geometry.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SphereShape {
+    radius: Length,
+}
+
+impl SphereShape {
+    /// Constructs a sphere with a finite, strictly positive radius.
+    pub fn new(radius: Length) -> Result<Self, ShapeError> {
+        validate_dimension(radius)?;
+        Ok(Self { radius })
+    }
+
+    /// Returns the sphere radius.
+    #[must_use]
+    pub const fn radius(self) -> Length {
+        self.radius
+    }
+}
+
+/// Validated body-axis-aligned cuboid geometry.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CuboidShape {
+    dimensions: [Length; 3],
+}
+
+impl CuboidShape {
+    /// Constructs a cuboid with finite, strictly positive x/y/z dimensions.
+    pub fn new(dimensions: [Length; 3]) -> Result<Self, ShapeError> {
+        for dimension in dimensions {
+            validate_dimension(dimension)?;
+        }
+        Ok(Self { dimensions })
+    }
+
+    /// Returns the x/y/z body-axis dimensions.
+    #[must_use]
+    pub const fn dimensions(self) -> [Length; 3] {
+        self.dimensions
+    }
 }
 
 impl SpacecraftShape {
     /// Constructs a spherical geometry.
     pub fn sphere(radius: Length) -> Result<Self, ShapeError> {
-        validate_dimension(radius)?;
-        Ok(Self::Sphere { radius })
+        SphereShape::new(radius).map(Self::Sphere)
     }
 
     /// Constructs a body-axis-aligned cuboid geometry.
     pub fn cuboid(dimensions: [Length; 3]) -> Result<Self, ShapeError> {
-        for dimension in dimensions {
-            validate_dimension(dimension)?;
-        }
-        Ok(Self::Cuboid { dimensions })
+        CuboidShape::new(dimensions).map(Self::Cuboid)
     }
 }
 
@@ -632,6 +670,10 @@ mod tests {
 
         assert_eq!(spacecraft.id(), "SC-001");
         assert_eq!(spacecraft.shape(), shape);
+        let SpacecraftShape::Sphere(sphere) = shape else {
+            panic!("sphere constructor must return a sphere")
+        };
+        assert_eq!(sphere.radius(), Length::new::<meter>(1.5));
         assert_eq!(
             Spacecraft::new("  ", SpacecraftShape::Point),
             Err(SpacecraftError::EmptyId)
@@ -639,6 +681,14 @@ mod tests {
         assert_eq!(
             SpacecraftShape::sphere(Length::new::<meter>(0.0)),
             Err(ShapeError::NotPositiveDimension)
+        );
+        assert_eq!(
+            CuboidShape::new([
+                Length::new::<meter>(1.0),
+                Length::new::<meter>(f64::INFINITY),
+                Length::new::<meter>(1.0),
+            ]),
+            Err(ShapeError::NonFiniteDimension)
         );
     }
 
