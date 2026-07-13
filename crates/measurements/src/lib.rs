@@ -13,4 +13,4 @@ pub mod station;
 
 pub use measurement::{MeasurementError, ObservationTimeTag, RangeConvention, RangeMeasurement};
 pub use participant::{ParticipantId, ParticipantIdError, SignalPath, SignalPathError};
-pub use station::{GroundStation, GroundStationError};
+pub use station::GroundStation;

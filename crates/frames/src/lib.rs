@@ -9,6 +9,7 @@
 //! non-inertial, or unspecified. Transform algorithms will be added behind
 //! provider traits once their data and accuracy contracts are defined.
 
+use std::collections::{HashMap, HashSet};
 use std::{fmt, str::FromStr};
 
 pub use bodies::{Body, BodySystem, CustomBodyId};
@@ -33,6 +34,53 @@ impl CustomFrameId {
     }
 }
 
+/// Caller-assigned namespace for one logical frame catalog.
+///
+/// Applications should use a stable, globally unique 128-bit value, such as a
+/// UUID encoded as `u128`. Catalog instances using the same namespace are
+/// replicas of the same logical catalog; distinct logical catalogs must use
+/// distinct namespaces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FrameNamespace(u128);
+
+impl FrameNamespace {
+    /// Constructs an explicit catalog namespace.
+    #[must_use]
+    pub const fn new(value: u128) -> Self {
+        Self(value)
+    }
+
+    /// Returns the application-assigned namespace value.
+    #[must_use]
+    pub const fn value(self) -> u128 {
+        self.0
+    }
+}
+
+/// Opaque identity issued by a [`FrameCatalog`] for one derived frame.
+///
+/// Identity includes both the catalog namespace and catalog-local key. Callers
+/// can inspect those components but cannot construct a `FrameId` directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FrameId {
+    namespace: FrameNamespace,
+    local_id: u64,
+}
+
+impl FrameId {
+    /// Returns the namespace of the issuing logical catalog.
+    #[must_use]
+    pub const fn namespace(self) -> FrameNamespace {
+        self.namespace
+    }
+
+    /// Returns the catalog-local key chosen when the definition was issued.
+    #[must_use]
+    pub const fn local_id(self) -> u64 {
+        self.local_id
+    }
+}
+
 /// Origin of a reference frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
@@ -43,6 +91,8 @@ pub enum FrameOrigin {
     Body(Body),
     /// Application-defined origin.
     Custom(CustomFrameId),
+    /// Origin issued and validated by a caller-owned frame catalog.
+    Derived(FrameId),
 }
 
 /// Whether frame axes are suitable for equations requiring inertial axes.
@@ -219,23 +269,128 @@ impl ReferenceFrame {
     }
 }
 
-/// A custom frame whose axes are aligned with a direct parent frame.
+/// Caller-owned registry for validated parent-relative frame definitions.
+///
+/// The catalog is the only issuer of [`FrameId`] values. Roots must be supplied
+/// explicitly, and a derived parent must already be registered in this exact
+/// logical catalog. Because definitions can only reference existing parents
+/// and cannot be changed under an issued ID, cycles are unrepresentable.
+#[derive(Debug)]
+pub struct FrameCatalog {
+    namespace: FrameNamespace,
+    roots: HashSet<ReferenceFrame>,
+    definitions: HashMap<u64, DerivedFrame>,
+}
+
+impl FrameCatalog {
+    /// Creates a catalog with the explicit reference frames it may derive from.
+    pub fn new(
+        namespace: FrameNamespace,
+        roots: impl IntoIterator<Item = ReferenceFrame>,
+    ) -> Result<Self, FrameDefinitionError> {
+        let roots: HashSet<_> = roots.into_iter().collect();
+        if let Some(root) = roots
+            .iter()
+            .copied()
+            .find(|root| matches!(root.origin(), FrameOrigin::Derived(_)))
+        {
+            return Err(FrameDefinitionError::DerivedFrameCannotBeRoot { frame: root });
+        }
+        Ok(Self {
+            namespace,
+            roots,
+            definitions: HashMap::new(),
+        })
+    }
+
+    /// Returns this logical catalog's explicit namespace.
+    #[must_use]
+    pub const fn namespace(&self) -> FrameNamespace {
+        self.namespace
+    }
+
+    /// Issues or idempotently retrieves a parent-aligned derived frame.
+    ///
+    /// Reusing `local_id` for a different definition is rejected. The parent
+    /// must be an explicit root or an earlier definition from this catalog.
+    pub fn define_parent_aligned(
+        &mut self,
+        local_id: u64,
+        parent: ReferenceFrame,
+        origin_offset: Position,
+    ) -> Result<DerivedFrame, FrameDefinitionError> {
+        if !origin_offset.is_finite() {
+            return Err(FrameDefinitionError::NonFiniteOriginOffset);
+        }
+        self.validate_parent(parent)?;
+
+        let id = FrameId {
+            namespace: self.namespace,
+            local_id,
+        };
+        let candidate = DerivedFrame {
+            reference_frame: ReferenceFrame::new(FrameOrigin::Derived(id), parent.orientation()),
+            parent,
+            origin_offset,
+        };
+        if let Some(existing) = self.definitions.get(&local_id) {
+            return if *existing == candidate {
+                Ok(*existing)
+            } else {
+                Err(FrameDefinitionError::ConflictingRedefinition { id })
+            };
+        }
+        self.definitions.insert(local_id, candidate);
+        Ok(candidate)
+    }
+
+    /// Returns a definition only when its ID belongs to and exists in this catalog.
+    #[must_use]
+    pub fn definition(&self, id: FrameId) -> Option<DerivedFrame> {
+        (id.namespace == self.namespace)
+            .then(|| self.definitions.get(&id.local_id).copied())
+            .flatten()
+    }
+
+    fn validate_parent(&self, parent: ReferenceFrame) -> Result<(), FrameDefinitionError> {
+        match parent.origin() {
+            FrameOrigin::Derived(parent_id) => {
+                if parent_id.namespace != self.namespace {
+                    return Err(FrameDefinitionError::ForeignDerivedParent { parent_id });
+                }
+                if self
+                    .definitions
+                    .get(&parent_id.local_id)
+                    .is_some_and(|definition| definition.reference_frame() == parent)
+                {
+                    Ok(())
+                } else {
+                    Err(FrameDefinitionError::UnknownDerivedParent { parent_id })
+                }
+            }
+            _ if self.roots.contains(&parent) => Ok(()),
+            _ => Err(FrameDefinitionError::UnknownRootParent { parent }),
+        }
+    }
+}
+
+/// A catalog-issued frame whose axes are aligned with a direct parent frame.
 ///
 /// `origin_offset` is the vector from the parent origin to the derived origin,
 /// expressed in the parent axes. The derived frame inherits the parent's
-/// orientation identity and motion classification. A chain is represented by
-/// retaining each [`DerivedFrame`] definition and using one definition's
-/// [`DerivedFrame::reference_frame`] as the next definition's parent.
-///
-/// This type records hierarchy and fixed geometry only. It does not transform
-/// coordinates, apply body rotation, or establish geodetic meaning.
+/// orientation identity and motion classification. This type records hierarchy
+/// and fixed geometry only; it performs no coordinate transformation.
 ///
 /// ```
-/// use frames::{CustomFrameId, DerivedFrame, ReferenceFrame};
+/// use frames::{FrameCatalog, FrameNamespace, ReferenceFrame};
 /// use units::Position;
 ///
-/// let site = DerivedFrame::parent_aligned(
-///     CustomFrameId::new(42),
+/// let mut catalog = FrameCatalog::new(
+///     FrameNamespace::new(0x4f52534b4954),
+///     [ReferenceFrame::ITRF2020],
+/// )?;
+/// let site = catalog.define_parent_aligned(
+///     42,
 ///     ReferenceFrame::ITRF2020,
 ///     Position::from_metres(6_378_137.0, 0.0, 0.0),
 /// )?;
@@ -250,24 +405,13 @@ pub struct DerivedFrame {
 }
 
 impl DerivedFrame {
-    /// Creates a parent-aligned custom frame at a fixed offset from `parent`.
-    pub fn parent_aligned(
-        id: CustomFrameId,
-        parent: ReferenceFrame,
-        origin_offset: Position,
-    ) -> Result<Self, FrameDefinitionError> {
-        if !origin_offset.is_finite() {
-            return Err(FrameDefinitionError::NonFiniteOriginOffset);
+    /// Returns the opaque catalog-issued frame identity.
+    #[must_use]
+    pub const fn id(self) -> FrameId {
+        match self.reference_frame.origin() {
+            FrameOrigin::Derived(id) => id,
+            _ => unreachable!(),
         }
-        let reference_frame = ReferenceFrame::new(FrameOrigin::Custom(id), parent.orientation());
-        if reference_frame == parent {
-            return Err(FrameDefinitionError::SelfParent);
-        }
-        Ok(Self {
-            reference_frame,
-            parent,
-            origin_offset,
-        })
     }
 
     /// Returns the identity carried by coordinate-dependent values.
@@ -324,7 +468,19 @@ impl fmt::Display for FrameOrigin {
             Self::Barycenter(system) => write!(formatter, "{system} BARYCENTER"),
             Self::Body(body) => body.fmt(formatter),
             Self::Custom(id) => write!(formatter, "CUSTOM({})", id.value()),
+            Self::Derived(id) => write!(formatter, "DERIVED({id})"),
         }
+    }
+}
+
+impl fmt::Display for FrameId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{:032x}:{}",
+            self.namespace.value(),
+            self.local_id
+        )
     }
 }
 
@@ -417,9 +573,36 @@ pub enum FrameDefinitionError {
     /// At least one parent-frame offset component is NaN or infinite.
     #[error("derived-frame origin offset must be finite")]
     NonFiniteOriginOffset,
-    /// The resulting frame identity is identical to its direct parent.
-    #[error("a derived frame cannot be its own parent")]
-    SelfParent,
+    /// A derived frame cannot bypass catalog validation by being declared a root.
+    #[error("derived frame {frame} cannot be registered as a catalog root")]
+    DerivedFrameCannotBeRoot {
+        /// Rejected root frame.
+        frame: ReferenceFrame,
+    },
+    /// The requested non-derived parent was not declared as a catalog root.
+    #[error("frame {parent} is not a known root of this frame catalog")]
+    UnknownRootParent {
+        /// Rejected parent frame.
+        parent: ReferenceFrame,
+    },
+    /// A derived parent belongs to a different catalog namespace.
+    #[error("derived parent {parent_id} belongs to a foreign frame catalog")]
+    ForeignDerivedParent {
+        /// Foreign parent identity.
+        parent_id: FrameId,
+    },
+    /// A same-namespace derived parent is not registered with this catalog.
+    #[error("derived parent {parent_id} is not registered in this frame catalog")]
+    UnknownDerivedParent {
+        /// Unknown parent identity.
+        parent_id: FrameId,
+    },
+    /// An issued local key was reused for a different immutable definition.
+    #[error("frame {id} is already defined differently")]
+    ConflictingRedefinition {
+        /// Conflicting issued identity.
+        id: FrameId,
+    },
 }
 
 /// A reference frame does not satisfy an affirmative inertial-axis requirement.
@@ -524,18 +707,19 @@ mod tests {
     #[test]
     fn parent_aligned_frame_retains_parent_and_typed_offset() {
         let offset = Position::from_metres(6_378_137.0, 0.0, 0.0);
-        let site = DerivedFrame::parent_aligned(
-            CustomFrameId::new(1001),
-            ReferenceFrame::ITRF2020,
-            offset,
-        )
-        .expect("finite fixed site");
+        let mut catalog = FrameCatalog::new(FrameNamespace::new(1), [ReferenceFrame::ITRF2020])
+            .expect("root catalog");
+        let site = catalog
+            .define_parent_aligned(1001, ReferenceFrame::ITRF2020, offset)
+            .expect("finite fixed site");
 
         assert_eq!(site.parent(), ReferenceFrame::ITRF2020);
         assert_eq!(site.origin_offset(), offset);
+        assert_eq!(site.id().namespace(), FrameNamespace::new(1));
+        assert_eq!(site.id().local_id(), 1001);
         assert_eq!(
             site.reference_frame().origin(),
-            FrameOrigin::Custom(CustomFrameId::new(1001))
+            FrameOrigin::Derived(site.id())
         );
         assert_eq!(
             site.reference_frame().orientation(),
@@ -545,43 +729,129 @@ mod tests {
     }
 
     #[test]
-    fn derived_frames_can_form_explicit_parent_chains() {
-        let site = DerivedFrame::parent_aligned(
-            CustomFrameId::new(1001),
-            ReferenceFrame::ITRF2020,
-            Position::from_metres(6_378_137.0, 0.0, 0.0),
-        )
-        .expect("site frame");
-        let instrument = DerivedFrame::parent_aligned(
-            CustomFrameId::new(1002),
-            site.reference_frame(),
-            Position::from_metres(0.0, 0.0, 2.0),
-        )
-        .expect("instrument frame");
+    fn catalog_namespaces_prevent_same_local_id_collisions() {
+        let mut left = FrameCatalog::new(FrameNamespace::new(10), [ReferenceFrame::ITRF2020])
+            .expect("left catalog");
+        let mut right = FrameCatalog::new(FrameNamespace::new(11), [ReferenceFrame::ITRF2020])
+            .expect("right catalog");
+        let define = |catalog: &mut FrameCatalog| {
+            catalog
+                .define_parent_aligned(
+                    7,
+                    ReferenceFrame::ITRF2020,
+                    Position::from_metres(1.0, 2.0, 3.0),
+                )
+                .expect("valid definition")
+        };
+        let left_frame = define(&mut left);
+        let right_frame = define(&mut right);
+
+        assert_ne!(left_frame.id(), right_frame.id());
+        assert_ne!(left_frame.reference_frame(), right_frame.reference_frame());
+    }
+
+    #[test]
+    fn derived_frames_form_only_registered_acyclic_parent_chains() {
+        let namespace = FrameNamespace::new(20);
+        let mut catalog =
+            FrameCatalog::new(namespace, [ReferenceFrame::ITRF2020]).expect("root catalog");
+        let site = catalog
+            .define_parent_aligned(
+                1001,
+                ReferenceFrame::ITRF2020,
+                Position::from_metres(6_378_137.0, 0.0, 0.0),
+            )
+            .expect("site frame");
+        let instrument = catalog
+            .define_parent_aligned(
+                1002,
+                site.reference_frame(),
+                Position::from_metres(0.0, 0.0, 2.0),
+            )
+            .expect("instrument frame");
 
         assert_eq!(instrument.parent(), site.reference_frame());
+        assert_eq!(catalog.definition(site.id()), Some(site));
+        assert_eq!(catalog.definition(instrument.id()), Some(instrument));
         assert_eq!(
             instrument.reference_frame().orientation(),
             FrameOrientation::Itrf(2020)
         );
+
+        let mut same_namespace_other_instance =
+            FrameCatalog::new(namespace, [ReferenceFrame::ITRF2020]).expect("separate replica");
+        assert_eq!(
+            same_namespace_other_instance.define_parent_aligned(
+                1002,
+                site.reference_frame(),
+                Position::from_metres(0.0, 0.0, 2.0),
+            ),
+            Err(FrameDefinitionError::UnknownDerivedParent {
+                parent_id: site.id(),
+            })
+        );
     }
 
     #[test]
-    fn derived_frame_rejects_invalid_geometry_and_self_parenting() {
+    fn catalog_rejects_foreign_parents_and_conflicting_redefinitions() {
+        let mut first = FrameCatalog::new(FrameNamespace::new(30), [ReferenceFrame::ITRF2020])
+            .expect("first catalog");
+        let parent = first
+            .define_parent_aligned(
+                1,
+                ReferenceFrame::ITRF2020,
+                Position::from_metres(1.0, 0.0, 0.0),
+            )
+            .expect("parent frame");
         assert_eq!(
-            DerivedFrame::parent_aligned(
-                CustomFrameId::new(1),
+            first.define_parent_aligned(
+                1,
+                ReferenceFrame::ITRF2020,
+                Position::from_metres(2.0, 0.0, 0.0),
+            ),
+            Err(FrameDefinitionError::ConflictingRedefinition { id: parent.id() })
+        );
+
+        let mut second = FrameCatalog::new(FrameNamespace::new(31), [ReferenceFrame::ITRF2020])
+            .expect("second catalog");
+        assert_eq!(
+            second.define_parent_aligned(
+                2,
+                parent.reference_frame(),
+                Position::from_metres(0.0, 0.0, 1.0),
+            ),
+            Err(FrameDefinitionError::ForeignDerivedParent {
+                parent_id: parent.id(),
+            })
+        );
+        assert!(matches!(
+            FrameCatalog::new(FrameNamespace::new(32), [parent.reference_frame()]),
+            Err(FrameDefinitionError::DerivedFrameCannotBeRoot { frame })
+                if frame == parent.reference_frame()
+        ));
+    }
+
+    #[test]
+    fn catalog_rejects_unknown_roots_and_invalid_geometry() {
+        let mut catalog = FrameCatalog::new(FrameNamespace::new(40), [ReferenceFrame::ITRF2020])
+            .expect("root catalog");
+        assert_eq!(
+            catalog.define_parent_aligned(
+                1,
                 ReferenceFrame::ITRF2020,
                 Position::from_metres(f64::NAN, 0.0, 0.0),
             ),
             Err(FrameDefinitionError::NonFiniteOriginOffset)
         );
-
-        let id = CustomFrameId::new(2);
-        let parent = ReferenceFrame::new(FrameOrigin::Custom(id), FrameOrientation::Gcrf);
         assert_eq!(
-            DerivedFrame::parent_aligned(id, parent, Position::from_metres(0.0, 0.0, 0.0)),
-            Err(FrameDefinitionError::SelfParent)
+            catalog.define_parent_aligned(
+                2,
+                ReferenceFrame::GCRF,
+                Position::from_metres(0.0, 0.0, 0.0),
+            ),
+            Err(FrameDefinitionError::UnknownRootParent {
+                parent: ReferenceFrame::GCRF,
+            })
         );
     }
 }

@@ -40,9 +40,10 @@ missing abstraction or an incorrectly placed type.
   membership, followed by reference ellipsoids, geodetic conversion, rotation,
   and ephemeris providers. Identity does not imply a physical-data model.
 - **Frames:** lightweight identities compose a body, body-system barycenter, or
-  explicit custom origin with an orientation. `DerivedFrame` definitions add a
-  caller-owned direct parent and a fixed, typed origin offset in the parent
-  axes; definitions can form explicit chains without a global registry.
+  explicit custom origin with an orientation. Caller-owned `FrameCatalog`
+  values issue namespace-qualified `FrameId` identities and validated
+  `DerivedFrame` definitions with fixed typed offsets; only registered parents
+  form chains, without a global registry.
   Orientations declare inertial, non-inertial, or unspecified motion;
   algorithms requiring inertial axes accept only an affirmative inertial
   declaration. Transform-provider contracts admit optional external adapters

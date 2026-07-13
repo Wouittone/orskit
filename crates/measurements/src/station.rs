@@ -1,7 +1,6 @@
 //! Ground participants used by measurement workflows.
 
-use frames::{CustomFrameId, DerivedFrame, FrameDefinitionError, ReferenceFrame};
-use thiserror::Error;
+use frames::{DerivedFrame, ReferenceFrame};
 use units::Position;
 
 use crate::ParticipantId;
@@ -18,16 +17,20 @@ use crate::ParticipantId;
 /// constructor and remain future measurement-domain capabilities.
 ///
 /// ```
-/// use frames::{CustomFrameId, ReferenceFrame};
+/// use frames::{FrameCatalog, FrameNamespace, ReferenceFrame};
 /// use measurements::{GroundStation, ParticipantId};
 /// use units::Position;
 ///
+/// let frame = FrameCatalog::new(FrameNamespace::new(7), [ReferenceFrame::ITRF2020])?
+///     .define_parent_aligned(
+///         7001,
+///         ReferenceFrame::ITRF2020,
+///         Position::from_metres(4_201_000.0, 172_000.0, 4_780_000.0),
+///     )?;
 /// let station = GroundStation::new(
 ///     ParticipantId::new("TLS-01")?,
-///     CustomFrameId::new(7001),
-///     ReferenceFrame::ITRF2020,
-///     Position::from_metres(4_201_000.0, 172_000.0, 4_780_000.0),
-/// )?;
+///     frame,
+/// );
 /// assert_eq!(station.parent_frame(), ReferenceFrame::ITRF2020);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -39,16 +42,8 @@ pub struct GroundStation {
 
 impl GroundStation {
     /// Creates a station and its parent-aligned local frame.
-    pub fn new(
-        id: ParticipantId,
-        frame_id: CustomFrameId,
-        parent: ReferenceFrame,
-        position_in_parent: Position,
-    ) -> Result<Self, GroundStationError> {
-        Ok(Self {
-            id,
-            frame: DerivedFrame::parent_aligned(frame_id, parent, position_in_parent)?,
-        })
+    pub const fn new(id: ParticipantId, frame: DerivedFrame) -> Self {
+        Self { id, frame }
     }
 
     /// Returns the stable application-defined station identifier.
@@ -82,19 +77,10 @@ impl GroundStation {
     }
 }
 
-/// Invalid ground-station definition.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-#[non_exhaustive]
-pub enum GroundStationError {
-    /// The station's parent-relative frame definition is invalid.
-    #[error(transparent)]
-    InvalidFrame(#[from] FrameDefinitionError),
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use frames::{Body, FrameOrigin};
+    use frames::{Body, FrameCatalog, FrameNamespace, FrameOrigin};
 
     fn id(value: &str) -> ParticipantId {
         ParticipantId::new(value).expect("valid test participant")
@@ -103,20 +89,18 @@ mod tests {
     #[test]
     fn earth_station_is_a_parent_relative_measurement_participant() {
         let position = Position::from_metres(4_201_000.0, 172_000.0, 4_780_000.0);
-        let station = GroundStation::new(
-            id("TLS-01"),
-            CustomFrameId::new(7001),
-            ReferenceFrame::ITRF2020,
-            position,
-        )
-        .expect("finite station definition");
+        let frame = FrameCatalog::new(FrameNamespace::new(7), [ReferenceFrame::ITRF2020])
+            .expect("catalog")
+            .define_parent_aligned(7001, ReferenceFrame::ITRF2020, position)
+            .expect("finite station definition");
+        let station = GroundStation::new(id("TLS-01"), frame);
 
         assert_eq!(station.id().as_str(), "TLS-01");
         assert_eq!(station.parent_frame(), ReferenceFrame::ITRF2020);
         assert_eq!(station.position_in_parent(), position);
         assert_eq!(
             station.reference_frame().origin(),
-            FrameOrigin::Custom(CustomFrameId::new(7001))
+            FrameOrigin::Derived(frame.id())
         );
         assert_eq!(
             station.reference_frame().orientation(),
@@ -129,33 +113,20 @@ mod tests {
         let mars_fixed = ReferenceFrame::new(
             FrameOrigin::Body(Body::MARS),
             frames::FrameOrientation::custom(
-                CustomFrameId::new(8000),
+                frames::CustomFrameId::new(8000),
                 frames::FrameMotion::NonInertial,
             ),
         );
-        let station = GroundStation::new(
-            id("MARS-SITE"),
-            CustomFrameId::new(8001),
-            mars_fixed,
-            Position::from_metres(3_390_000.0, 0.0, 0.0),
-        )
-        .expect("planetary surface site");
+        let frame = FrameCatalog::new(FrameNamespace::new(8), [mars_fixed])
+            .expect("Mars catalog")
+            .define_parent_aligned(
+                8001,
+                mars_fixed,
+                Position::from_metres(3_390_000.0, 0.0, 0.0),
+            )
+            .expect("planetary surface site");
+        let station = GroundStation::new(id("MARS-SITE"), frame);
 
         assert_eq!(station.parent_frame(), mars_fixed);
-    }
-
-    #[test]
-    fn station_rejects_non_finite_position() {
-        assert_eq!(
-            GroundStation::new(
-                id("BAD-SITE"),
-                CustomFrameId::new(2),
-                ReferenceFrame::ITRF2020,
-                Position::from_metres(1.0, f64::INFINITY, 3.0),
-            ),
-            Err(GroundStationError::InvalidFrame(
-                FrameDefinitionError::NonFiniteOriginOffset
-            ))
-        );
     }
 }
