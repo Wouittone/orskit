@@ -12,6 +12,7 @@
 //! provider traits once their data and accuracy contracts are defined.
 
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::{fmt, str::FromStr};
 
 pub use bodies::{Body, BodySystem, CustomBodyId};
@@ -61,12 +62,14 @@ impl FrameNamespace {
 
 /// Opaque identity issued by a [`FrameCatalog`] for one derived frame.
 ///
-/// Identity includes both the catalog namespace and catalog-local key. Callers
-/// can inspect those components but cannot construct a `FrameId` directly.
+/// Identity includes the catalog namespace, catalog-local key, and an opaque
+/// deterministic tag for the immutable definition. Callers can inspect the
+/// namespace/key but cannot construct a `FrameId` directly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FrameId {
     namespace: FrameNamespace,
     local_id: u64,
+    definition_tag: u64,
 }
 
 impl FrameId {
@@ -329,6 +332,7 @@ impl FrameCatalog {
         let id = FrameId {
             namespace: self.namespace,
             local_id,
+            definition_tag: definition_tag(self.namespace, local_id, parent, origin_offset),
         };
         let candidate = DerivedFrame {
             reference_frame: ReferenceFrame::new(FrameOrigin::Derived(id), parent.orientation()),
@@ -339,7 +343,7 @@ impl FrameCatalog {
             return if *existing == candidate {
                 Ok(*existing)
             } else {
-                Err(FrameDefinitionError::ConflictingRedefinition { id })
+                Err(FrameDefinitionError::ConflictingRedefinition { id: existing.id() })
             };
         }
         self.definitions.insert(local_id, candidate);
@@ -352,6 +356,7 @@ impl FrameCatalog {
         (id.namespace == self.namespace)
             .then(|| self.definitions.get(&id.local_id).copied())
             .flatten()
+            .filter(|definition| definition.id() == id)
     }
 
     fn validate_parent(&self, parent: ReferenceFrame) -> Result<(), FrameDefinitionError> {
@@ -479,10 +484,50 @@ impl fmt::Display for FrameId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "{:032x}:{}",
+            "{:032x}:{}:{:016x}",
             self.namespace.value(),
-            self.local_id
+            self.local_id,
+            self.definition_tag,
         )
+    }
+}
+
+fn definition_tag(
+    namespace: FrameNamespace,
+    local_id: u64,
+    parent: ReferenceFrame,
+    origin_offset: Position,
+) -> u64 {
+    let mut hasher = DefinitionHasher::default();
+    namespace.hash(&mut hasher);
+    local_id.hash(&mut hasher);
+    parent.hash(&mut hasher);
+    origin_offset
+        .to_metres()
+        .map(f64::to_bits)
+        .hash(&mut hasher);
+    hasher.finish()
+}
+
+#[derive(Default)]
+struct DefinitionHasher(u64);
+
+impl Hasher for DefinitionHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        let mut hash = if self.0 == 0 {
+            0xcbf2_9ce4_8422_2325
+        } else {
+            self.0
+        };
+        for byte in bytes {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        self.0 = hash;
     }
 }
 
@@ -750,6 +795,33 @@ mod tests {
 
         assert_ne!(left_frame.id(), right_frame.id());
         assert_ne!(left_frame.reference_frame(), right_frame.reference_frame());
+    }
+
+    #[test]
+    fn conflicting_replicas_cannot_issue_equal_frame_identities() {
+        let namespace = FrameNamespace::new(12);
+        let mut left =
+            FrameCatalog::new(namespace, [ReferenceFrame::ITRF2020]).expect("left catalog");
+        let mut right =
+            FrameCatalog::new(namespace, [ReferenceFrame::ITRF2020]).expect("right catalog");
+        let left_frame = left
+            .define_parent_aligned(
+                7,
+                ReferenceFrame::ITRF2020,
+                Position::from_metres(1.0, 2.0, 3.0),
+            )
+            .expect("left definition");
+        let right_frame = right
+            .define_parent_aligned(
+                7,
+                ReferenceFrame::ITRF2020,
+                Position::from_metres(4.0, 5.0, 6.0),
+            )
+            .expect("right definition");
+
+        assert_ne!(left_frame.id(), right_frame.id());
+        assert_ne!(left_frame.reference_frame(), right_frame.reference_frame());
+        assert_eq!(left.definition(right_frame.id()), None);
     }
 
     #[test]

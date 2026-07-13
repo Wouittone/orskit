@@ -14,8 +14,9 @@ parent/definition identity. Independent definitions could collide, and
 
 1. Caller-owned `FrameCatalog` is the only issuer of general `FrameId` values
    for derived frames.
-2. `FrameId` contains a catalog namespace and local ID; equal local IDs in
-   distinct catalogs cannot collide.
+2. `FrameId` contains a catalog namespace, local ID, and deterministic opaque
+   definition tag. Replicas issuing the same definition agree; replicas that
+   reuse a namespace/local ID for conflicting geometry cannot compare equal.
 3. Catalogs accept explicit non-derived roots. Derived parents must already
    exist in the same catalog, rejecting foreign parents and making cycles
    unconstructable.
