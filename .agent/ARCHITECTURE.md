@@ -105,9 +105,10 @@ missing abstraction or an incorrectly placed type.
   spacecraft definition or view.
   Position, velocity, acceleration, orientation, inertia tensor, covariance,
   and every other coordinate-dependent value carries the frame information
-  needed to interpret it. The six elements in a `SpacecraftState` alternative
-  share its declared frame; lower-level format coordinates may remain separate
-  until validated into that state.
+  needed to interpret it. Cartesian coordinates remain gravity-independent;
+  osculating element alternatives also carry the opaque identity of a sourced
+  `GravityContext` binding origin, parameter, and provenance. Lower-level
+  format coordinates may remain separate until validated into that state.
 - File formats that omit physical properties yield values such as
   `CoordinateSample<CartesianCoordinates>`, not fabricated complete states.
   Callers enrich them into an explicit `Spacecraft` at the workflow boundary.

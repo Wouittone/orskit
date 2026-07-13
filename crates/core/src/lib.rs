@@ -7,11 +7,13 @@
 //! contains time-independent identity and geometry; [`SpacecraftView`]
 //! composes a complete epoch-specific physical state.
 
+mod gravity;
 mod kinematics;
 mod spacecraft;
 mod state;
 
 pub use frames;
+pub use gravity::{GravityContext, GravityContextId, ScientificSource, ScientificSourceError};
 pub use hifitime::Epoch;
 pub use kinematics::{
     CartesianCoordinates, FramedAcceleration, FramedPosition, FramedVelocity, KinematicError,
@@ -22,7 +24,7 @@ pub use spacecraft::{
     SpacecraftView, SpacecraftViewError,
 };
 pub use state::{
-    CartesianState, CoordinateSample, EquinoctialState, KeplerianState, Orbit, OrbitalConversion,
-    OrbitalElements, SpacecraftState, StateError, To, TryTo,
+    CartesianState, CoordinateSample, EquinoctialState, KeplerianState, Orbit, SpacecraftState,
+    StateError, To,
 };
 pub use units;

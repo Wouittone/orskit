@@ -463,8 +463,8 @@ impl<'a> SpacecraftView<'a> {
 
     /// Returns the epoch-qualified orbit in this complete view.
     #[must_use]
-    pub const fn orbit(&self) -> Orbit {
-        self.orbit
+    pub fn orbit(&self) -> Orbit {
+        self.orbit.clone()
     }
 
     /// Returns spacecraft mass at the view epoch.
@@ -475,7 +475,7 @@ impl<'a> SpacecraftView<'a> {
 
     /// Returns the orbital state at the view epoch.
     #[must_use]
-    pub const fn state(&self) -> SpacecraftState {
+    pub fn state(&self) -> SpacecraftState {
         self.orbit.state()
     }
 
