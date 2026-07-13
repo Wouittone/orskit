@@ -23,6 +23,9 @@ states passed through a singular Keplerian intermediate, so valid large finite
    orbit exactly.
 5. Advance equinoctial mean longitude directly, preserving `a, ex, ey, hx, hy`
    without conversion through Keplerian inclination.
+6. Range-reduce input longitude before phase addition and include that reduction
+   in the same error budget; reject inputs whose representable phase is already
+   too coarse for the configured budget.
 
 ## Consequences
 

@@ -215,7 +215,8 @@ impl EllipticKeplerPropagator {
         let ex = initial.eccentricity_x().get::<ratio>();
         let ey = initial.eccentricity_y().get::<ratio>();
         let eccentricity_complement = (1.0 - ex.hypot(ey).powi(2)).sqrt();
-        let initial_true_longitude = initial.true_longitude().get::<radian>();
+        let initial_true_longitude =
+            self.normalize_input_angle(initial.true_longitude().get::<radian>())?;
         let true_projection = ex * initial_true_longitude.cos() + ey * initial_true_longitude.sin();
         let true_cross = ex * initial_true_longitude.sin() - ey * initial_true_longitude.cos();
         let initial_eccentric_longitude = initial_true_longitude
@@ -272,6 +273,16 @@ impl EllipticKeplerPropagator {
         }
     }
 
+    fn normalize_input_angle(&self, angle_radians: f64) -> Result<f64, EllipticKeplerError> {
+        let estimated_phase_error_radians = range_reduction_error_bound_radians(angle_radians);
+        if estimated_phase_error_radians > self.phase_error_budget_radians {
+            return Err(EllipticKeplerError::AccuracyBudgetExceeded {
+                estimated_phase_error_radians,
+                budget_radians: self.phase_error_budget_radians,
+            });
+        }
+        Ok(normalize_signed(angle_radians))
+    }
 }
 
 impl Propagator<TwoBodyDynamics> for EllipticKeplerPropagator {
@@ -380,20 +391,23 @@ fn phase_error_bound_radians(
     let mean_motion_contribution =
         8.0 * f64::EPSILON * mean_motion_radians_per_second.abs() * duration_seconds_magnitude;
     let multiplication_rounding = 0.5 * positive_ulp(phase_magnitude_radians);
-    let reduction_contribution = if phase_magnitude_radians <= PI {
-        0.0
-    } else {
-        let tau_multiples = (phase_magnitude_radians / TAU).floor() + 1.0;
-        positive_ulp(phase_magnitude_radians)
-            + tau_multiples * 0.5 * positive_ulp(TAU)
-            + positive_ulp(TAU)
-    };
+    let reduction_contribution = range_reduction_error_bound_radians(phase_magnitude_radians);
 
     duration_contribution
         + mean_motion_contribution
         + multiplication_rounding
         + reduction_contribution
         + positive_ulp(TAU)
+}
+
+fn range_reduction_error_bound_radians(angle_radians: f64) -> f64 {
+    let magnitude = angle_radians.abs();
+    if magnitude <= PI {
+        0.0
+    } else {
+        let tau_multiples = (magnitude / TAU).floor() + 1.0;
+        positive_ulp(magnitude) + tau_multiples * 0.5 * positive_ulp(TAU) + positive_ulp(TAU)
+    }
 }
 
 fn positive_ulp(value: f64) -> f64 {
@@ -1000,6 +1014,32 @@ mod tests {
         assert_eq!(propagated.inclination_x().get::<ratio>(), 1.0e16);
         assert_eq!(propagated.inclination_y().get::<ratio>(), 0.0);
         assert_ne!(propagated.true_longitude(), initial_longitude);
+    }
+
+    #[test]
+    fn large_input_longitude_is_rejected_when_reduction_exceeds_budget() {
+        let central_gravity = earth_gravity(earth_mu());
+        let problem = problem(&central_gravity);
+        let state = EquinoctialState::new(
+            InertialFrame::GCRF,
+            central_gravity,
+            Length::new::<meter>(7_200_000.0),
+            Ratio::new::<ratio>(0.0),
+            Ratio::new::<ratio>(0.0),
+            Ratio::new::<ratio>(0.0),
+            Ratio::new::<ratio>(0.0),
+            Angle::new::<radian>((1_u64 << 54) as f64),
+        )
+        .expect("finite longitude is representable by the state type");
+
+        assert!(matches!(
+            EllipticKeplerPropagator::new().propagate(
+                Orbit::new(Epoch::from_tai_seconds(1_000.0), state.into()),
+                &problem,
+                Duration::from_seconds(1_000.0),
+            ),
+            Err(EllipticKeplerError::AccuracyBudgetExceeded { .. })
+        ));
     }
 
     #[test]
