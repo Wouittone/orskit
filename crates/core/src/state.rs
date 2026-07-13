@@ -1,4 +1,7 @@
-use std::f64::consts::{PI, TAU};
+use std::{
+    f64::consts::{PI, TAU},
+    sync::Arc,
+};
 
 use frames::{FrameOrigin, InertialFrame, ReferenceFrame};
 use hifitime::Epoch;
@@ -7,8 +10,7 @@ use units::uom::si::{angle::radian, length::meter, ratio::ratio};
 use units::{Angle, Length, Position, Ratio, Velocity, VelocityVector};
 
 use crate::{
-    CartesianCoordinates, FramedPosition, FramedVelocity, GravityContext, GravityContextId,
-    KinematicError,
+    CartesianCoordinates, FramedPosition, FramedVelocity, KinematicError, SharedCentralGravity,
 };
 
 /// Coordinates tied to the epoch at which they are valid.
@@ -100,13 +102,19 @@ impl CartesianState {
     }
 
     /// Converts this Cartesian state to osculating Keplerian elements.
-    pub fn to_keplerian(self, context: &GravityContext) -> Result<KeplerianState, StateError> {
-        keplerian_from_cartesian(context, self)
+    pub fn to_keplerian(
+        self,
+        gravity: &SharedCentralGravity,
+    ) -> Result<KeplerianState, StateError> {
+        keplerian_from_cartesian(gravity, self)
     }
 
     /// Converts this Cartesian state to osculating equinoctial elements.
-    pub fn to_equinoctial(self, context: &GravityContext) -> Result<EquinoctialState, StateError> {
-        EquinoctialState::try_from(self.to_keplerian(context)?)
+    pub fn to_equinoctial(
+        self,
+        gravity: &SharedCentralGravity,
+    ) -> Result<EquinoctialState, StateError> {
+        EquinoctialState::try_from(self.to_keplerian(gravity)?)
     }
 }
 
@@ -139,10 +147,10 @@ impl From<CartesianState> for CartesianCoordinates {
 /// The supported regime is `a > 0` and `0 <= e < 1`. All angles are typed
 /// quantities; `nu` is true anomaly. Each state is bound to the identity of
 /// the sourced gravity context used to define or interpret its elements.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct KeplerianState {
     frame: InertialFrame,
-    gravity_context_id: GravityContextId,
+    central_gravity: SharedCentralGravity,
     semi_major_axis: Length,
     eccentricity: Ratio,
     inclination: Angle,
@@ -151,12 +159,25 @@ pub struct KeplerianState {
     true_anomaly: Angle,
 }
 
+impl PartialEq for KeplerianState {
+    fn eq(&self, other: &Self) -> bool {
+        self.frame == other.frame
+            && Arc::ptr_eq(&self.central_gravity, &other.central_gravity)
+            && self.semi_major_axis == other.semi_major_axis
+            && self.eccentricity == other.eccentricity
+            && self.inclination == other.inclination
+            && self.right_ascension_of_ascending_node == other.right_ascension_of_ascending_node
+            && self.argument_of_periapsis == other.argument_of_periapsis
+            && self.true_anomaly == other.true_anomaly
+    }
+}
+
 impl KeplerianState {
     /// Constructs and validates an elliptic osculating Keplerian state.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         frame: InertialFrame,
-        gravity_context_id: GravityContextId,
+        central_gravity: SharedCentralGravity,
         semi_major_axis: Length,
         eccentricity: Ratio,
         inclination: Angle,
@@ -174,7 +195,7 @@ impl KeplerianState {
         )?;
         Ok(Self {
             frame,
-            gravity_context_id,
+            central_gravity,
             semi_major_axis,
             eccentricity,
             inclination,
@@ -198,8 +219,8 @@ impl KeplerianState {
 
     /// Returns the sourced gravity context to which these elements are bound.
     #[must_use]
-    pub const fn gravity_context_id(&self) -> &GravityContextId {
-        &self.gravity_context_id
+    pub const fn central_gravity(&self) -> &SharedCentralGravity {
+        &self.central_gravity
     }
 
     /// Returns `a`.
@@ -239,8 +260,11 @@ impl KeplerianState {
     }
 
     /// Converts these elements using a context matching their bound identity.
-    pub fn to_cartesian(self, context: &GravityContext) -> Result<CartesianState, StateError> {
-        cartesian_from_keplerian(context, self)
+    pub fn to_cartesian(
+        self,
+        gravity: &SharedCentralGravity,
+    ) -> Result<CartesianState, StateError> {
+        cartesian_from_keplerian(gravity, self)
     }
 
     /// Converts to equinoctial elements without requiring gravity data.
@@ -266,10 +290,10 @@ impl KeplerianState {
 /// `hx=tan(i/2) cos(Omega)`, `hy=tan(i/2) sin(Omega)`, and
 /// `lv=nu+omega+Omega`. Each state is bound to the identity of the sourced
 /// gravity context used to define or interpret its elements.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct EquinoctialState {
     frame: InertialFrame,
-    gravity_context_id: GravityContextId,
+    central_gravity: SharedCentralGravity,
     semi_major_axis: Length,
     eccentricity_x: Ratio,
     eccentricity_y: Ratio,
@@ -278,12 +302,25 @@ pub struct EquinoctialState {
     true_longitude: Angle,
 }
 
+impl PartialEq for EquinoctialState {
+    fn eq(&self, other: &Self) -> bool {
+        self.frame == other.frame
+            && Arc::ptr_eq(&self.central_gravity, &other.central_gravity)
+            && self.semi_major_axis == other.semi_major_axis
+            && self.eccentricity_x == other.eccentricity_x
+            && self.eccentricity_y == other.eccentricity_y
+            && self.inclination_x == other.inclination_x
+            && self.inclination_y == other.inclination_y
+            && self.true_longitude == other.true_longitude
+    }
+}
+
 impl EquinoctialState {
     /// Constructs and validates an elliptic equinoctial state.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         frame: InertialFrame,
-        gravity_context_id: GravityContextId,
+        central_gravity: SharedCentralGravity,
         semi_major_axis: Length,
         eccentricity_x: Ratio,
         eccentricity_y: Ratio,
@@ -302,7 +339,7 @@ impl EquinoctialState {
         }
         Ok(Self {
             frame,
-            gravity_context_id,
+            central_gravity,
             semi_major_axis,
             eccentricity_x,
             eccentricity_y,
@@ -326,8 +363,8 @@ impl EquinoctialState {
 
     /// Returns the sourced gravity context to which these elements are bound.
     #[must_use]
-    pub const fn gravity_context_id(&self) -> &GravityContextId {
-        &self.gravity_context_id
+    pub const fn central_gravity(&self) -> &SharedCentralGravity {
+        &self.central_gravity
     }
 
     /// Returns `a`.
@@ -367,8 +404,11 @@ impl EquinoctialState {
     }
 
     /// Converts these elements using a context matching their bound identity.
-    pub fn to_cartesian(self, context: &GravityContext) -> Result<CartesianState, StateError> {
-        self.to_keplerian()?.to_cartesian(context)
+    pub fn to_cartesian(
+        self,
+        gravity: &SharedCentralGravity,
+    ) -> Result<CartesianState, StateError> {
+        self.to_keplerian()?.to_cartesian(gravity)
     }
 
     /// Converts to Keplerian elements without requiring gravity data.
@@ -401,11 +441,11 @@ impl SpacecraftState {
 
     /// Returns the bound gravity-context identity for an element representation.
     #[must_use]
-    pub const fn gravity_context_id(&self) -> Option<&GravityContextId> {
+    pub const fn central_gravity(&self) -> Option<&SharedCentralGravity> {
         match self {
             Self::Cartesian(_) => None,
-            Self::Keplerian(state) => Some(state.gravity_context_id()),
-            Self::Equinoctial(state) => Some(state.gravity_context_id()),
+            Self::Keplerian(state) => Some(state.central_gravity()),
+            Self::Equinoctial(state) => Some(state.central_gravity()),
         }
     }
 }
@@ -505,7 +545,7 @@ fn keplerian_to_equinoctial(source: KeplerianState) -> Result<EquinoctialState, 
     let inclination_scale = (i / 2.0).tan();
     EquinoctialState::new(
         source.frame,
-        source.gravity_context_id,
+        source.central_gravity,
         source.semi_major_axis,
         Ratio::new::<ratio>(e * longitude_of_periapsis.cos()),
         Ratio::new::<ratio>(e * longitude_of_periapsis.sin()),
@@ -524,7 +564,7 @@ fn equinoctial_to_keplerian(source: EquinoctialState) -> Result<KeplerianState, 
     let raan = hy.atan2(hx);
     KeplerianState::new(
         source.frame,
-        source.gravity_context_id,
+        source.central_gravity,
         source.semi_major_axis,
         Ratio::new::<ratio>(ex.hypot(ey)),
         Angle::new::<radian>(2.0 * hx.hypot(hy).atan()),
@@ -580,16 +620,16 @@ impl ValidatedKeplerian {
 }
 
 fn cartesian_from_keplerian(
-    context: &GravityContext,
+    gravity: &SharedCentralGravity,
     source: KeplerianState,
 ) -> Result<CartesianState, StateError> {
-    validate_bound_gravity_context(context, source.gravity_context_id(), source.frame())?;
+    validate_bound_central_gravity(gravity, source.central_gravity(), source.frame())?;
     let elements = source.validated()?;
     let e = elements.eccentricity;
     let nu = elements.true_anomaly_rad;
     let p = elements.semi_major_axis_m * (1.0 - e * e);
     let radius = p / (1.0 + e * nu.cos());
-    let speed_scale = (context
+    let speed_scale = (gravity
         .gravitational_parameter()
         .as_cubic_metres_per_second_squared()
         / p)
@@ -624,10 +664,10 @@ fn cartesian_from_keplerian(
 }
 
 fn keplerian_from_cartesian(
-    context: &GravityContext,
+    gravity: &SharedCentralGravity,
     state: CartesianState,
 ) -> Result<KeplerianState, StateError> {
-    validate_gravity_origin(context, state.frame)?;
+    validate_gravity_origin(gravity, state.frame)?;
     let inertial_frame = InertialFrame::try_from(state.frame)
         .map_err(|_| StateError::CartesianFrameNotExplicitlyInertial)?;
 
@@ -645,7 +685,7 @@ fn keplerian_from_cartesian(
         return Err(StateError::DegenerateCartesianOrbit);
     }
 
-    let mu = context
+    let mu = gravity
         .gravitational_parameter()
         .as_cubic_metres_per_second_squared();
     let velocity_cross_momentum = cross(velocity_m_s, angular_momentum);
@@ -695,7 +735,7 @@ fn keplerian_from_cartesian(
 
     KeplerianState::new(
         inertial_frame,
-        context.id().clone(),
+        Arc::clone(gravity),
         Length::new::<meter>(semi_major_axis),
         Ratio::new::<ratio>(if circular { 0.0 } else { eccentricity }),
         Angle::new::<radian>(inclination),
@@ -705,29 +745,25 @@ fn keplerian_from_cartesian(
     )
 }
 
-fn validate_bound_gravity_context(
-    context: &GravityContext,
-    state_context_id: &GravityContextId,
+fn validate_bound_central_gravity(
+    gravity: &SharedCentralGravity,
+    state_gravity: &SharedCentralGravity,
     frame: ReferenceFrame,
 ) -> Result<(), StateError> {
-    if state_context_id != context.id() {
-        return Err(StateError::GravityContextIdMismatch {
-            state: state_context_id.clone(),
-            supplied: context.id().clone(),
-        });
+    if !Arc::ptr_eq(state_gravity, gravity) {
+        return Err(StateError::CentralGravityMismatch);
     }
-    validate_gravity_origin(context, frame)
+    validate_gravity_origin(gravity, frame)
 }
 
 fn validate_gravity_origin(
-    context: &GravityContext,
+    gravity: &SharedCentralGravity,
     frame: ReferenceFrame,
 ) -> Result<(), StateError> {
     let frame_origin = frame.origin();
-    if frame_origin != context.origin() {
-        return Err(StateError::GravityContextOriginMismatch {
-            context: context.id().clone(),
-            context_origin: context.origin(),
+    if frame_origin != gravity.origin() {
+        return Err(StateError::CentralGravityOriginMismatch {
+            gravity_origin: gravity.origin(),
             frame_origin,
         });
     }
@@ -834,22 +870,13 @@ pub enum StateError {
     #[error("Cartesian orbital-element conversion requires explicitly inertial axes")]
     CartesianFrameNotExplicitlyInertial,
     /// An element state is bound to a different sourced gravity context.
-    #[error("state gravity context {state:?} does not match supplied context {supplied:?}")]
-    GravityContextIdMismatch {
-        /// Context identity stored in the element state.
-        state: GravityContextId,
-        /// Context identity supplied for Cartesian conversion.
-        supplied: GravityContextId,
-    },
+    #[error("element state and supplied central gravity are not the same shared object")]
+    CentralGravityMismatch,
     /// The Cartesian frame origin differs from the gravity context origin.
-    #[error(
-        "frame origin {frame_origin} does not match gravity context {context:?} origin {context_origin}"
-    )]
-    GravityContextOriginMismatch {
-        /// Supplied gravity context identity.
-        context: GravityContextId,
+    #[error("frame origin {frame_origin} does not match central-gravity origin {gravity_origin}")]
+    CentralGravityOriginMismatch {
         /// Origin configured by the gravity context.
-        context_origin: FrameOrigin,
+        gravity_origin: FrameOrigin,
         /// Origin carried by the state frame.
         frame_origin: FrameOrigin,
     },
@@ -876,33 +903,35 @@ mod tests {
             .expect("Earth gravitational parameter is positive")
     }
 
-    fn gravity_context(
+    fn central_gravity(
         origin: FrameOrigin,
         gravitational_parameter: GravitationalParameter,
         scenario: &str,
-    ) -> GravityContext {
-        GravityContext::new(
-            origin,
-            gravitational_parameter,
-            crate::ScientificSource::new(
+    ) -> SharedCentralGravity {
+        let source = Arc::new(
+            crate::ReferenceSource::new(
                 "orskit test suite",
                 "orbital conversion fixture",
                 scenario,
                 "urn:orskit:test:orbital-conversion",
             )
             .expect("complete test provenance"),
+        );
+        Arc::new(
+            crate::PointMassGravity::new(origin, gravitational_parameter, source)
+                .expect("valid central gravity"),
         )
     }
 
-    fn earth_context() -> GravityContext {
-        gravity_context(FrameOrigin::Body(frames::Body::EARTH), earth_mu(), "earth")
+    fn earth_gravity() -> SharedCentralGravity {
+        central_gravity(FrameOrigin::Body(frames::Body::EARTH), earth_mu(), "earth")
     }
 
     fn keplerian(inclination: f64, raan: f64, periapsis: f64, anomaly: f64) -> KeplerianState {
-        let context = earth_context();
+        let gravity = earth_gravity();
         KeplerianState::new(
             InertialFrame::GCRF,
-            context.id().clone(),
+            gravity,
             Length::new::<meter>(7_000_000.0),
             Ratio::new::<ratio>(0.0),
             Angle::new::<radian>(inclination),
@@ -940,10 +969,10 @@ mod tests {
 
     #[test]
     fn gravity_is_required_only_at_the_cartesian_conversion_boundary() {
-        let context = earth_context();
+        let gravity = earth_gravity();
         let source = KeplerianState::new(
             InertialFrame::GCRF,
-            context.id().clone(),
+            Arc::clone(&gravity),
             Length::new::<meter>(7_200_000.0),
             Ratio::new::<ratio>(0.1),
             Angle::new::<radian>(0.7),
@@ -954,18 +983,18 @@ mod tests {
         .expect("elliptic state");
         let equinoctial = EquinoctialState::try_from(source.clone()).expect("context-free K to E");
         let recovered = KeplerianState::try_from(equinoctial.clone()).expect("context-free E to K");
-        let cartesian = source.to_cartesian(&context).expect("context-bound K to C");
+        let cartesian = source.to_cartesian(&gravity).expect("gravity-bound K to C");
         let recovered_cartesian = recovered
             .clone()
-            .to_cartesian(&context)
+            .to_cartesian(&gravity)
             .expect("context-bound recovered K to C");
         let recovered_elements = cartesian
-            .to_keplerian(&context)
+            .to_keplerian(&gravity)
             .expect("context-bound C to K");
 
-        assert_eq!(equinoctial.gravity_context_id(), context.id());
-        assert_eq!(recovered.gravity_context_id(), context.id());
-        assert_eq!(recovered_elements.gravity_context_id(), context.id());
+        assert!(Arc::ptr_eq(equinoctial.central_gravity(), &gravity));
+        assert!(Arc::ptr_eq(recovered.central_gravity(), &gravity));
+        assert!(Arc::ptr_eq(recovered_elements.central_gravity(), &gravity));
         assert_vector_close(
             recovered_cartesian.position().to_metres(),
             cartesian.position().to_metres(),
@@ -981,27 +1010,21 @@ mod tests {
     #[test]
     fn cartesian_conversion_rejects_context_identity_and_origin_mismatches() {
         let source = keplerian(0.2, 0.3, 0.4, 0.5);
-        let state_context_id = source.gravity_context_id().clone();
-        let other_identity = gravity_context(
+        let other_identity = central_gravity(
             FrameOrigin::Body(frames::Body::EARTH),
             earth_mu(),
             "other-earth-scenario",
         );
-        let other_context_id = other_identity.id().clone();
         assert_eq!(
             source.to_cartesian(&other_identity),
-            Err(StateError::GravityContextIdMismatch {
-                state: state_context_id,
-                supplied: other_context_id,
-            })
+            Err(StateError::CentralGravityMismatch)
         );
 
-        let mars_context = gravity_context(
+        let mars_gravity = central_gravity(
             FrameOrigin::Body(frames::Body::MARS),
             earth_mu(),
             "mars-origin",
         );
-        let mars_context_id = mars_context.id().clone();
         let cartesian = CartesianState::new(
             ReferenceFrame::GCRF,
             Position::from_metres(7_000_000.0, 0.0, 0.0),
@@ -1009,10 +1032,9 @@ mod tests {
         )
         .expect("finite state");
         assert_eq!(
-            cartesian.to_keplerian(&mars_context),
-            Err(StateError::GravityContextOriginMismatch {
-                context: mars_context_id,
-                context_origin: FrameOrigin::Body(frames::Body::MARS),
+            cartesian.to_keplerian(&mars_gravity),
+            Err(StateError::CentralGravityOriginMismatch {
+                gravity_origin: FrameOrigin::Body(frames::Body::MARS),
                 frame_origin: FrameOrigin::Body(frames::Body::EARTH),
             })
         );
@@ -1022,9 +1044,8 @@ mod tests {
     fn circular_equatorial_conversion_matches_analytic_vector() {
         let radius = 7_000_000.0;
         let state = keplerian(0.0, 0.0, 0.0, 0.0);
-        let cartesian = state
-            .to_cartesian(&earth_context())
-            .expect("valid conversion");
+        let gravity = Arc::clone(state.central_gravity());
+        let cartesian = state.to_cartesian(&gravity).expect("valid conversion");
         let expected_speed = (earth_mu().as_cubic_metres_per_second_squared() / radius).sqrt();
 
         assert_vector_close(cartesian.position().to_metres(), [radius, 0.0, 0.0], 1.0e-8);
@@ -1040,9 +1061,9 @@ mod tests {
     fn polar_conversion_has_expected_axes() {
         let radius = 7_000_000.0;
         let speed = (earth_mu().as_cubic_metres_per_second_squared() / radius).sqrt();
-        let cartesian = keplerian(PI / 2.0, 0.0, 0.0, PI / 2.0)
-            .to_cartesian(&earth_context())
-            .expect("valid conversion");
+        let state = keplerian(PI / 2.0, 0.0, 0.0, PI / 2.0);
+        let gravity = Arc::clone(state.central_gravity());
+        let cartesian = state.to_cartesian(&gravity).expect("valid conversion");
 
         assert_vector_close(cartesian.position().to_metres(), [0.0, 0.0, radius], 1.0e-8);
         assert_vector_close(
@@ -1074,10 +1095,10 @@ mod tests {
 
     #[test]
     fn invalid_conics_and_singularities_are_rejected() {
-        let context = earth_context();
+        let gravity = earth_gravity();
         let retrograde = KeplerianState::new(
             InertialFrame::GCRF,
-            context.id().clone(),
+            gravity,
             Length::new::<meter>(7_000_000.0),
             Ratio::new::<ratio>(0.1),
             Angle::new::<radian>(PI),
@@ -1095,7 +1116,7 @@ mod tests {
             VelocityVector::from_metres_per_second(1_000.0, 0.0, 0.0),
         )
         .expect("finite state");
-        let result = radial.to_keplerian(&earth_context());
+        let result = radial.to_keplerian(&earth_gravity());
         assert_eq!(result, Err(StateError::DegenerateCartesianOrbit));
     }
 
@@ -1118,11 +1139,11 @@ mod tests {
         };
 
         assert_eq!(
-            state(FrameMotion::Unspecified).to_keplerian(&earth_context()),
+            state(FrameMotion::Unspecified).to_keplerian(&earth_gravity()),
             Err(StateError::CartesianFrameNotExplicitlyInertial)
         );
         state(FrameMotion::Inertial)
-            .to_keplerian(&earth_context())
+            .to_keplerian(&earth_gravity())
             .expect("explicit custom inertial axes are supported");
     }
 }

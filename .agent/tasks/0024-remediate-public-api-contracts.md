@@ -58,6 +58,17 @@ project is used.
   frame definitions, spacecraft construction, attitude rates, observations,
   decoder events/limits, force requirements, propagation problems, and package
   import roots.
+- Composition: one propagation-solver entry contract is parameterized by an
+  explicit dynamics problem; two-/three-/n-body topology is not conflated with
+  analytical, numerical, or future stochastic solution methods. This task adds
+  only the existing analytical elliptic two-body implementation.
+- Extensibility and ownership: scientific sources and central-gravity inputs
+  are object-safe downstream-extensible traits shared through `Arc`; derived
+  frame consumers accept catalog-issued general frame identities/definitions,
+  not raw custom-ID constructor parts.
+- Safe defaults: every crate forbids unsafe code. Measurements require an
+  explicit measurement frame, typed range, and explicit optional typed
+  uncertainty.
 - Rejected alternatives: document caller responsibility while retaining
   constructors that certify invalid states; silently discard source data;
   preserve misleading type names for compatibility; infer scientific data.

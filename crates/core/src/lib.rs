@@ -13,7 +13,10 @@ mod spacecraft;
 mod state;
 
 pub use frames;
-pub use gravity::{GravityContext, GravityContextId, ScientificSource, ScientificSourceError};
+pub use gravity::{
+    CentralGravity, PointMassGravity, ReferenceSource, ScientificSource, ScientificSourceError,
+    SharedCentralGravity, SharedScientificSource,
+};
 pub use hifitime::Epoch;
 pub use kinematics::{
     CartesianCoordinates, FramedAcceleration, FramedPosition, FramedVelocity, KinematicError,

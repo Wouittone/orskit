@@ -1,6 +1,6 @@
 # ADR-0019: bind orbital elements to sourced gravity context
 
-- Status: Accepted
+- Status: Superseded by ADR-0024
 - Date: 2026-07-13
 - Affected parity rows: scientific data context; orbital representations;
   two-body propagation

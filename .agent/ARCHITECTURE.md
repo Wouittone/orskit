@@ -106,8 +106,9 @@ missing abstraction or an incorrectly placed type.
   Position, velocity, acceleration, orientation, inertia tensor, covariance,
   and every other coordinate-dependent value carries the frame information
   needed to interpret it. Cartesian coordinates remain gravity-independent;
-  osculating element alternatives also carry the opaque identity of a sourced
-  `GravityContext` binding origin, parameter, and provenance. Lower-level
+  osculating element alternatives share an application-extensible
+  `Arc<dyn CentralGravity>` binding origin, parameter, and trait-based
+  provenance. Lower-level
   format coordinates may remain separate until validated into that state.
 - File formats that omit physical properties yield values such as
   `CoordinateSample<CartesianCoordinates>`, not fabricated complete states.
