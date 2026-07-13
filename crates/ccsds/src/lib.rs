@@ -26,8 +26,9 @@
 mod oem;
 
 pub use oem::{
-    parse_oem_kvn, parse_oem_kvn_with_limits, Oem, OemDecoderLimits, OemDecoderLimitsError,
-    OemError, OemEvent, OemHeader, OemKvnReader, OemLimitKind, OemMetadata, OemSection, OemSegment,
+    parse_oem_kvn, parse_oem_kvn_with_limits, Oem, OemComment, OemDecoderLimits,
+    OemDecoderLimitsError, OemError, OemEvent, OemHeader, OemKvnReader, OemLimitKind, OemMetadata,
+    OemRecordRef, OemSample, OemSection, OemSegment, OemSegmentContext, OemSegmentId,
     OemTimeSystem,
 };
 

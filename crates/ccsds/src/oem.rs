@@ -1,6 +1,6 @@
 //! CCSDS 502.0-B-3 OEM KVN reader.
 
-use std::{fmt, io::BufRead, str::FromStr};
+use std::{fmt, io::BufRead, str::FromStr, sync::Arc};
 
 use core_crate::{
     CartesianCoordinates, CoordinateSample, Epoch, FramedAcceleration, FramedPosition,
@@ -196,6 +196,53 @@ impl FromStr for OemTimeSystem {
     }
 }
 
+/// Stable zero-based identifier for an OEM segment in source order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct OemSegmentId(usize);
+
+impl OemSegmentId {
+    /// Returns the segment's zero-based source-order index.
+    #[must_use]
+    pub const fn index(self) -> usize {
+        self.0
+    }
+}
+
+/// One accepted OEM comment with its source provenance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OemComment {
+    segment_id: Option<OemSegmentId>,
+    section: OemSection,
+    source_line: usize,
+    text: String,
+}
+
+impl OemComment {
+    /// Returns the containing segment, or `None` for a header comment.
+    #[must_use]
+    pub const fn segment_id(&self) -> Option<OemSegmentId> {
+        self.segment_id
+    }
+
+    /// Returns the structural section containing the comment.
+    #[must_use]
+    pub const fn section(&self) -> OemSection {
+        self.section
+    }
+
+    /// Returns the one-based physical source line.
+    #[must_use]
+    pub const fn source_line(&self) -> usize {
+        self.source_line
+    }
+
+    /// Returns the comment text after the `COMMENT` marker.
+    #[must_use]
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+}
+
 /// OEM file header.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OemHeader {
@@ -203,7 +250,7 @@ pub struct OemHeader {
     creation_date: Epoch,
     originator: String,
     message_id: Option<String>,
-    comments: Vec<String>,
+    comments: Vec<OemComment>,
 }
 
 impl OemHeader {
@@ -233,7 +280,7 @@ impl OemHeader {
 
     /// Returns header comments in source order.
     #[must_use]
-    pub fn comments(&self) -> &[String] {
+    pub fn comments(&self) -> &[OemComment] {
         &self.comments
     }
 }
@@ -251,7 +298,7 @@ pub struct OemMetadata {
     stop_time: Epoch,
     interpolation: Option<String>,
     interpolation_degree: Option<u8>,
-    comments: Vec<String>,
+    comments: Vec<OemComment>,
 }
 
 impl OemMetadata {
@@ -317,29 +364,163 @@ impl OemMetadata {
 
     /// Returns metadata comments in source order.
     #[must_use]
-    pub fn comments(&self) -> &[String] {
+    pub fn comments(&self) -> &[OemComment] {
         &self.comments
     }
+}
+
+/// Immutable identity and metadata shared by all records in one OEM segment.
+///
+/// Cloning this value shares the validated metadata allocation rather than
+/// duplicating it, so streaming samples retain the exact segment context that
+/// was active when their source line was accepted.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OemSegmentContext {
+    id: OemSegmentId,
+    metadata: Arc<OemMetadata>,
+}
+
+impl OemSegmentContext {
+    /// Returns the segment's stable source-order identifier.
+    #[must_use]
+    pub const fn id(&self) -> OemSegmentId {
+        self.id
+    }
+
+    /// Returns the immutable metadata applying to the segment.
+    #[must_use]
+    pub fn metadata(&self) -> &OemMetadata {
+        &self.metadata
+    }
+}
+
+/// One typed OEM Cartesian sample with source and segment provenance.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OemSample {
+    context: OemSegmentContext,
+    source_line: usize,
+    sample: CoordinateSample<CartesianCoordinates>,
+}
+
+impl OemSample {
+    /// Returns the containing segment identifier.
+    #[must_use]
+    pub const fn segment_id(&self) -> OemSegmentId {
+        self.context.id()
+    }
+
+    /// Returns the one-based physical source line containing the state record.
+    #[must_use]
+    pub const fn source_line(&self) -> usize {
+        self.source_line
+    }
+
+    /// Returns the immutable context shared by the segment's records.
+    #[must_use]
+    pub const fn context(&self) -> &OemSegmentContext {
+        &self.context
+    }
+
+    /// Returns the immutable metadata applying to this sample.
+    #[must_use]
+    pub fn metadata(&self) -> &OemMetadata {
+        self.context.metadata()
+    }
+
+    /// Returns the sample epoch in the metadata's declared time system.
+    #[must_use]
+    pub fn epoch(&self) -> Epoch {
+        self.sample.epoch()
+    }
+
+    /// Returns the typed Cartesian coordinates.
+    #[must_use]
+    pub fn coordinates(&self) -> &CartesianCoordinates {
+        self.sample.coordinates()
+    }
+
+    /// Returns the underlying typed coordinate sample.
+    #[must_use]
+    pub const fn coordinate_sample(&self) -> &CoordinateSample<CartesianCoordinates> {
+        &self.sample
+    }
+
+    /// Consumes this provenance wrapper and returns the coordinate sample.
+    #[must_use]
+    pub fn into_coordinate_sample(self) -> CoordinateSample<CartesianCoordinates> {
+        self.sample
+    }
+}
+
+/// Borrowed record from a collected OEM segment, in original source order.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub enum OemRecordRef<'a> {
+    /// A metadata- or data-section comment.
+    Comment(&'a OemComment),
+    /// A typed Cartesian state record.
+    Coordinates(&'a OemSample),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OemRecordIndex {
+    Comment(usize),
+    Coordinates(usize),
 }
 
 /// One collected OEM segment.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OemSegment {
-    metadata: OemMetadata,
-    coordinates: Vec<CoordinateSample<CartesianCoordinates>>,
+    context: OemSegmentContext,
+    coordinates: Vec<OemSample>,
+    comments: Vec<OemComment>,
+    record_order: Vec<OemRecordIndex>,
 }
 
 impl OemSegment {
+    /// Returns the segment's stable source-order identifier.
+    #[must_use]
+    pub const fn id(&self) -> OemSegmentId {
+        self.context.id()
+    }
+
+    /// Returns the immutable context shared by the segment's records.
+    #[must_use]
+    pub const fn context(&self) -> &OemSegmentContext {
+        &self.context
+    }
+
     /// Returns the segment metadata.
     #[must_use]
-    pub const fn metadata(&self) -> &OemMetadata {
-        &self.metadata
+    pub fn metadata(&self) -> &OemMetadata {
+        self.context.metadata()
     }
 
     /// Returns timed ephemeris coordinates in source order.
     #[must_use]
-    pub fn coordinates(&self) -> &[CoordinateSample<CartesianCoordinates>] {
+    pub fn coordinates(&self) -> &[OemSample] {
         &self.coordinates
+    }
+
+    /// Returns metadata and data comments in source order.
+    #[must_use]
+    pub fn comments(&self) -> &[OemComment] {
+        &self.comments
+    }
+
+    /// Iterates comments and coordinate records in original source order.
+    ///
+    /// Metadata comments precede data-section records. Data comments remain
+    /// interleaved with the coordinate lines they surrounded in the source.
+    pub fn records(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = OemRecordRef<'_>> + ExactSizeIterator + '_ {
+        self.record_order.iter().map(|record| match *record {
+            OemRecordIndex::Comment(index) => OemRecordRef::Comment(&self.comments[index]),
+            OemRecordIndex::Coordinates(index) => {
+                OemRecordRef::Coordinates(&self.coordinates[index])
+            }
+        })
     }
 }
 
@@ -370,12 +551,14 @@ impl Oem {
 pub enum OemEvent {
     /// The validated message header.
     Header(OemHeader),
-    /// The beginning of a segment and its validated metadata.
-    SegmentStart(OemMetadata),
-    /// One typed, timed Cartesian ephemeris point.
-    Coordinates(CoordinateSample<CartesianCoordinates>),
-    /// The end of the current segment.
-    SegmentEnd,
+    /// The beginning of an identified segment and its validated metadata.
+    SegmentStart(OemSegmentContext),
+    /// One data-section comment at its original source position.
+    Comment(OemComment),
+    /// One typed, timed Cartesian ephemeris point with source provenance.
+    Coordinates(OemSample),
+    /// The end of the identified segment.
+    SegmentEnd(OemSegmentId),
 }
 
 /// Error returned while decoding or collecting OEM KVN.
@@ -728,11 +911,9 @@ impl<R: BufRead> Iterator for OemKvnReader<R> {
                 Ok(BoundedLine::Eof) => {
                     self.finished = true;
                     return match self.decoder.finish() {
-                        Ok(Some(event)) => Some(validate_event_chronology(
-                            event,
-                            self.decoder.line,
-                            &mut self.chronology,
-                        )),
+                        Ok(Some(event)) => {
+                            Some(validate_event_chronology(event, &mut self.chronology))
+                        }
                         Ok(None) => None,
                         Err(error) => Some(Err(error)),
                     };
@@ -830,11 +1011,9 @@ impl<R: AsyncBufRead + Unpin> AsyncOemKvnReader<R> {
                 Ok(BoundedLine::Eof) => {
                     self.finished = true;
                     return match self.decoder.finish() {
-                        Ok(Some(event)) => Some(validate_event_chronology(
-                            event,
-                            self.decoder.line,
-                            &mut self.chronology,
-                        )),
+                        Ok(Some(event)) => {
+                            Some(validate_event_chronology(event, &mut self.chronology))
+                        }
                         Ok(None) => None,
                         Err(error) => Some(Err(error)),
                     };
@@ -922,7 +1101,7 @@ pub fn parse_oem_kvn_parallel_with_limits(
     for line in input.lines() {
         if let Some(output) = decoder.push_line(line)? {
             match output {
-                DecoderOutput::Event(event) => layout.push(ParallelLayout::Event(Box::new(event))),
+                DecoderOutput::Event(event) => layout.push(ParallelLayout::Event(event)),
                 DecoderOutput::State(raw) => {
                     let index = states.len();
                     states.push(raw);
@@ -935,35 +1114,22 @@ pub fn parse_oem_kvn_parallel_with_limits(
         layout.push(ParallelLayout::Event(Box::new(event)));
     }
 
-    let parsed: Vec<Result<CoordinateSample<CartesianCoordinates>, OemError>> = states
-        .par_iter()
-        .map(|raw| {
-            parse_state_line(
-                raw.text,
-                raw.line,
-                raw.frame,
-                raw.time_system,
-                raw.start_time,
-                raw.stop_time,
-            )
-        })
-        .collect();
+    let parsed: Vec<Result<OemSample, OemError>> = states.par_iter().map(parse_raw_state).collect();
     let mut parsed = parsed.into_iter().map(Some).collect::<Vec<_>>();
     let mut chronology = SegmentChronology::default();
     let events = layout
         .into_iter()
         .map(|item| -> Result<OemEvent, OemError> {
-            let (event, line) = match item {
-                ParallelLayout::Event(event) => (*event, 0),
+            let event = match item {
+                ParallelLayout::Event(event) => *event,
                 ParallelLayout::State(index) => {
-                    let line = states[index].line;
                     let sample = parsed[index].take().ok_or(OemError::InvalidEventOrder {
                         message: "parallel state layout was consumed more than once",
                     })??;
-                    (OemEvent::Coordinates(sample), line)
+                    OemEvent::Coordinates(sample)
                 }
             };
-            validate_event_chronology(event, line, &mut chronology)
+            validate_event_chronology(event, &mut chronology)
         });
     collect_document(events)
 }
@@ -984,23 +1150,54 @@ fn collect_document(
     for event in events {
         match event? {
             OemEvent::Header(value) if header.is_none() && active.is_none() => header = Some(value),
-            OemEvent::SegmentStart(metadata) if header.is_some() && active.is_none() => {
+            OemEvent::SegmentStart(context) if header.is_some() && active.is_none() => {
+                let comments = context.metadata().comments().to_vec();
+                let record_order = (0..comments.len()).map(OemRecordIndex::Comment).collect();
                 active = Some(OemSegment {
-                    metadata,
+                    context,
                     coordinates: Vec::new(),
+                    comments,
+                    record_order,
                 });
             }
-            OemEvent::Coordinates(coordinates) => active
-                .as_mut()
-                .ok_or(OemError::InvalidEventOrder {
+            OemEvent::Comment(comment) => {
+                let segment = active.as_mut().ok_or(OemError::InvalidEventOrder {
+                    message: "comment outside a segment",
+                })?;
+                if comment.segment_id() != Some(segment.id()) {
+                    return Err(OemError::InvalidEventOrder {
+                        message: "comment segment identifier does not match active segment",
+                    });
+                }
+                let index = segment.comments.len();
+                segment.comments.push(comment);
+                segment.record_order.push(OemRecordIndex::Comment(index));
+            }
+            OemEvent::Coordinates(coordinates) => {
+                let segment = active.as_mut().ok_or(OemError::InvalidEventOrder {
                     message: "state outside a segment",
-                })?
-                .coordinates
-                .push(coordinates),
-            OemEvent::SegmentEnd => {
-                segments.push(active.take().ok_or(OemError::InvalidEventOrder {
+                })?;
+                if coordinates.segment_id() != segment.id() {
+                    return Err(OemError::InvalidEventOrder {
+                        message: "state segment identifier does not match active segment",
+                    });
+                }
+                let index = segment.coordinates.len();
+                segment.coordinates.push(coordinates);
+                segment
+                    .record_order
+                    .push(OemRecordIndex::Coordinates(index));
+            }
+            OemEvent::SegmentEnd(id) => {
+                let segment = active.take().ok_or(OemError::InvalidEventOrder {
                     message: "segment end without segment start",
-                })?)
+                })?;
+                if id != segment.id() {
+                    return Err(OemError::InvalidEventOrder {
+                        message: "segment end identifier does not match active segment",
+                    });
+                }
+                segments.push(segment);
             }
             _ => {
                 return Err(OemError::InvalidEventOrder {
@@ -1051,14 +1248,16 @@ impl SegmentChronology {
 
 fn validate_event_chronology(
     event: OemEvent,
-    line: usize,
     chronology: &mut SegmentChronology,
 ) -> Result<OemEvent, OemError> {
     match &event {
-        OemEvent::Header(_) | OemEvent::SegmentStart(_) | OemEvent::SegmentEnd => {
+        OemEvent::Header(_) | OemEvent::SegmentStart(_) | OemEvent::SegmentEnd(_) => {
             chronology.reset();
         }
-        OemEvent::Coordinates(sample) => chronology.observe(line, sample.epoch())?,
+        OemEvent::Comment(_) => {}
+        OemEvent::Coordinates(sample) => {
+            chronology.observe(sample.source_line(), sample.epoch())?;
+        }
     }
     Ok(event)
 }
@@ -1067,23 +1266,11 @@ fn decode_output(
     output: DecoderOutput<'_>,
     chronology: &mut SegmentChronology,
 ) -> Result<OemEvent, OemError> {
-    let (event, line) = match output {
-        DecoderOutput::Event(event) => (event, 0),
-        DecoderOutput::State(raw) => {
-            let line = raw.line;
-            let event = parse_state_line(
-                raw.text,
-                raw.line,
-                raw.frame,
-                raw.time_system,
-                raw.start_time,
-                raw.stop_time,
-            )
-            .map(OemEvent::Coordinates)?;
-            (event, line)
-        }
+    let event = match output {
+        DecoderOutput::Event(event) => *event,
+        DecoderOutput::State(raw) => OemEvent::Coordinates(parse_raw_state(&raw)?),
     };
-    validate_event_chronology(event, line, chronology)
+    validate_event_chronology(event, chronology)
 }
 
 struct Decoder {
@@ -1094,7 +1281,9 @@ struct Decoder {
     section_lines: usize,
     header: HeaderBuilder,
     metadata: MetadataBuilder,
-    current_metadata: Option<OemMetadata>,
+    next_segment_index: usize,
+    current_segment_id: Option<OemSegmentId>,
+    current_context: Option<OemSegmentContext>,
     current_state_count: usize,
 }
 
@@ -1114,18 +1303,15 @@ enum Phase {
 }
 
 enum DecoderOutput<'a> {
-    Event(OemEvent),
+    Event(Box<OemEvent>),
     State(RawState<'a>),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct RawState<'a> {
     text: &'a str,
     line: usize,
-    frame: ReferenceFrame,
-    time_system: OemTimeSystem,
-    start_time: Epoch,
-    stop_time: Epoch,
+    context: OemSegmentContext,
 }
 
 impl Decoder {
@@ -1138,9 +1324,21 @@ impl Decoder {
             section_lines: 0,
             header: HeaderBuilder::default(),
             metadata: MetadataBuilder::default(),
-            current_metadata: None,
+            next_segment_index: 0,
+            current_segment_id: None,
+            current_context: None,
             current_state_count: 0,
         }
+    }
+
+    fn begin_segment(&mut self) -> Result<OemSegmentId, OemError> {
+        let index = self.next_segment_index;
+        self.next_segment_index = index.checked_add(1).ok_or(OemError::InvalidEventOrder {
+            message: "OEM segment identifier space exhausted",
+        })?;
+        let id = OemSegmentId(index);
+        self.current_segment_id = Some(id);
+        Ok(id)
     }
 
     const fn section(&self) -> OemSection {
@@ -1204,9 +1402,12 @@ impl Decoder {
             Phase::Header => {
                 if line == "META_START" {
                     let header = std::mem::take(&mut self.header).finish(self.line)?;
+                    self.begin_segment()?;
                     self.phase = Phase::Metadata;
                     self.reset_section_counters();
-                    Ok(Some(DecoderOutput::Event(OemEvent::Header(header))))
+                    Ok(Some(DecoderOutput::Event(Box::new(OemEvent::Header(
+                        header,
+                    )))))
                 } else {
                     self.header.push(line, self.line)?;
                     Ok(None)
@@ -1215,13 +1416,25 @@ impl Decoder {
             Phase::Metadata => {
                 if line == "META_STOP" {
                     let metadata = std::mem::take(&mut self.metadata).finish(self.line)?;
-                    self.current_metadata = Some(metadata.clone());
+                    let id = self.current_segment_id.ok_or(OemError::InvalidEventOrder {
+                        message: "metadata completed without an active segment identifier",
+                    })?;
+                    let context = OemSegmentContext {
+                        id,
+                        metadata: Arc::new(metadata),
+                    };
+                    self.current_context = Some(context.clone());
                     self.current_state_count = 0;
                     self.phase = Phase::Data;
                     self.reset_section_counters();
-                    Ok(Some(DecoderOutput::Event(OemEvent::SegmentStart(metadata))))
+                    Ok(Some(DecoderOutput::Event(Box::new(
+                        OemEvent::SegmentStart(context),
+                    ))))
                 } else {
-                    self.metadata.push(line, self.line)?;
+                    let id = self.current_segment_id.ok_or(OemError::InvalidEventOrder {
+                        message: "metadata encountered without an active segment identifier",
+                    })?;
+                    self.metadata.push(line, self.line, id)?;
                     Ok(None)
                 }
             }
@@ -1230,16 +1443,36 @@ impl Decoder {
                     if self.current_state_count == 0 {
                         return Err(OemError::EmptySegment { line: self.line });
                     }
-                    self.current_metadata = None;
+                    let id = self
+                        .current_context
+                        .take()
+                        .ok_or(OemError::InvalidEventOrder {
+                            message: "segment ended without immutable segment context",
+                        })?
+                        .id();
+                    self.current_segment_id = None;
+                    self.begin_segment()?;
                     self.phase = Phase::Metadata;
                     self.reset_section_counters();
-                    return Ok(Some(DecoderOutput::Event(OemEvent::SegmentEnd)));
+                    return Ok(Some(DecoderOutput::Event(Box::new(OemEvent::SegmentEnd(
+                        id,
+                    )))));
                 }
                 if line == "COVARIANCE_START" {
                     return Err(OemError::UnsupportedCovariance { line: self.line });
                 }
-                if comment_value(line).is_some() {
-                    return Ok(None);
+                if let Some(comment) = comment_value(line) {
+                    let id = self.current_segment_id.ok_or(OemError::InvalidEventOrder {
+                        message: "data comment encountered without an active segment identifier",
+                    })?;
+                    return Ok(Some(DecoderOutput::Event(Box::new(OemEvent::Comment(
+                        OemComment {
+                            segment_id: Some(id),
+                            section: OemSection::Data,
+                            source_line: self.line,
+                            text: comment.to_owned(),
+                        },
+                    )))));
                 }
                 if line.contains('=') || line.ends_with("_STOP") {
                     return Err(OemError::UnexpectedContent {
@@ -1248,8 +1481,8 @@ impl Decoder {
                         content: line.to_owned(),
                     });
                 }
-                let metadata =
-                    self.current_metadata
+                let context =
+                    self.current_context
                         .as_ref()
                         .ok_or_else(|| OemError::UnexpectedContent {
                             line: self.line,
@@ -1260,10 +1493,7 @@ impl Decoder {
                 Ok(Some(DecoderOutput::State(RawState {
                     text: line,
                     line: self.line,
-                    frame: metadata.frame,
-                    time_system: metadata.time_system,
-                    start_time: metadata.start_time,
-                    stop_time: metadata.stop_time,
+                    context: context.clone(),
                 })))
             }
             Phase::Done => Err(OemError::UnexpectedContent {
@@ -1281,8 +1511,15 @@ impl Decoder {
                     return Err(OemError::EmptySegment { line: self.line });
                 }
                 self.phase = Phase::Done;
-                self.current_metadata = None;
-                Ok(Some(OemEvent::SegmentEnd))
+                let id = self
+                    .current_context
+                    .take()
+                    .ok_or(OemError::InvalidEventOrder {
+                        message: "segment ended without immutable segment context",
+                    })?
+                    .id();
+                self.current_segment_id = None;
+                Ok(Some(OemEvent::SegmentEnd(id)))
             }
             Phase::Done => Ok(None),
             Phase::Header => Err(OemError::UnexpectedContent {
@@ -1305,13 +1542,18 @@ struct HeaderBuilder {
     creation_date: Option<String>,
     originator: Option<String>,
     message_id: Option<String>,
-    comments: Vec<String>,
+    comments: Vec<OemComment>,
 }
 
 impl HeaderBuilder {
     fn push(&mut self, line: &str, number: usize) -> Result<(), OemError> {
         if let Some(comment) = comment_value(line) {
-            self.comments.push(comment.to_owned());
+            self.comments.push(OemComment {
+                segment_id: None,
+                section: OemSection::Header,
+                source_line: number,
+                text: comment.to_owned(),
+            });
             return Ok(());
         }
         let (key, value) = assignment(line, number, "header")?;
@@ -1361,13 +1603,23 @@ struct MetadataBuilder {
     stop_time: Option<String>,
     interpolation: Option<String>,
     interpolation_degree: Option<String>,
-    comments: Vec<String>,
+    comments: Vec<OemComment>,
 }
 
 impl MetadataBuilder {
-    fn push(&mut self, line: &str, number: usize) -> Result<(), OemError> {
+    fn push(
+        &mut self,
+        line: &str,
+        number: usize,
+        segment_id: OemSegmentId,
+    ) -> Result<(), OemError> {
         if let Some(comment) = comment_value(line) {
-            self.comments.push(comment.to_owned());
+            self.comments.push(OemComment {
+                segment_id: Some(segment_id),
+                section: OemSection::Metadata,
+                source_line: number,
+                text: comment.to_owned(),
+            });
             return Ok(());
         }
         let (key, value) = assignment(line, number, "metadata")?;
@@ -1486,6 +1738,23 @@ impl MetadataBuilder {
             comments: self.comments,
         })
     }
+}
+
+fn parse_raw_state(raw: &RawState<'_>) -> Result<OemSample, OemError> {
+    let metadata = raw.context.metadata();
+    let sample = parse_state_line(
+        raw.text,
+        raw.line,
+        metadata.frame,
+        metadata.time_system,
+        metadata.start_time,
+        metadata.stop_time,
+    )?;
+    Ok(OemSample {
+        context: raw.context.clone(),
+        source_line: raw.line,
+        sample,
+    })
 }
 
 fn parse_state_line(
@@ -1744,6 +2013,30 @@ META_STOP\n\
         SAMPLE.replacen("2024-01-01T00:01:00 6990", "2024-01-01T00:00:00 6990", 1)
     }
 
+    fn commented_input() -> String {
+        SAMPLE
+            .replacen(
+                "ORIGINATOR = ORSKIT\n",
+                "ORIGINATOR = ORSKIT\nCOMMENT header provenance\n",
+                1,
+            )
+            .replacen(
+                "OBJECT_NAME = TEST SAT\n",
+                "COMMENT metadata provenance\nOBJECT_NAME = TEST SAT\n",
+                1,
+            )
+            .replacen(
+                "2024-01-01T00:00:00 7000",
+                "COMMENT before first state\n2024-01-01T00:00:00 7000",
+                1,
+            )
+            .replacen(
+                "2024-01-01T00:01:00 6990",
+                "COMMENT between states\n2024-01-01T00:01:00 6990",
+                1,
+            )
+    }
+
     fn chronology_signature(error: OemError) -> (usize, Epoch, usize, Epoch) {
         match error {
             OemError::NonIncreasingStateEpoch {
@@ -1797,9 +2090,72 @@ META_STOP\n\
     }
 
     #[test]
+    fn collected_document_preserves_comment_and_sample_provenance() {
+        let input = commented_input();
+        let message = parse_oem_kvn(&input).expect("commented OEM is valid");
+
+        let header_comment = message
+            .header()
+            .comments()
+            .first()
+            .expect("header comment is retained");
+        assert_eq!(header_comment.segment_id(), None);
+        assert_eq!(header_comment.section(), OemSection::Header);
+        assert_eq!(header_comment.source_line(), 4);
+        assert_eq!(header_comment.text(), "header provenance");
+
+        let first = &message.segments()[0];
+        let second = &message.segments()[1];
+        assert_eq!(first.id().index(), 0);
+        assert_eq!(second.id().index(), 1);
+
+        let metadata_comment = first
+            .metadata()
+            .comments()
+            .first()
+            .expect("metadata comment is retained");
+        assert_eq!(metadata_comment.segment_id(), Some(first.id()));
+        assert_eq!(metadata_comment.section(), OemSection::Metadata);
+        assert_eq!(metadata_comment.source_line(), 7);
+        assert_eq!(metadata_comment.text(), "metadata provenance");
+
+        assert_eq!(
+            first
+                .comments()
+                .iter()
+                .map(OemComment::source_line)
+                .collect::<Vec<_>>(),
+            [7, 18, 20]
+        );
+        assert_eq!(
+            first
+                .records()
+                .map(|record| match record {
+                    OemRecordRef::Comment(comment) => ("comment", comment.source_line()),
+                    OemRecordRef::Coordinates(sample) => ("coordinates", sample.source_line()),
+                })
+                .collect::<Vec<_>>(),
+            [
+                ("comment", 7),
+                ("comment", 18),
+                ("coordinates", 19),
+                ("comment", 20),
+                ("coordinates", 21),
+            ]
+        );
+
+        let first_sample = &first.coordinates()[0];
+        assert_eq!(first_sample.segment_id(), first.id());
+        assert_eq!(first_sample.source_line(), 19);
+        assert!(std::ptr::eq(first_sample.metadata(), first.metadata()));
+        assert_eq!(first.coordinates()[1].source_line(), 21);
+        assert_eq!(second.coordinates()[0].source_line(), 31);
+    }
+
+    #[test]
     fn oem_coordinates_require_explicit_properties_to_become_a_spacecraft_view() {
         let message = parse_oem_kvn(SAMPLE).expect("valid CCSDS OEM KVN");
-        let coordinates = message.segments()[0].coordinates()[0];
+        let coordinates = &message.segments()[0].coordinates()[0];
         let id = CustomFrameId::new(7);
         let body = ReferenceFrame::new(
             FrameOrigin::Custom(id),
@@ -1842,28 +2198,62 @@ META_STOP\n\
 
     #[test]
     fn streaming_events_do_not_require_document_collection() {
-        let events = OemKvnReader::new(std::io::Cursor::new(SAMPLE.as_bytes()))
+        let input = commented_input();
+        let events = OemKvnReader::new(std::io::Cursor::new(input.as_bytes()))
             .collect::<Result<Vec<_>, _>>()
             .expect("stream is valid");
 
-        assert!(matches!(events.first(), Some(OemEvent::Header(_))));
-        assert_eq!(
-            events
-                .iter()
-                .filter(|event| matches!(event, OemEvent::Coordinates(_)))
-                .count(),
-            3
-        );
-        assert!(matches!(events.last(), Some(OemEvent::SegmentEnd)));
+        let first_id = OemSegmentId(0);
+        let second_id = OemSegmentId(1);
+        assert!(matches!(
+            &events[0],
+            OemEvent::Header(header) if header.comments()[0].source_line() == 4
+        ));
+        assert!(matches!(
+            &events[1],
+            OemEvent::SegmentStart(context)
+                if context.id() == first_id
+                    && context.metadata().comments()[0].source_line() == 7
+        ));
+        assert!(matches!(
+            &events[2],
+            OemEvent::Comment(comment) if comment.source_line() == 18
+        ));
+        assert!(matches!(
+            &events[3],
+            OemEvent::Coordinates(sample)
+                if sample.segment_id() == first_id && sample.source_line() == 19
+        ));
+        assert!(matches!(
+            &events[4],
+            OemEvent::Comment(comment) if comment.source_line() == 20
+        ));
+        assert!(matches!(
+            &events[5],
+            OemEvent::Coordinates(sample)
+                if sample.segment_id() == first_id && sample.source_line() == 21
+        ));
+        assert!(matches!(&events[6], OemEvent::SegmentEnd(id) if *id == first_id));
+        assert!(matches!(
+            &events[7],
+            OemEvent::SegmentStart(context) if context.id() == second_id
+        ));
+        assert!(matches!(
+            &events[8],
+            OemEvent::Coordinates(sample)
+                if sample.segment_id() == second_id && sample.source_line() == 31
+        ));
+        assert!(matches!(&events[9], OemEvent::SegmentEnd(id) if *id == second_id));
     }
 
     #[cfg(feature = "async")]
     #[tokio::test]
     async fn tokio_reader_matches_blocking_event_order() {
-        let expected = OemKvnReader::new(std::io::Cursor::new(SAMPLE.as_bytes()))
+        let input = commented_input();
+        let expected = OemKvnReader::new(std::io::Cursor::new(input.as_bytes()))
             .collect::<Result<Vec<_>, _>>()
             .expect("blocking stream is valid");
-        let mut reader = AsyncOemKvnReader::new(tokio::io::BufReader::new(SAMPLE.as_bytes()));
+        let mut reader = AsyncOemKvnReader::new(tokio::io::BufReader::new(input.as_bytes()));
         let mut actual = Vec::new();
         while let Some(event) = reader.next_event().await {
             actual.push(event.expect("async stream is valid"));
@@ -1875,9 +2265,10 @@ META_STOP\n\
     #[cfg(feature = "parallel")]
     #[test]
     fn rayon_collection_matches_sequential_collection() {
+        let input = commented_input();
         assert_eq!(
-            parse_oem_kvn_parallel(SAMPLE).expect("parallel parse succeeds"),
-            parse_oem_kvn(SAMPLE).expect("sequential parse succeeds")
+            parse_oem_kvn_parallel(&input).expect("parallel parse succeeds"),
+            parse_oem_kvn(&input).expect("sequential parse succeeds")
         );
     }
 
