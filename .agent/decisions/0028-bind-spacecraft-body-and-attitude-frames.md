@@ -11,7 +11,10 @@ body frame, and `SpacecraftView` did not check attitude reference against orbit.
 
 ## Decision
 
-1. `Spacecraft` owns an affirmatively non-inertial body frame.
+1. `SpacecraftBodyFrame` is an opaque capability binding one non-empty
+   spacecraft ID to matching application-defined origin/orientation IDs with
+   affirmatively non-inertial axes. `Spacecraft` can only be built from that
+   capability, so terrestrial/celestial frames cannot masquerade as body axes.
 2. `BodyAngularVelocity` means body relative to reference, expressed in body
    axes, and names both frames.
 3. `QuaternionAttitude` requires orientation endpoints to match both rate
@@ -22,8 +25,9 @@ body frame, and `SpacecraftView` did not check attitude reference against orbit.
 
 ## Validation
 
-Tests cover invalid body motion, rate endpoint mismatches, body/inertia
-mismatch, and attitude/orbit reference mismatch.
+Tests cover rejection of terrestrial and incoherent custom body frames, rate
+endpoint mismatches, body/inertia mismatch, and attitude/orbit reference
+mismatch.
 
 ## Provenance
 

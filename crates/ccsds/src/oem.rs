@@ -1999,7 +1999,7 @@ mod tests {
     use super::*;
     use core_crate::{
         AttitudeState, BodyAngularVelocity, CartesianState, InertiaTensor, Orbit, Orientation,
-        Spacecraft, SpacecraftShape, SpacecraftView,
+        Spacecraft, SpacecraftBodyFrame, SpacecraftShape, SpacecraftView,
     };
     use frames::{CustomFrameId, FrameMotion, FrameOrientation};
     use units::uom::si::{mass::kilogram, moment_of_inertia::kilogram_square_meter};
@@ -2269,8 +2269,10 @@ META_STOP\n\
         .expect("fixture inertia is physical");
         let state = CartesianState::try_from(*coordinates.coordinates())
             .expect("OEM position and velocity share one frame");
-        let spacecraft = Spacecraft::new("TEST-SC", body, SpacecraftShape::Point)
-            .expect("valid spacecraft definition");
+        let spacecraft = Spacecraft::new(
+            SpacecraftBodyFrame::new("TEST-SC", body).expect("spacecraft-owned body axes"),
+            SpacecraftShape::Point,
+        );
         let view = SpacecraftView::new(
             &spacecraft,
             Orbit::new(coordinates.epoch(), state.into()),

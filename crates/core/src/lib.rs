@@ -25,8 +25,8 @@ pub use kinematics::{
 };
 pub use spacecraft::{
     AttitudeError, AttitudeState, BodyAngularVelocity, CuboidShape, InertiaError, InertiaTensor,
-    Orientation, OrientationError, QuaternionAttitude, ShapeError, Spacecraft, SpacecraftError,
-    SpacecraftShape, SpacecraftView, SpacecraftViewError, SphereShape,
+    Orientation, OrientationError, QuaternionAttitude, ShapeError, Spacecraft, SpacecraftBodyFrame,
+    SpacecraftError, SpacecraftShape, SpacecraftView, SpacecraftViewError, SphereShape,
 };
 pub use state::{
     CartesianState, CoordinateSample, EquinoctialState, KeplerianState, Orbit, SpacecraftState,

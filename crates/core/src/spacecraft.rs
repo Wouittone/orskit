@@ -1,4 +1,6 @@
-use frames::{FrameMotion, ReferenceFrame};
+use std::sync::Arc;
+
+use frames::{FrameMotion, FrameOrientation, FrameOrigin, ReferenceFrame};
 use hifitime::Epoch;
 use nalgebra::{Matrix3, Quaternion, UnitQuaternion};
 use thiserror::Error;
@@ -357,42 +359,86 @@ impl InertiaTensor {
 /// belong to [`SpacecraftView`], not this object.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spacecraft {
-    id: String,
-    body_frame: ReferenceFrame,
+    body_frame: SpacecraftBodyFrame,
     shape: SpacecraftShape,
 }
 
-impl Spacecraft {
-    /// Creates a spacecraft with a stable non-empty identifier and geometry.
+/// Opaque proof that a frame is a particular spacecraft's body-fixed frame.
+///
+/// Construction requires matching application-defined origin/orientation IDs
+/// and affirmatively non-inertial axes. Built-in terrestrial or celestial
+/// frames therefore cannot be mislabeled as spacecraft-owned body axes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpacecraftBodyFrame {
+    spacecraft_id: Arc<str>,
+    reference_frame: ReferenceFrame,
+}
+
+impl SpacecraftBodyFrame {
+    /// Binds application-defined body axes to one non-empty spacecraft ID.
     pub fn new(
-        id: impl Into<String>,
-        body_frame: ReferenceFrame,
-        shape: SpacecraftShape,
+        spacecraft_id: impl Into<String>,
+        reference_frame: ReferenceFrame,
     ) -> Result<Self, SpacecraftError> {
-        let id = id.into();
-        if id.trim().is_empty() {
+        let spacecraft_id = spacecraft_id.into();
+        if spacecraft_id.trim().is_empty() {
             return Err(SpacecraftError::EmptyId);
         }
-        if body_frame.motion() != FrameMotion::NonInertial {
-            return Err(SpacecraftError::BodyFrameNotNonInertial);
+        let owned = matches!(
+            (reference_frame.origin(), reference_frame.orientation()),
+            (
+                FrameOrigin::Custom(origin_id),
+                FrameOrientation::Custom {
+                    id: orientation_id,
+                    motion: FrameMotion::NonInertial,
+                }
+            ) if origin_id == orientation_id
+        );
+        if !owned {
+            return Err(SpacecraftError::BodyFrameNotSpacecraftOwned);
         }
         Ok(Self {
-            id,
-            body_frame,
-            shape,
+            spacecraft_id: Arc::from(spacecraft_id),
+            reference_frame,
         })
+    }
+
+    /// Returns the spacecraft ID bound to these body axes.
+    #[must_use]
+    pub fn spacecraft_id(&self) -> &str {
+        &self.spacecraft_id
+    }
+
+    /// Returns the reference-frame identity used by framed physical values.
+    #[must_use]
+    pub const fn reference_frame(&self) -> ReferenceFrame {
+        self.reference_frame
+    }
+}
+
+impl Spacecraft {
+    /// Creates a spacecraft from already validated, spacecraft-owned body axes.
+    #[must_use]
+    pub const fn new(body_frame: SpacecraftBodyFrame, shape: SpacecraftShape) -> Self {
+        Self { body_frame, shape }
     }
 
     /// Returns the stable spacecraft identifier.
     #[must_use]
     pub fn id(&self) -> &str {
-        &self.id
+        self.body_frame.spacecraft_id()
     }
 
     /// Returns the spacecraft body frame used by geometry, inertia, and attitude.
     #[must_use]
     pub const fn body_frame(&self) -> ReferenceFrame {
-        self.body_frame
+        self.body_frame.reference_frame()
+    }
+
+    /// Returns the validated spacecraft/body-frame binding.
+    #[must_use]
+    pub const fn body_frame_capability(&self) -> &SpacecraftBodyFrame {
+        &self.body_frame
     }
 
     /// Returns the time-independent spacecraft geometry.
@@ -617,9 +663,9 @@ pub enum SpacecraftError {
     /// The spacecraft identifier contains no non-whitespace characters.
     #[error("spacecraft identifier must not be empty")]
     EmptyId,
-    /// The declared body frame is not affirmatively non-inertial.
-    #[error("spacecraft body frame must be affirmatively non-inertial")]
-    BodyFrameNotNonInertial,
+    /// The frame is not a cohesive application-defined non-inertial body frame.
+    #[error("spacecraft body frame must use one matching custom origin/orientation identity and non-inertial axes")]
+    BodyFrameNotSpacecraftOwned,
 }
 
 /// Invalid time-independent spacecraft geometry.
@@ -666,6 +712,11 @@ mod tests {
             FrameOrigin::Custom(id),
             FrameOrientation::custom(id, FrameMotion::NonInertial),
         )
+    }
+
+    fn owned_body_frame(spacecraft_id: &str, id: u64) -> SpacecraftBodyFrame {
+        SpacecraftBodyFrame::new(spacecraft_id, body_frame(id))
+            .expect("spacecraft-owned body frame")
     }
 
     fn attitude(body: ReferenceFrame) -> AttitudeState {
@@ -722,7 +773,7 @@ mod tests {
     fn spacecraft_contains_only_time_independent_identity_and_geometry() {
         let shape = SpacecraftShape::sphere(Length::new::<meter>(1.5)).expect("valid shape");
         let body = body_frame(1);
-        let spacecraft = Spacecraft::new("SC-001", body, shape).expect("non-empty id");
+        let spacecraft = Spacecraft::new(owned_body_frame("SC-001", 1), shape);
 
         assert_eq!(spacecraft.id(), "SC-001");
         assert_eq!(spacecraft.shape(), shape);
@@ -731,7 +782,7 @@ mod tests {
         };
         assert_eq!(sphere.radius(), Length::new::<meter>(1.5));
         assert_eq!(
-            Spacecraft::new("  ", body, SpacecraftShape::Point),
+            SpacecraftBodyFrame::new("  ", body),
             Err(SpacecraftError::EmptyId)
         );
         assert_eq!(
@@ -751,8 +802,7 @@ mod tests {
     #[test]
     fn spacecraft_view_composes_epoch_dependent_physical_data() {
         let body = body_frame(1);
-        let spacecraft =
-            Spacecraft::new("SC-001", body, SpacecraftShape::Point).expect("valid craft");
+        let spacecraft = Spacecraft::new(owned_body_frame("SC-001", 1), SpacecraftShape::Point);
         let attitude = attitude(body);
         let view = SpacecraftView::new(
             &spacecraft,
@@ -785,12 +835,21 @@ mod tests {
     fn rigid_body_frames_and_mass_are_validated() {
         let body = body_frame(1);
         let other = body_frame(2);
-        let spacecraft =
-            Spacecraft::new("SC-001", body, SpacecraftShape::Point).expect("valid craft");
+        let spacecraft = Spacecraft::new(owned_body_frame("SC-001", 1), SpacecraftShape::Point);
         let valid_attitude = attitude(body);
         assert_eq!(
-            Spacecraft::new("BAD", ReferenceFrame::GCRF, SpacecraftShape::Point),
-            Err(SpacecraftError::BodyFrameNotNonInertial)
+            SpacecraftBodyFrame::new("BAD", ReferenceFrame::ITRF2020),
+            Err(SpacecraftError::BodyFrameNotSpacecraftOwned)
+        );
+        assert_eq!(
+            SpacecraftBodyFrame::new(
+                "BAD",
+                ReferenceFrame::new(
+                    FrameOrigin::Custom(CustomFrameId::new(1)),
+                    FrameOrientation::custom(CustomFrameId::new(2), FrameMotion::NonInertial,),
+                ),
+            ),
+            Err(SpacecraftError::BodyFrameNotSpacecraftOwned)
         );
         assert!(matches!(
             SpacecraftView::new(
