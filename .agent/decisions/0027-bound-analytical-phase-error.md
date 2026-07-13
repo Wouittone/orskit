@@ -26,6 +26,9 @@ states passed through a singular Keplerian intermediate, so valid large finite
 6. Range-reduce input longitude before phase addition and include that reduction
    in the same error budget; reject inputs whose representable phase is already
    too coarse for the configured budget.
+7. Sum input-reduction and duration-phase bounds before accepting the combined
+   longitude update; independently passing contributions do not each receive a
+   full budget.
 
 ## Consequences
 

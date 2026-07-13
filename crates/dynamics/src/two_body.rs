@@ -141,7 +141,8 @@ impl EllipticKeplerPropagator {
         let initial_eccentric_anomaly = true_to_eccentric(initial_true_anomaly, eccentricity);
         let initial_mean_anomaly =
             initial_eccentric_anomaly - eccentricity * initial_eccentric_anomaly.sin();
-        let phase_advance = self.phase_advance(initial.semi_major_axis(), problem, duration)?;
+        let (phase_advance, _) =
+            self.phase_advance(initial.semi_major_axis(), problem, duration)?;
         let propagated_mean_anomaly = normalize_signed(initial_mean_anomaly + phase_advance);
 
         let eccentric_anomaly = solve_elliptic_kepler(
@@ -168,7 +169,7 @@ impl EllipticKeplerPropagator {
         semi_major_axis: Length,
         problem: &TwoBodyDynamics,
         duration: Duration,
-    ) -> Result<f64, EllipticKeplerError> {
+    ) -> Result<(f64, f64), EllipticKeplerError> {
         let mean_motion = (problem
             .central_gravity()
             .gravitational_parameter()
@@ -202,7 +203,10 @@ impl EllipticKeplerPropagator {
         } else {
             phase_magnitude
         };
-        Ok(normalize_signed(signed_phase))
+        Ok((
+            normalize_signed(signed_phase),
+            estimated_phase_error_radians,
+        ))
     }
 
     fn propagate_equinoctial(
@@ -215,7 +219,7 @@ impl EllipticKeplerPropagator {
         let ex = initial.eccentricity_x().get::<ratio>();
         let ey = initial.eccentricity_y().get::<ratio>();
         let eccentricity_complement = (1.0 - ex.hypot(ey).powi(2)).sqrt();
-        let initial_true_longitude =
+        let (initial_true_longitude, input_reduction_error) =
             self.normalize_input_angle(initial.true_longitude().get::<radian>())?;
         let true_projection = ex * initial_true_longitude.cos() + ey * initial_true_longitude.sin();
         let true_cross = ex * initial_true_longitude.sin() - ey * initial_true_longitude.cos();
@@ -224,7 +228,15 @@ impl EllipticKeplerPropagator {
         let initial_mean_longitude = initial_eccentric_longitude
             - ex * initial_eccentric_longitude.sin()
             + ey * initial_eccentric_longitude.cos();
-        let phase_advance = self.phase_advance(initial.semi_major_axis(), problem, duration)?;
+        let (phase_advance, duration_phase_error) =
+            self.phase_advance(initial.semi_major_axis(), problem, duration)?;
+        let combined_phase_error = input_reduction_error + duration_phase_error;
+        if combined_phase_error > self.phase_error_budget_radians {
+            return Err(EllipticKeplerError::AccuracyBudgetExceeded {
+                estimated_phase_error_radians: combined_phase_error,
+                budget_radians: self.phase_error_budget_radians,
+            });
+        }
         let propagated_mean_longitude = normalize_signed(initial_mean_longitude + phase_advance);
         let eccentric_longitude = solve_equinoctial_kepler(
             propagated_mean_longitude,
@@ -273,7 +285,7 @@ impl EllipticKeplerPropagator {
         }
     }
 
-    fn normalize_input_angle(&self, angle_radians: f64) -> Result<f64, EllipticKeplerError> {
+    fn normalize_input_angle(&self, angle_radians: f64) -> Result<(f64, f64), EllipticKeplerError> {
         let estimated_phase_error_radians = range_reduction_error_bound_radians(angle_radians);
         if estimated_phase_error_radians > self.phase_error_budget_radians {
             return Err(EllipticKeplerError::AccuracyBudgetExceeded {
@@ -281,7 +293,10 @@ impl EllipticKeplerPropagator {
                 budget_radians: self.phase_error_budget_radians,
             });
         }
-        Ok(normalize_signed(angle_radians))
+        Ok((
+            normalize_signed(angle_radians),
+            estimated_phase_error_radians,
+        ))
     }
 }
 
@@ -1039,6 +1054,53 @@ mod tests {
                 Duration::from_seconds(1_000.0),
             ),
             Err(EllipticKeplerError::AccuracyBudgetExceeded { .. })
+        ));
+    }
+
+    #[test]
+    fn input_and_duration_phase_errors_share_one_budget() {
+        let central_gravity = earth_gravity(earth_mu());
+        let problem = problem(&central_gravity);
+        let duration = Duration::from_seconds(100_000_000.0);
+        let longitude = 1_000_000.0;
+        let loose = EllipticKeplerPropagator::new()
+            .with_phase_error_budget_radians(1.0)
+            .expect("loose finite budget");
+        let (_, input_error) = loose
+            .normalize_input_angle(longitude)
+            .expect("loose input reduction");
+        let (_, duration_error) = loose
+            .phase_advance(Length::new::<meter>(7_200_000.0), &problem, duration)
+            .expect("loose duration phase");
+        let combined = input_error + duration_error;
+        let budget = (combined + input_error.max(duration_error)) / 2.0;
+        assert!(input_error < budget && duration_error < budget && combined > budget);
+
+        let state = EquinoctialState::new(
+            InertialFrame::GCRF,
+            central_gravity,
+            Length::new::<meter>(7_200_000.0),
+            Ratio::new::<ratio>(0.0),
+            Ratio::new::<ratio>(0.0),
+            Ratio::new::<ratio>(0.0),
+            Ratio::new::<ratio>(0.0),
+            Angle::new::<radian>(longitude),
+        )
+        .expect("finite equinoctial state");
+        let propagator = EllipticKeplerPropagator::new()
+            .with_phase_error_budget_radians(budget)
+            .expect("derived positive budget");
+
+        assert!(matches!(
+            propagator.propagate(
+                Orbit::new(Epoch::from_tai_seconds(1_000.0), state.into()),
+                &problem,
+                duration,
+            ),
+            Err(EllipticKeplerError::AccuracyBudgetExceeded {
+                estimated_phase_error_radians,
+                budget_radians,
+            }) if estimated_phase_error_radians > budget_radians
         ));
     }
 
