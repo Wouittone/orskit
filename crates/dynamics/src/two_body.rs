@@ -271,6 +271,7 @@ impl EllipticKeplerPropagator {
             }
         }
     }
+
 }
 
 impl Propagator<TwoBodyDynamics> for EllipticKeplerPropagator {
@@ -282,11 +283,38 @@ impl Propagator<TwoBodyDynamics> for EllipticKeplerPropagator {
         problem: &TwoBodyDynamics,
         duration: Duration,
     ) -> Result<Orbit, Self::Error> {
+        ensure_state_problem_compatible(&initial.state(), problem)?;
         if duration.total_nanoseconds() == 0 {
             return Ok(initial);
         }
         let state = self.propagate_state(initial.state(), problem, duration)?;
         Ok(Orbit::new(initial.epoch() + duration, state))
+    }
+}
+
+fn ensure_state_problem_compatible(
+    state: &SpacecraftState,
+    problem: &TwoBodyDynamics,
+) -> Result<(), EllipticKeplerError> {
+    match state {
+        SpacecraftState::Keplerian(state) => {
+            ensure_problem_gravity(state.central_gravity(), problem.central_gravity())
+        }
+        SpacecraftState::Equinoctial(state) => {
+            ensure_problem_gravity(state.central_gravity(), problem.central_gravity())
+        }
+        SpacecraftState::Cartesian(state) => {
+            let frame_origin = state.frame().origin();
+            let gravity_origin = problem.central_gravity().origin();
+            if frame_origin != gravity_origin {
+                return Err(StateError::CentralGravityOriginMismatch {
+                    gravity_origin,
+                    frame_origin,
+                }
+                .into());
+            }
+            Ok(())
+        }
     }
 }
 
@@ -847,6 +875,23 @@ mod tests {
                 .expect("zero propagation succeeds");
             assert_eq!(propagated, initial);
         }
+    }
+
+    #[test]
+    fn zero_duration_still_validates_gravity_identity() {
+        let state_gravity = earth_gravity(earth_mu());
+        let distinct_gravity = earth_gravity(earth_mu());
+        let initial = initial(&state_gravity, 0.2, 1.3);
+        let problem = problem(&distinct_gravity);
+
+        assert!(matches!(
+            EllipticKeplerPropagator::new().propagate(
+                initial,
+                &problem,
+                Duration::from_total_nanoseconds(0),
+            ),
+            Err(EllipticKeplerError::CentralGravityMismatch)
+        ));
     }
 
     #[test]
