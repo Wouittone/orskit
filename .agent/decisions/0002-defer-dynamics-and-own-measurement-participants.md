@@ -1,6 +1,7 @@
 # ADR-0002: defer dynamics and keep participants in measurements
 
-- Status: Accepted; dynamics deferral superseded in part by ADR-0006
+- Status: Accepted; dynamics deferral superseded in part by ADR-0006 and
+  measurement-path deferral superseded by ADR-0018
 - Date: 2026-07-04
 - Owners: orskit maintainers
 - Affected parity rows: propagation, observation, estimation

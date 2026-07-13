@@ -4,6 +4,8 @@ use frames::{CustomFrameId, DerivedFrame, FrameDefinitionError, ReferenceFrame};
 use thiserror::Error;
 use units::Position;
 
+use crate::ParticipantId;
+
 /// A fixed ground measurement participant defined relative to a parent frame.
 ///
 /// The station location is a Cartesian offset from the parent origin, expressed
@@ -17,36 +19,32 @@ use units::Position;
 ///
 /// ```
 /// use frames::{CustomFrameId, ReferenceFrame};
-/// use measurements::GroundStation;
+/// use measurements::{GroundStation, ParticipantId};
 /// use units::Position;
 ///
 /// let station = GroundStation::new(
-///     "TLS-01",
+///     ParticipantId::new("TLS-01")?,
 ///     CustomFrameId::new(7001),
 ///     ReferenceFrame::ITRF2020,
 ///     Position::from_metres(4_201_000.0, 172_000.0, 4_780_000.0),
 /// )?;
 /// assert_eq!(station.parent_frame(), ReferenceFrame::ITRF2020);
-/// # Ok::<(), measurements::GroundStationError>(())
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroundStation {
-    id: String,
+    id: ParticipantId,
     frame: DerivedFrame,
 }
 
 impl GroundStation {
     /// Creates a station and its parent-aligned local frame.
     pub fn new(
-        id: impl Into<String>,
+        id: ParticipantId,
         frame_id: CustomFrameId,
         parent: ReferenceFrame,
         position_in_parent: Position,
     ) -> Result<Self, GroundStationError> {
-        let id = id.into();
-        if id.trim().is_empty() {
-            return Err(GroundStationError::EmptyId);
-        }
         Ok(Self {
             id,
             frame: DerivedFrame::parent_aligned(frame_id, parent, position_in_parent)?,
@@ -55,7 +53,7 @@ impl GroundStation {
 
     /// Returns the stable application-defined station identifier.
     #[must_use]
-    pub fn id(&self) -> &str {
+    pub const fn id(&self) -> &ParticipantId {
         &self.id
     }
 
@@ -88,9 +86,6 @@ impl GroundStation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum GroundStationError {
-    /// The station identifier contains no non-whitespace characters.
-    #[error("ground-station identifier must not be empty")]
-    EmptyId,
     /// The station's parent-relative frame definition is invalid.
     #[error(transparent)]
     InvalidFrame(#[from] FrameDefinitionError),
@@ -101,18 +96,22 @@ mod tests {
     use super::*;
     use frames::{Body, FrameOrigin};
 
+    fn id(value: &str) -> ParticipantId {
+        ParticipantId::new(value).expect("valid test participant")
+    }
+
     #[test]
     fn earth_station_is_a_parent_relative_measurement_participant() {
         let position = Position::from_metres(4_201_000.0, 172_000.0, 4_780_000.0);
         let station = GroundStation::new(
-            "TLS-01",
+            id("TLS-01"),
             CustomFrameId::new(7001),
             ReferenceFrame::ITRF2020,
             position,
         )
         .expect("finite station definition");
 
-        assert_eq!(station.id(), "TLS-01");
+        assert_eq!(station.id().as_str(), "TLS-01");
         assert_eq!(station.parent_frame(), ReferenceFrame::ITRF2020);
         assert_eq!(station.position_in_parent(), position);
         assert_eq!(
@@ -135,7 +134,7 @@ mod tests {
             ),
         );
         let station = GroundStation::new(
-            "MARS-SITE",
+            id("MARS-SITE"),
             CustomFrameId::new(8001),
             mars_fixed,
             Position::from_metres(3_390_000.0, 0.0, 0.0),
@@ -146,19 +145,10 @@ mod tests {
     }
 
     #[test]
-    fn station_rejects_empty_identity_and_non_finite_position() {
+    fn station_rejects_non_finite_position() {
         assert_eq!(
             GroundStation::new(
-                "   ",
-                CustomFrameId::new(1),
-                ReferenceFrame::ITRF2020,
-                Position::from_metres(1.0, 2.0, 3.0),
-            ),
-            Err(GroundStationError::EmptyId)
-        );
-        assert_eq!(
-            GroundStation::new(
-                "BAD-SITE",
+                id("BAD-SITE"),
                 CustomFrameId::new(2),
                 ReferenceFrame::ITRF2020,
                 Position::from_metres(1.0, f64::INFINITY, 3.0),

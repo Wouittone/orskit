@@ -1,6 +1,6 @@
 # ADR-0015: model fixed measurement stations with parent-relative frames
 
-- Status: Accepted
+- Status: Accepted; participant identity refined by ADR-0018
 - Date: 2026-07-06
 - Affected parity rows: frames and transforms; ground participants
 
