@@ -12,7 +12,7 @@
 //! provider traits once their data and accuracy contracts are defined.
 
 use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{fmt, str::FromStr};
 
 pub use bodies::{Body, BodySystem, CustomBodyId};
@@ -40,9 +40,8 @@ impl CustomFrameId {
 /// Caller-assigned namespace for one logical frame catalog.
 ///
 /// Applications should use a stable, globally unique 128-bit value, such as a
-/// UUID encoded as `u128`. Catalog instances using the same namespace are
-/// replicas of the same logical catalog; distinct logical catalogs must use
-/// distinct namespaces.
+/// UUID encoded as `u128`. Each catalog instance is nevertheless a distinct
+/// issuing authority; recreating a catalog does not recreate issued IDs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FrameNamespace(u128);
 
@@ -62,14 +61,14 @@ impl FrameNamespace {
 
 /// Opaque identity issued by a [`FrameCatalog`] for one derived frame.
 ///
-/// Identity includes the catalog namespace, catalog-local key, and an opaque
-/// deterministic tag for the immutable definition. Callers can inspect the
+/// Identity includes the catalog namespace, an unforgeable process-local
+/// issuing-authority token, and the catalog-local key. Callers can inspect the
 /// namespace/key but cannot construct a `FrameId` directly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FrameId {
     namespace: FrameNamespace,
+    issuer_id: u64,
     local_id: u64,
-    definition_tag: u64,
 }
 
 impl FrameId {
@@ -283,6 +282,7 @@ impl ReferenceFrame {
 #[derive(Debug)]
 pub struct FrameCatalog {
     namespace: FrameNamespace,
+    issuer_id: u64,
     roots: HashSet<ReferenceFrame>,
     definitions: HashMap<u64, DerivedFrame>,
 }
@@ -303,6 +303,7 @@ impl FrameCatalog {
         }
         Ok(Self {
             namespace,
+            issuer_id: next_catalog_issuer()?,
             roots,
             definitions: HashMap::new(),
         })
@@ -331,8 +332,8 @@ impl FrameCatalog {
 
         let id = FrameId {
             namespace: self.namespace,
+            issuer_id: self.issuer_id,
             local_id,
-            definition_tag: definition_tag(self.namespace, local_id, parent, origin_offset),
         };
         let candidate = DerivedFrame {
             reference_frame: ReferenceFrame::new(FrameOrigin::Derived(id), parent.orientation()),
@@ -353,7 +354,7 @@ impl FrameCatalog {
     /// Returns a definition only when its ID belongs to and exists in this catalog.
     #[must_use]
     pub fn definition(&self, id: FrameId) -> Option<DerivedFrame> {
-        (id.namespace == self.namespace)
+        (id.namespace == self.namespace && id.issuer_id == self.issuer_id)
             .then(|| self.definitions.get(&id.local_id).copied())
             .flatten()
             .filter(|definition| definition.id() == id)
@@ -362,7 +363,7 @@ impl FrameCatalog {
     fn validate_parent(&self, parent: ReferenceFrame) -> Result<(), FrameDefinitionError> {
         match parent.origin() {
             FrameOrigin::Derived(parent_id) => {
-                if parent_id.namespace != self.namespace {
+                if parent_id.namespace != self.namespace || parent_id.issuer_id != self.issuer_id {
                     return Err(FrameDefinitionError::ForeignDerivedParent { parent_id });
                 }
                 if self
@@ -484,51 +485,22 @@ impl fmt::Display for FrameId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "{:032x}:{}:{:016x}",
+            "{:032x}:{:016x}:{}",
             self.namespace.value(),
+            self.issuer_id,
             self.local_id,
-            self.definition_tag,
         )
     }
 }
 
-fn definition_tag(
-    namespace: FrameNamespace,
-    local_id: u64,
-    parent: ReferenceFrame,
-    origin_offset: Position,
-) -> u64 {
-    let mut hasher = DefinitionHasher::default();
-    namespace.hash(&mut hasher);
-    local_id.hash(&mut hasher);
-    parent.hash(&mut hasher);
-    origin_offset
-        .to_metres()
-        .map(f64::to_bits)
-        .hash(&mut hasher);
-    hasher.finish()
-}
+static NEXT_CATALOG_ISSUER: AtomicU64 = AtomicU64::new(1);
 
-#[derive(Default)]
-struct DefinitionHasher(u64);
-
-impl Hasher for DefinitionHasher {
-    fn finish(&self) -> u64 {
-        self.0
-    }
-
-    fn write(&mut self, bytes: &[u8]) {
-        let mut hash = if self.0 == 0 {
-            0xcbf2_9ce4_8422_2325
-        } else {
-            self.0
-        };
-        for byte in bytes {
-            hash ^= u64::from(*byte);
-            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-        }
-        self.0 = hash;
-    }
+fn next_catalog_issuer() -> Result<u64, FrameDefinitionError> {
+    NEXT_CATALOG_ISSUER
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            current.checked_add(1)
+        })
+        .map_err(|_| FrameDefinitionError::IssuerSpaceExhausted)
 }
 
 impl FromStr for FrameOrigin {
@@ -617,6 +589,9 @@ pub struct FrameOrientationParseError;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum FrameDefinitionError {
+    /// This process exhausted the non-reusable catalog issuing-authority space.
+    #[error("frame catalog issuing-authority space is exhausted")]
+    IssuerSpaceExhausted,
     /// At least one parent-frame offset component is NaN or infinite.
     #[error("derived-frame origin offset must be finite")]
     NonFiniteOriginOffset,
@@ -632,7 +607,7 @@ pub enum FrameDefinitionError {
         /// Rejected parent frame.
         parent: ReferenceFrame,
     },
-    /// A derived parent belongs to a different catalog namespace.
+    /// A derived parent belongs to a different catalog issuing authority.
     #[error("derived parent {parent_id} belongs to a foreign frame catalog")]
     ForeignDerivedParent {
         /// Foreign parent identity.
@@ -825,6 +800,26 @@ mod tests {
     }
 
     #[test]
+    fn separate_catalog_instances_are_distinct_issuing_authorities() {
+        let namespace = FrameNamespace::new(13);
+        let mut left =
+            FrameCatalog::new(namespace, [ReferenceFrame::ITRF2020]).expect("left catalog");
+        let mut right =
+            FrameCatalog::new(namespace, [ReferenceFrame::ITRF2020]).expect("right catalog");
+        let define = |catalog: &mut FrameCatalog| {
+            catalog
+                .define_parent_aligned(
+                    7,
+                    ReferenceFrame::ITRF2020,
+                    Position::from_metres(1.0, 2.0, 3.0),
+                )
+                .expect("valid definition")
+        };
+
+        assert_ne!(define(&mut left).id(), define(&mut right).id());
+    }
+
+    #[test]
     fn derived_frames_form_only_registered_acyclic_parent_chains() {
         let namespace = FrameNamespace::new(20);
         let mut catalog =
@@ -860,7 +855,7 @@ mod tests {
                 site.reference_frame(),
                 Position::from_metres(0.0, 0.0, 2.0),
             ),
-            Err(FrameDefinitionError::UnknownDerivedParent {
+            Err(FrameDefinitionError::ForeignDerivedParent {
                 parent_id: site.id(),
             })
         );
