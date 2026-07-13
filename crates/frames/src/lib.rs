@@ -129,6 +129,46 @@ pub struct ReferenceFrame {
     orientation: FrameOrientation,
 }
 
+/// A reference frame whose axes are affirmatively classified as inertial.
+///
+/// This capability proves only the axes' declared motion semantics. It does
+/// not establish that the frame origin matches a particular dynamical model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InertialFrame(ReferenceFrame);
+
+impl InertialFrame {
+    /// Solar-system barycentric ICRF.
+    pub const ICRF: Self = Self(ReferenceFrame::ICRF);
+    /// Geocentric Celestial Reference Frame.
+    pub const GCRF: Self = Self(ReferenceFrame::GCRF);
+    /// Geocentric Earth Mean Equator and Equinox of J2000.
+    pub const EME2000: Self = Self(ReferenceFrame::EME2000);
+
+    /// Returns the reference frame carrying the inertial-axis declaration.
+    #[must_use]
+    pub const fn reference_frame(self) -> ReferenceFrame {
+        self.0
+    }
+}
+
+impl TryFrom<ReferenceFrame> for InertialFrame {
+    type Error = InertialFrameError;
+
+    fn try_from(frame: ReferenceFrame) -> Result<Self, Self::Error> {
+        if frame.is_inertial() {
+            Ok(Self(frame))
+        } else {
+            Err(InertialFrameError::NotExplicitlyInertial { frame })
+        }
+    }
+}
+
+impl From<InertialFrame> for ReferenceFrame {
+    fn from(frame: InertialFrame) -> Self {
+        frame.reference_frame()
+    }
+}
+
 impl ReferenceFrame {
     /// Solar-system barycentric ICRF.
     pub const ICRF: Self = Self::new(
@@ -382,6 +422,18 @@ pub enum FrameDefinitionError {
     SelfParent,
 }
 
+/// A reference frame does not satisfy an affirmative inertial-axis requirement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum InertialFrameError {
+    /// The orientation is non-inertial or has unspecified motion semantics.
+    #[error("reference frame {frame} does not have affirmatively inertial axes")]
+    NotExplicitlyInertial {
+        /// Rejected reference frame.
+        frame: ReferenceFrame,
+    },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -442,6 +494,31 @@ mod tests {
         assert!(!unspecified.is_inertial());
         assert!(inertial.is_inertial());
         assert_eq!(unspecified.to_string(), "CUSTOM(42,UNSPECIFIED)");
+    }
+
+    #[test]
+    fn inertial_frame_capability_rejects_terrestrial_and_unspecified_axes() {
+        assert_eq!(
+            InertialFrame::try_from(ReferenceFrame::GCRF),
+            Ok(InertialFrame::GCRF)
+        );
+
+        assert_eq!(
+            InertialFrame::try_from(ReferenceFrame::ITRF2020),
+            Err(InertialFrameError::NotExplicitlyInertial {
+                frame: ReferenceFrame::ITRF2020,
+            })
+        );
+
+        let id = CustomFrameId::new(43);
+        let unspecified = ReferenceFrame::new(
+            FrameOrigin::Body(Body::EARTH),
+            FrameOrientation::custom(id, FrameMotion::Unspecified),
+        );
+        assert_eq!(
+            InertialFrame::try_from(unspecified),
+            Err(InertialFrameError::NotExplicitlyInertial { frame: unspecified })
+        );
     }
 
     #[test]

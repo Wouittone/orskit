@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use frames::ReferenceFrame;
+use frames::{InertialFrame, ReferenceFrame};
 use hifitime::Epoch;
 use thiserror::Error;
 use units::uom::si::{angle::radian, length::meter, ratio::ratio};
@@ -127,7 +127,7 @@ impl From<CartesianState> for CartesianCoordinates {
 /// quantities; `nu` is true anomaly.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct KeplerianState {
-    frame: ReferenceFrame,
+    frame: InertialFrame,
     semi_major_axis: Length,
     eccentricity: Ratio,
     inclination: Angle,
@@ -140,7 +140,7 @@ impl KeplerianState {
     /// Constructs and validates an elliptic osculating Keplerian state.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        frame: ReferenceFrame,
+        frame: InertialFrame,
         semi_major_axis: Length,
         eccentricity: Ratio,
         inclination: Angle,
@@ -170,6 +170,12 @@ impl KeplerianState {
     /// Returns the coordinate frame.
     #[must_use]
     pub const fn frame(self) -> ReferenceFrame {
+        self.frame.reference_frame()
+    }
+
+    /// Returns the affirmative inertial-frame capability carried by the state.
+    #[must_use]
+    pub const fn inertial_frame(self) -> InertialFrame {
         self.frame
     }
 
@@ -228,7 +234,7 @@ impl KeplerianState {
 /// `lv=nu+omega+Omega`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EquinoctialState {
-    frame: ReferenceFrame,
+    frame: InertialFrame,
     semi_major_axis: Length,
     eccentricity_x: Ratio,
     eccentricity_y: Ratio,
@@ -241,7 +247,7 @@ impl EquinoctialState {
     /// Constructs and validates an elliptic equinoctial state.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        frame: ReferenceFrame,
+        frame: InertialFrame,
         semi_major_axis: Length,
         eccentricity_x: Ratio,
         eccentricity_y: Ratio,
@@ -272,6 +278,12 @@ impl EquinoctialState {
     /// Returns the coordinate frame.
     #[must_use]
     pub const fn frame(self) -> ReferenceFrame {
+        self.frame.reference_frame()
+    }
+
+    /// Returns the affirmative inertial-frame capability carried by the state.
+    #[must_use]
+    pub const fn inertial_frame(self) -> InertialFrame {
         self.frame
     }
 
@@ -536,7 +548,7 @@ impl TryFrom<OrbitalConversion<KeplerianState>> for CartesianState {
         cartesian_from_keplerian(
             conversion.gravitational_parameter,
             conversion.source.validated()?,
-            conversion.source.frame,
+            conversion.source.frame(),
         )
     }
 }
@@ -725,9 +737,8 @@ fn keplerian_from_cartesian(
     gravitational_parameter: GravitationalParameter,
     state: CartesianState,
 ) -> Result<KeplerianState, StateError> {
-    if !state.frame.is_inertial() {
-        return Err(StateError::CartesianFrameNotExplicitlyInertial);
-    }
+    let inertial_frame = InertialFrame::try_from(state.frame)
+        .map_err(|_| StateError::CartesianFrameNotExplicitlyInertial)?;
 
     let position_m = state.position.to_metres();
     let velocity_m_s = state.velocity.to_metres_per_second();
@@ -790,7 +801,7 @@ fn keplerian_from_cartesian(
     };
 
     KeplerianState::new(
-        state.frame,
+        inertial_frame,
         Length::new::<meter>(semi_major_axis),
         Ratio::new::<ratio>(if circular { 0.0 } else { eccentricity }),
         Angle::new::<radian>(inclination),
@@ -913,7 +924,7 @@ pub enum StateError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin};
+    use frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin, InertialFrame};
     use units::uom::si::velocity::meter_per_second;
 
     fn earth_mu() -> GravitationalParameter {
@@ -923,7 +934,7 @@ mod tests {
 
     fn keplerian(inclination: f64, raan: f64, periapsis: f64, anomaly: f64) -> KeplerianState {
         KeplerianState::new(
-            ReferenceFrame::GCRF,
+            InertialFrame::GCRF,
             Length::new::<meter>(7_000_000.0),
             Ratio::new::<ratio>(0.0),
             Angle::new::<radian>(inclination),
@@ -962,7 +973,7 @@ mod tests {
     #[test]
     fn try_from_try_to_and_orbital_elements_cover_every_pair() {
         let source = KeplerianState::new(
-            ReferenceFrame::GCRF,
+            InertialFrame::GCRF,
             Length::new::<meter>(7_200_000.0),
             Ratio::new::<ratio>(0.1),
             Angle::new::<radian>(0.7),
@@ -1070,7 +1081,7 @@ mod tests {
     #[test]
     fn invalid_conics_and_singularities_are_rejected() {
         let retrograde = KeplerianState::new(
-            ReferenceFrame::GCRF,
+            InertialFrame::GCRF,
             Length::new::<meter>(7_000_000.0),
             Ratio::new::<ratio>(0.1),
             Angle::new::<radian>(PI),
