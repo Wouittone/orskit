@@ -63,8 +63,10 @@ missing abstraction or an incorrectly placed type.
   orientation, and inertia. Environmental bodies and other parameters belong
   to force-model configuration and explicit future data providers. Dynamics
   composes heterogeneous model trait objects without matching model types.
-- **Propagation:** `Propagator<ForceModel>` advances epoch-qualified `Orbit`
-  values and preserves the native `SpacecraftState` enum variant. A
+- **Propagation:** `Propagator<Problem>` separates a solution method from the
+  physical problem it advances. The current analytical implementation accepts
+  `TwoBodyDynamics`, advances epoch-qualified `Orbit` values, and preserves the
+  native `SpacecraftState` enum variant. A
   translational propagator does not imply that attitude or other
   epoch-dependent spacecraft properties were advanced. Analytical, numerical,
   semi-analytical, and TLE
@@ -172,9 +174,10 @@ There is no ambient mutable "current data context."
 
 ## Crate evolution
 
-Focused packages use concise domain names such as `core`, `frames`, and
-`units`. Directory names such as `crates/core` match the package layout.
-New boundaries should use concise domain names such as `time` and `frames`.
+Focused Cargo packages use the `orskit-*` namespace while retaining concise
+Rust library names such as `frames` and `units` where that does not conflict
+with the standard library. Directory names such as `crates/core` remain concise.
+New boundaries should follow the same namespaced-package convention.
 Split crates only when the domain boundary and dependency direction are clear;
 do not create one crate per noun pre-emptively.
 

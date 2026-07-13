@@ -1,5 +1,5 @@
 [package]
-name = "ccsds"
+name = "orskit-ccsds"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,15 +8,18 @@ license.workspace = true
 repository.workspace = true
 description = "Streaming CCSDS navigation-message ingestion for orskit"
 
+[lib]
+name = "ccsds"
+
 [features]
 default = ["async", "parallel"]
 async = ["dep:tokio"]
 parallel = ["dep:rayon"]
 
 [dependencies]
-core_crate = { package = "core", path = "../core" }
-frames = { path = "../frames" }
-units = { path = "../units" }
+core_crate = { package = "orskit-core", path = "../core" }
+frames = { package = "orskit-frames", path = "../frames" }
+units = { package = "orskit-units", path = "../units" }
 rayon = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util"], optional = true }

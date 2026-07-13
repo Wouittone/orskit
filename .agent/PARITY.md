@@ -62,7 +62,7 @@ explicitly labeled with that older version.
 | Mission analysis | Visibility, eclipse, occultation, FOV, access | Not assessed | Geometry edge cases and event scenarios | None |
 | I/O | CCSDS orbit, attitude, tracking, and navigation messages | Partial | Conformance corpus; lossless semantic round trips | OEM KVN modes use finite budgets, enforce segment chronology, and preserve source-order segment IDs, line/section-qualified comments, sample lines, shared metadata, and ordered records; explicit enrichment supplies physical state properties absent from OEM; XML, covariance, other message families, conformance corpus, and writing remain pending |
 | I/O | TLE, SP3, RINEX, gravity, EOP, ephemeris, space weather | Not assessed | Format-specific conformance and malformed-input tests | None |
-| Bindings | Stable public Rust facade | Not assessed | Coherent documented workflow API | No public Rust facade is provided; applications import focused crates directly. |
+| Bindings | Stable public Rust facade | Partial | Coherent documented workflow API | The `orskit` facade provides a documented discovery root, focused module re-exports, and a conservative prelude; each domain crate remains independently usable and broader workflow validation remains pending. |
 | Bindings | Python package | Not assessed | Build/import smoke tests; typed API/error parity | Experimental PyO3 workspace retained but disabled while the Rust core API stabilizes; no CI validation currently runs |
 | Bindings | JVM-language package | Not assessed | Native load/FFM smoke tests; ownership/error parity | Experimental C ABI/FFM workspace retained but disabled while the Rust core API stabilizes; no CI validation currently runs |
 

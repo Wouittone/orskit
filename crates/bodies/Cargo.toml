@@ -1,5 +1,5 @@
 [package]
-name = "bodies"
+name = "orskit-bodies"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,6 +7,9 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Celestial-body and body-system identities for orskit"
+
+[lib]
+name = "bodies"
 
 [dependencies]
 thiserror.workspace = true
