@@ -2249,19 +2249,21 @@ META_STOP\n\
             FrameOrigin::Custom(id),
             FrameOrientation::custom(id, FrameMotion::NonInertial),
         );
+        let owned_body =
+            SpacecraftBodyFrame::new("TEST-SC", body).expect("spacecraft-owned body axes");
         let orientation = Orientation::identity(body, coordinates.coordinates().position().frame());
         let attitude = AttitudeState::new(
             orientation,
             BodyAngularVelocity::new(
                 AngularVelocityVector::from_radians_per_second(0.0, 0.0, 0.0),
-                body,
+                owned_body.clone(),
                 coordinates.coordinates().position().frame(),
             )
             .expect("finite angular velocity"),
         )
         .expect("consistent attitude frames");
         let inertia = InertiaTensor::principal(
-            body,
+            owned_body.clone(),
             MomentOfInertia::new::<kilogram_square_meter>(1.0),
             MomentOfInertia::new::<kilogram_square_meter>(1.0),
             MomentOfInertia::new::<kilogram_square_meter>(1.0),
@@ -2269,10 +2271,7 @@ META_STOP\n\
         .expect("fixture inertia is physical");
         let state = CartesianState::try_from(*coordinates.coordinates())
             .expect("OEM position and velocity share one frame");
-        let spacecraft = Spacecraft::new(
-            SpacecraftBodyFrame::new("TEST-SC", body).expect("spacecraft-owned body axes"),
-            SpacecraftShape::Point,
-        );
+        let spacecraft = Spacecraft::new(owned_body, SpacecraftShape::Point);
         let view = SpacecraftView::new(
             &spacecraft,
             Orbit::new(coordinates.epoch(), state.into()),

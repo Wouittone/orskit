@@ -21,6 +21,8 @@ body frame, and `SpacecraftView` did not check attitude reference against orbit.
    endpoints.
 4. `SpacecraftView` requires spacecraft body, attitude moving, and inertia
    frames to match, and attitude reference to equal the orbit coordinate frame.
+   Attitude rates and inertia retain the opaque ownership capability, so equal
+   raw axes associated with a different spacecraft ID are rejected.
 5. No transform or convention is inferred.
 
 ## Validation

@@ -104,10 +104,10 @@ impl Orientation {
 }
 
 /// Body angular velocity relative to a reference frame, expressed in body axes.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BodyAngularVelocity {
     value: AngularVelocityVector,
-    body_frame: ReferenceFrame,
+    body_frame: SpacecraftBodyFrame,
     relative_to: ReferenceFrame,
 }
 
@@ -115,7 +115,7 @@ impl BodyAngularVelocity {
     /// Declares body angular velocity relative to `relative_to`, expressed in `body_frame`.
     pub fn new(
         value: AngularVelocityVector,
-        body_frame: ReferenceFrame,
+        body_frame: SpacecraftBodyFrame,
         relative_to: ReferenceFrame,
     ) -> Result<Self, AttitudeError> {
         if !value.is_finite() {
@@ -130,25 +130,31 @@ impl BodyAngularVelocity {
 
     /// Returns the angular-velocity vector.
     #[must_use]
-    pub const fn value(self) -> AngularVelocityVector {
+    pub const fn value(&self) -> AngularVelocityVector {
         self.value
     }
 
     /// Returns the expression frame.
     #[must_use]
-    pub const fn body_frame(self) -> ReferenceFrame {
-        self.body_frame
+    pub const fn body_frame(&self) -> ReferenceFrame {
+        self.body_frame.reference_frame()
+    }
+
+    /// Returns the spacecraft/body ownership capability.
+    #[must_use]
+    pub const fn body_frame_capability(&self) -> &SpacecraftBodyFrame {
+        &self.body_frame
     }
 
     /// Returns the reference frame relative to which the body rotates.
     #[must_use]
-    pub const fn relative_to(self) -> ReferenceFrame {
+    pub const fn relative_to(&self) -> ReferenceFrame {
         self.relative_to
     }
 
     /// Returns angular speeds about x/y/z.
     #[must_use]
-    pub const fn components(self) -> [AngularVelocity; 3] {
+    pub const fn components(&self) -> [AngularVelocity; 3] {
         self.value.components()
     }
 }
@@ -186,8 +192,8 @@ impl QuaternionAttitude {
 
     /// Returns angular velocity expressed in the body frame.
     #[must_use]
-    pub const fn angular_velocity(&self) -> BodyAngularVelocity {
-        self.angular_velocity
+    pub const fn angular_velocity(&self) -> &BodyAngularVelocity {
+        &self.angular_velocity
     }
 
     /// Returns intrinsic roll/pitch/yaw angles about x/y/z.
@@ -232,7 +238,7 @@ impl AttitudeState {
 
     /// Returns body angular velocity in any representation.
     #[must_use]
-    pub const fn angular_velocity(&self) -> BodyAngularVelocity {
+    pub const fn angular_velocity(&self) -> &BodyAngularVelocity {
         match self {
             Self::Quaternion(attitude) => attitude.angular_velocity(),
         }
@@ -262,9 +268,9 @@ impl From<QuaternionAttitude> for AttitudeState {
 }
 
 /// Symmetric spacecraft inertia tensor expressed in its attached frame.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InertiaTensor {
-    frame: ReferenceFrame,
+    frame: SpacecraftBodyFrame,
     xx: MomentOfInertia,
     yy: MomentOfInertia,
     zz: MomentOfInertia,
@@ -277,7 +283,7 @@ impl InertiaTensor {
     /// Constructs and validates a symmetric inertia tensor in `frame`.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        frame: ReferenceFrame,
+        frame: SpacecraftBodyFrame,
         xx: MomentOfInertia,
         yy: MomentOfInertia,
         zz: MomentOfInertia,
@@ -327,7 +333,7 @@ impl InertiaTensor {
 
     /// Constructs a diagonal inertia tensor in principal axes of `frame`.
     pub fn principal(
-        frame: ReferenceFrame,
+        frame: SpacecraftBodyFrame,
         xx: MomentOfInertia,
         yy: MomentOfInertia,
         zz: MomentOfInertia,
@@ -338,13 +344,19 @@ impl InertiaTensor {
 
     /// Returns the frame in which the tensor is expressed.
     #[must_use]
-    pub const fn frame(self) -> ReferenceFrame {
-        self.frame
+    pub const fn frame(&self) -> ReferenceFrame {
+        self.frame.reference_frame()
+    }
+
+    /// Returns the spacecraft/body ownership capability.
+    #[must_use]
+    pub const fn frame_capability(&self) -> &SpacecraftBodyFrame {
+        &self.frame
     }
 
     /// Returns the symmetric tensor as a typed row-major matrix.
     #[must_use]
-    pub const fn matrix(self) -> [[MomentOfInertia; 3]; 3] {
+    pub const fn matrix(&self) -> [[MomentOfInertia; 3]; 3] {
         [
             [self.xx, self.xy, self.xz],
             [self.xy, self.yy, self.yz],
@@ -557,10 +569,12 @@ impl<'a> SpacecraftView<'a> {
         if mass_kg <= 0.0 {
             return Err(SpacecraftViewError::NotPositiveMass);
         }
-        if attitude.orientation().from_frame() != spacecraft.body_frame() {
+        if attitude.angular_velocity().body_frame_capability() != spacecraft.body_frame_capability()
+            || attitude.orientation().from_frame() != spacecraft.body_frame()
+        {
             return Err(SpacecraftViewError::AttitudeBodyFrameMismatch);
         }
-        if inertia.frame() != spacecraft.body_frame() {
+        if inertia.frame_capability() != spacecraft.body_frame_capability() {
             return Err(SpacecraftViewError::InertiaFrameMismatch);
         }
         if attitude.orientation().to_frame() != orbit.state().frame() {
@@ -607,8 +621,8 @@ impl<'a> SpacecraftView<'a> {
 
     /// Returns the inertia tensor at the view epoch.
     #[must_use]
-    pub const fn inertia(&self) -> InertiaTensor {
-        self.inertia
+    pub const fn inertia(&self) -> &InertiaTensor {
+        &self.inertia
     }
 
     /// Returns the attitude at the view epoch.
@@ -719,12 +733,13 @@ mod tests {
             .expect("spacecraft-owned body frame")
     }
 
-    fn attitude(body: ReferenceFrame) -> AttitudeState {
+    fn attitude(body: &SpacecraftBodyFrame) -> AttitudeState {
+        let reference_frame = body.reference_frame();
         QuaternionAttitude::new(
-            Orientation::identity(body, ReferenceFrame::GCRF),
+            Orientation::identity(reference_frame, ReferenceFrame::GCRF),
             BodyAngularVelocity::new(
                 AngularVelocityVector::from_radians_per_second(0.1, 0.2, 0.3),
-                body,
+                body.clone(),
                 ReferenceFrame::GCRF,
             )
             .expect("finite angular velocity"),
@@ -733,9 +748,9 @@ mod tests {
         .into()
     }
 
-    fn inertia(body: ReferenceFrame) -> InertiaTensor {
+    fn inertia(body: &SpacecraftBodyFrame) -> InertiaTensor {
         InertiaTensor::principal(
-            body,
+            body.clone(),
             MomentOfInertia::new::<kilogram_square_meter>(1_000.0),
             MomentOfInertia::new::<kilogram_square_meter>(1_200.0),
             MomentOfInertia::new::<kilogram_square_meter>(800.0),
@@ -755,8 +770,8 @@ mod tests {
 
     #[test]
     fn attitude_exposes_angles_and_angular_speeds() {
-        let body = body_frame(1);
-        let attitude = attitude(body);
+        let body = owned_body_frame("SC-001", 1);
+        let attitude = attitude(&body);
 
         assert_eq!(attitude.angles(), [Angle::new::<radian>(0.0); 3]);
         assert_eq!(
@@ -802,13 +817,14 @@ mod tests {
     #[test]
     fn spacecraft_view_composes_epoch_dependent_physical_data() {
         let body = body_frame(1);
-        let spacecraft = Spacecraft::new(owned_body_frame("SC-001", 1), SpacecraftShape::Point);
-        let attitude = attitude(body);
+        let owned_body = owned_body_frame("SC-001", 1);
+        let spacecraft = Spacecraft::new(owned_body.clone(), SpacecraftShape::Point);
+        let attitude = attitude(&owned_body);
         let view = SpacecraftView::new(
             &spacecraft,
             Orbit::new(Epoch::from_tai_seconds(42.0), state()),
             Mass::new::<kilogram>(500.0),
-            inertia(body),
+            inertia(&owned_body),
             attitude,
         )
         .expect("consistent view");
@@ -834,9 +850,12 @@ mod tests {
     #[test]
     fn rigid_body_frames_and_mass_are_validated() {
         let body = body_frame(1);
-        let other = body_frame(2);
-        let spacecraft = Spacecraft::new(owned_body_frame("SC-001", 1), SpacecraftShape::Point);
-        let valid_attitude = attitude(body);
+        let owned_body = owned_body_frame("SC-001", 1);
+        let other_owned_body = owned_body_frame("SC-002", 2);
+        let spacecraft = Spacecraft::new(owned_body.clone(), SpacecraftShape::Point);
+        let valid_attitude = attitude(&owned_body);
+        let same_axes_other_owner =
+            SpacecraftBodyFrame::new("SC-002", body).expect("same axes, different owner");
         assert_eq!(
             SpacecraftBodyFrame::new("BAD", ReferenceFrame::ITRF2020),
             Err(SpacecraftError::BodyFrameNotSpacecraftOwned)
@@ -856,16 +875,36 @@ mod tests {
                 &spacecraft,
                 Orbit::new(Epoch::from_tai_seconds(0.0), state()),
                 Mass::new::<kilogram>(500.0),
-                inertia(body),
-                attitude(other),
+                inertia(&owned_body),
+                attitude(&other_owned_body),
             ),
             Err(SpacecraftViewError::AttitudeBodyFrameMismatch)
+        ));
+        assert!(matches!(
+            SpacecraftView::new(
+                &spacecraft,
+                Orbit::new(Epoch::from_tai_seconds(0.0), state()),
+                Mass::new::<kilogram>(500.0),
+                inertia(&owned_body),
+                attitude(&same_axes_other_owner),
+            ),
+            Err(SpacecraftViewError::AttitudeBodyFrameMismatch)
+        ));
+        assert!(matches!(
+            SpacecraftView::new(
+                &spacecraft,
+                Orbit::new(Epoch::from_tai_seconds(0.0), state()),
+                Mass::new::<kilogram>(500.0),
+                inertia(&same_axes_other_owner),
+                valid_attitude.clone(),
+            ),
+            Err(SpacecraftViewError::InertiaFrameMismatch)
         ));
         let wrong_reference = AttitudeState::new(
             Orientation::identity(body, ReferenceFrame::EME2000),
             BodyAngularVelocity::new(
                 AngularVelocityVector::from_radians_per_second(0.0, 0.0, 0.0),
-                body,
+                owned_body.clone(),
                 ReferenceFrame::EME2000,
             )
             .expect("finite angular velocity"),
@@ -876,7 +915,7 @@ mod tests {
                 &spacecraft,
                 Orbit::new(Epoch::from_tai_seconds(0.0), state()),
                 Mass::new::<kilogram>(500.0),
-                inertia(body),
+                inertia(&owned_body),
                 wrong_reference,
             ),
             Err(SpacecraftViewError::AttitudeReferenceFrameMismatch)
@@ -886,7 +925,7 @@ mod tests {
                 &spacecraft,
                 Orbit::new(Epoch::from_tai_seconds(0.0), state()),
                 Mass::new::<kilogram>(500.0),
-                inertia(other),
+                inertia(&other_owned_body),
                 valid_attitude.clone(),
             ),
             Err(SpacecraftViewError::InertiaFrameMismatch)
@@ -896,7 +935,7 @@ mod tests {
                 &spacecraft,
                 Orbit::new(Epoch::from_tai_seconds(0.0), state()),
                 Mass::new::<kilogram>(0.0),
-                inertia(body),
+                inertia(&owned_body),
                 valid_attitude,
             ),
             Err(SpacecraftViewError::NotPositiveMass)
@@ -907,7 +946,7 @@ mod tests {
                 Orientation::identity(body, ReferenceFrame::GCRF),
                 BodyAngularVelocity::new(
                     AngularVelocityVector::from_radians_per_second(0.0, 0.0, 0.0),
-                    other,
+                    other_owned_body.clone(),
                     ReferenceFrame::GCRF,
                 )
                 .expect("finite angular velocity"),
@@ -919,7 +958,7 @@ mod tests {
                 Orientation::identity(body, ReferenceFrame::GCRF),
                 BodyAngularVelocity::new(
                     AngularVelocityVector::from_radians_per_second(0.0, 0.0, 0.0),
-                    body,
+                    owned_body,
                     ReferenceFrame::EME2000,
                 )
                 .expect("finite angular velocity"),
@@ -931,6 +970,7 @@ mod tests {
     #[test]
     fn quaternion_and_inertia_validation_remain_explicit() {
         let body = body_frame(1);
+        let owned_body = owned_body_frame("SC-001", 1);
         assert_eq!(
             Orientation::from_quaternion(
                 body,
@@ -944,7 +984,7 @@ mod tests {
         );
         assert_eq!(
             InertiaTensor::principal(
-                body,
+                owned_body,
                 MomentOfInertia::new::<kilogram_square_meter>(1.0),
                 MomentOfInertia::new::<kilogram_square_meter>(1.0),
                 MomentOfInertia::new::<kilogram_square_meter>(3.0),
