@@ -1,5 +1,6 @@
 //! Typed, participant-qualified measurement data structures.
 
+use frames::ReferenceFrame;
 use hifitime::Epoch;
 use thiserror::Error;
 use units::uom::si::length::meter;
@@ -39,15 +40,18 @@ pub enum RangeConvention {
     RoundTripOneWayEquivalent,
 }
 
-/// A participant-qualified scalar range observation and one-sigma uncertainty.
+/// A participant-qualified scalar range observation in an explicit frame.
 ///
 /// The signal path records participant event order. `time_tag` states which
-/// event owns `epoch`, and `convention` states whether `range` is the complete
-/// path length or the conventional one-way equivalent of a two-leg round trip.
-/// No transmit, receive, or turnaround time is inferred.
+/// event owns `epoch`, `frame` identifies the reference frame in which the
+/// observation is defined, and `convention` states whether `range` is the
+/// complete path length or the conventional one-way equivalent of a two-leg
+/// round trip. A missing uncertainty is represented explicitly by `None`. No
+/// transmit, receive, or turnaround time is inferred.
 ///
 /// ```
 /// use hifitime::Epoch;
+/// use frames::ReferenceFrame;
 /// use measurements::{
 ///     ObservationTimeTag, ParticipantId, RangeConvention, RangeMeasurement, SignalPath,
 /// };
@@ -61,8 +65,9 @@ pub enum RangeConvention {
 ///     Epoch::from_tai_seconds(0.0),
 ///     ObservationTimeTag::Receive,
 ///     RangeConvention::PathLength,
+///     ReferenceFrame::EME2000,
 ///     Length::new::<meter>(42_000_000.0),
-///     Length::new::<meter>(3.0),
+///     Some(Length::new::<meter>(3.0)),
 /// )?;
 /// assert_eq!(range.tagged_participant().as_str(), "SC-01");
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -73,8 +78,9 @@ pub struct RangeMeasurement {
     epoch: Epoch,
     time_tag: ObservationTimeTag,
     convention: RangeConvention,
+    frame: ReferenceFrame,
     range: Length,
-    uncertainty: Length,
+    uncertainty: Option<Length>,
 }
 
 impl RangeMeasurement {
@@ -84,8 +90,9 @@ impl RangeMeasurement {
         epoch: Epoch,
         time_tag: ObservationTimeTag,
         convention: RangeConvention,
+        frame: ReferenceFrame,
         range: Length,
-        uncertainty: Length,
+        uncertainty: Option<Length>,
     ) -> Result<Self, MeasurementError> {
         let participant_count = path.participant_count();
         if let ObservationTimeTag::AtIntermediateParticipant { index } = time_tag {
@@ -104,14 +111,14 @@ impl RangeMeasurement {
         }
 
         let range_m = range.get::<meter>();
-        let uncertainty_m = uncertainty.get::<meter>();
-        if !range_m.is_finite() || !uncertainty_m.is_finite() {
+        let uncertainty_m = uncertainty.map(|value| value.get::<meter>());
+        if !range_m.is_finite() || uncertainty_m.is_some_and(|value| !value.is_finite()) {
             return Err(MeasurementError::NonFinite);
         }
         if range_m < 0.0 {
             return Err(MeasurementError::NegativeRange);
         }
-        if uncertainty_m <= 0.0 {
+        if uncertainty_m.is_some_and(|value| value <= 0.0) {
             return Err(MeasurementError::NotPositiveUncertainty);
         }
         Ok(Self {
@@ -119,6 +126,7 @@ impl RangeMeasurement {
             epoch,
             time_tag,
             convention,
+            frame,
             range,
             uncertainty,
         })
@@ -166,15 +174,21 @@ impl RangeMeasurement {
         self.convention
     }
 
+    /// Returns the reference frame in which the range observation is defined.
+    #[must_use]
+    pub const fn frame(&self) -> ReferenceFrame {
+        self.frame
+    }
+
     /// Returns the measured range.
     #[must_use]
     pub const fn range(&self) -> Length {
         self.range
     }
 
-    /// Returns the one-sigma range uncertainty.
+    /// Returns the supplied one-sigma range uncertainty, or `None` if unknown.
     #[must_use]
-    pub const fn uncertainty(&self) -> Length {
+    pub const fn uncertainty(&self) -> Option<Length> {
         self.uncertainty
     }
 }
@@ -198,8 +212,8 @@ pub enum MeasurementError {
         "round-trip one-way-equivalent range requires a three-event path with matching endpoints"
     )]
     InvalidRoundTripPath,
-    /// The measurement or uncertainty is NaN or infinite.
-    #[error("measurement values must be finite")]
+    /// The range or a supplied uncertainty is NaN or infinite.
+    #[error("range and supplied uncertainty values must be finite")]
     NonFinite,
     /// A geometric range cannot be negative.
     #[error("measurement range must be non-negative")]
@@ -231,8 +245,9 @@ mod tests {
             Epoch::from_tai_seconds(0.0),
             time_tag,
             convention,
+            ReferenceFrame::EME2000,
             Length::new::<meter>(1.0),
-            Length::new::<meter>(0.1),
+            Some(Length::new::<meter>(0.1)),
         )
     }
 
@@ -261,6 +276,54 @@ mod tests {
         assert_ne!(forward, transmit_tagged);
         assert_eq!(forward.tagged_participant().as_str(), "SC-01");
         assert_eq!(transmit_tagged.tagged_participant().as_str(), "DSS-14");
+    }
+
+    #[test]
+    fn reference_frame_is_measurement_identity() {
+        let eme2000 = measurement(
+            one_way_path(),
+            ObservationTimeTag::Receive,
+            RangeConvention::PathLength,
+        )
+        .expect("EME2000 range");
+        let itrf2020 = RangeMeasurement::new(
+            one_way_path(),
+            Epoch::from_tai_seconds(0.0),
+            ObservationTimeTag::Receive,
+            RangeConvention::PathLength,
+            ReferenceFrame::ITRF2020,
+            Length::new::<meter>(1.0),
+            Some(Length::new::<meter>(0.1)),
+        )
+        .expect("ITRF2020 range");
+
+        assert_eq!(eme2000.frame(), ReferenceFrame::EME2000);
+        assert_eq!(itrf2020.frame(), ReferenceFrame::ITRF2020);
+        assert_ne!(eme2000, itrf2020);
+    }
+
+    #[test]
+    fn unknown_uncertainty_remains_explicit() {
+        let unknown = RangeMeasurement::new(
+            one_way_path(),
+            Epoch::from_tai_seconds(0.0),
+            ObservationTimeTag::Receive,
+            RangeConvention::PathLength,
+            ReferenceFrame::EME2000,
+            Length::new::<meter>(1.0),
+            None,
+        )
+        .expect("range with unknown uncertainty");
+        let supplied = measurement(
+            one_way_path(),
+            ObservationTimeTag::Receive,
+            RangeConvention::PathLength,
+        )
+        .expect("range with supplied uncertainty");
+
+        assert_eq!(unknown.uncertainty(), None);
+        assert_eq!(supplied.uncertainty(), Some(Length::new::<meter>(0.1)));
+        assert_ne!(unknown, supplied);
     }
 
     #[test]
@@ -313,18 +376,35 @@ mod tests {
     }
 
     #[test]
-    fn range_uncertainty_must_be_positive() {
-        assert_eq!(
-            RangeMeasurement::new(
-                one_way_path(),
-                Epoch::from_tai_seconds(0.0),
-                ObservationTimeTag::Receive,
-                RangeConvention::PathLength,
-                Length::new::<meter>(1.0),
-                Length::new::<meter>(0.0),
-            ),
-            Err(MeasurementError::NotPositiveUncertainty)
-        );
+    fn supplied_range_uncertainty_must_be_positive_and_finite() {
+        for value in [0.0, -1.0] {
+            assert_eq!(
+                RangeMeasurement::new(
+                    one_way_path(),
+                    Epoch::from_tai_seconds(0.0),
+                    ObservationTimeTag::Receive,
+                    RangeConvention::PathLength,
+                    ReferenceFrame::EME2000,
+                    Length::new::<meter>(1.0),
+                    Some(Length::new::<meter>(value)),
+                ),
+                Err(MeasurementError::NotPositiveUncertainty)
+            );
+        }
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(
+                RangeMeasurement::new(
+                    one_way_path(),
+                    Epoch::from_tai_seconds(0.0),
+                    ObservationTimeTag::Receive,
+                    RangeConvention::PathLength,
+                    ReferenceFrame::EME2000,
+                    Length::new::<meter>(1.0),
+                    Some(Length::new::<meter>(value)),
+                ),
+                Err(MeasurementError::NonFinite)
+            );
+        }
     }
 
     #[test]
@@ -335,8 +415,9 @@ mod tests {
                 Epoch::from_tai_seconds(0.0),
                 ObservationTimeTag::Receive,
                 RangeConvention::PathLength,
+                ReferenceFrame::EME2000,
                 Length::new::<meter>(-1.0),
-                Length::new::<meter>(1.0),
+                Some(Length::new::<meter>(1.0)),
             ),
             Err(MeasurementError::NegativeRange)
         );
