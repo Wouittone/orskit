@@ -193,6 +193,7 @@ impl KeplerianState {
             argument_of_periapsis,
             true_anomaly,
         )?;
+        validate_gravity_origin(&central_gravity, frame.reference_frame())?;
         Ok(Self {
             frame,
             central_gravity,
@@ -337,6 +338,7 @@ impl EquinoctialState {
         if !(0.0..1.0).contains(&ex.hypot(ey)) {
             return Err(StateError::EccentricityOutOfRange);
         }
+        validate_gravity_origin(&central_gravity, frame.reference_frame())?;
         Ok(Self {
             frame,
             central_gravity,
@@ -1037,6 +1039,46 @@ mod tests {
                 gravity_origin: FrameOrigin::Body(frames::Body::MARS),
                 frame_origin: FrameOrigin::Body(frames::Body::EARTH),
             })
+        );
+    }
+
+    #[test]
+    fn element_constructors_reject_gravity_from_another_origin() {
+        let mars_gravity = central_gravity(
+            FrameOrigin::Body(frames::Body::MARS),
+            earth_mu(),
+            "mars-origin",
+        );
+        let expected = StateError::CentralGravityOriginMismatch {
+            gravity_origin: FrameOrigin::Body(frames::Body::MARS),
+            frame_origin: FrameOrigin::Body(frames::Body::EARTH),
+        };
+
+        assert_eq!(
+            KeplerianState::new(
+                InertialFrame::GCRF,
+                Arc::clone(&mars_gravity),
+                Length::new::<meter>(7_200_000.0),
+                Ratio::new::<ratio>(0.1),
+                Angle::new::<radian>(0.7),
+                Angle::new::<radian>(1.1),
+                Angle::new::<radian>(0.4),
+                Angle::new::<radian>(2.0),
+            ),
+            Err(expected.clone())
+        );
+        assert_eq!(
+            EquinoctialState::new(
+                InertialFrame::GCRF,
+                mars_gravity,
+                Length::new::<meter>(7_200_000.0),
+                Ratio::new::<ratio>(0.1),
+                Ratio::new::<ratio>(0.05),
+                Ratio::new::<ratio>(0.2),
+                Ratio::new::<ratio>(0.3),
+                Angle::new::<radian>(2.0),
+            ),
+            Err(expected)
         );
     }
 

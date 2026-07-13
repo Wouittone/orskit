@@ -19,7 +19,8 @@ record shape and copied structural identity into the public model.
    getters. Cloning a state increments the shared allocation count; it does not
    duplicate provenance or gravity data.
 3. The shared allocation is the unforgeable scientific identity. Element
-   conversion requires the same `Arc` allocation and validates its frame origin.
+   construction and conversion require the gravity origin to match the frame;
+   conversion also requires the same `Arc` allocation.
 4. `PointMassGravity` and `ReferenceSource` are conveniences, not closed
    registries; downstream implementations participate in the same APIs.
 5. Keplerian/equinoctial-only conversions retain the shared object without
