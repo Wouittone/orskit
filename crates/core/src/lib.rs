@@ -22,7 +22,7 @@ pub use kinematics::{
     CartesianCoordinates, FramedAcceleration, FramedPosition, FramedVelocity, KinematicError,
 };
 pub use spacecraft::{
-    AttitudeError, AttitudeState, CuboidShape, FramedAngularVelocity, InertiaError, InertiaTensor,
+    AttitudeError, AttitudeState, BodyAngularVelocity, CuboidShape, InertiaError, InertiaTensor,
     Orientation, OrientationError, QuaternionAttitude, ShapeError, Spacecraft, SpacecraftError,
     SpacecraftShape, SpacecraftView, SpacecraftViewError, SphereShape,
 };

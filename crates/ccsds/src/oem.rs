@@ -556,7 +556,7 @@ pub enum OemEvent {
     /// One data-section comment at its original source position.
     Comment(OemComment),
     /// One typed, timed Cartesian ephemeris point with source provenance.
-    Coordinates(OemSample),
+    Coordinates(Box<OemSample>),
     /// The end of the identified segment.
     SegmentEnd(OemSegmentId),
 }
@@ -1126,7 +1126,7 @@ pub fn parse_oem_kvn_parallel_with_limits(
                     let sample = parsed[index].take().ok_or(OemError::InvalidEventOrder {
                         message: "parallel state layout was consumed more than once",
                     })??;
-                    OemEvent::Coordinates(sample)
+                    OemEvent::Coordinates(Box::new(sample))
                 }
             };
             validate_event_chronology(event, &mut chronology)
@@ -1183,7 +1183,7 @@ fn collect_document(
                     });
                 }
                 let index = segment.coordinates.len();
-                segment.coordinates.push(coordinates);
+                segment.coordinates.push(*coordinates);
                 segment
                     .record_order
                     .push(OemRecordIndex::Coordinates(index));
@@ -1268,7 +1268,7 @@ fn decode_output(
 ) -> Result<OemEvent, OemError> {
     let event = match output {
         DecoderOutput::Event(event) => *event,
-        DecoderOutput::State(raw) => OemEvent::Coordinates(parse_raw_state(&raw)?),
+        DecoderOutput::State(raw) => OemEvent::Coordinates(Box::new(parse_raw_state(&raw)?)),
     };
     validate_event_chronology(event, chronology)
 }
@@ -1930,7 +1930,7 @@ fn required(
 mod tests {
     use super::*;
     use core_crate::{
-        AttitudeState, CartesianState, FramedAngularVelocity, InertiaTensor, Orbit, Orientation,
+        AttitudeState, BodyAngularVelocity, CartesianState, InertiaTensor, Orbit, Orientation,
         Spacecraft, SpacecraftShape, SpacecraftView,
     };
     use frames::{CustomFrameId, FrameMotion, FrameOrientation};
@@ -2164,9 +2164,10 @@ META_STOP\n\
         let orientation = Orientation::identity(body, coordinates.coordinates().position().frame());
         let attitude = AttitudeState::new(
             orientation,
-            FramedAngularVelocity::new(
+            BodyAngularVelocity::new(
                 AngularVelocityVector::from_radians_per_second(0.0, 0.0, 0.0),
                 body,
+                coordinates.coordinates().position().frame(),
             )
             .expect("finite angular velocity"),
         )
@@ -2180,7 +2181,7 @@ META_STOP\n\
         .expect("fixture inertia is physical");
         let state = CartesianState::try_from(*coordinates.coordinates())
             .expect("OEM position and velocity share one frame");
-        let spacecraft = Spacecraft::new("TEST-SC", SpacecraftShape::Point)
+        let spacecraft = Spacecraft::new("TEST-SC", body, SpacecraftShape::Point)
             .expect("valid spacecraft definition");
         let view = SpacecraftView::new(
             &spacecraft,

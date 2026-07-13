@@ -1,4 +1,4 @@
-use frames::ReferenceFrame;
+use frames::{FrameMotion, ReferenceFrame};
 use hifitime::Epoch;
 use nalgebra::{Matrix3, Quaternion, UnitQuaternion};
 use thiserror::Error;
@@ -101,20 +101,29 @@ impl Orientation {
     }
 }
 
-/// Angular velocity expressed in an explicit frame.
+/// Body angular velocity relative to a reference frame, expressed in body axes.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct FramedAngularVelocity {
+pub struct BodyAngularVelocity {
     value: AngularVelocityVector,
-    frame: ReferenceFrame,
+    body_frame: ReferenceFrame,
+    relative_to: ReferenceFrame,
 }
 
-impl FramedAngularVelocity {
-    /// Attaches a frame to a finite angular-velocity vector.
-    pub fn new(value: AngularVelocityVector, frame: ReferenceFrame) -> Result<Self, AttitudeError> {
+impl BodyAngularVelocity {
+    /// Declares body angular velocity relative to `relative_to`, expressed in `body_frame`.
+    pub fn new(
+        value: AngularVelocityVector,
+        body_frame: ReferenceFrame,
+        relative_to: ReferenceFrame,
+    ) -> Result<Self, AttitudeError> {
         if !value.is_finite() {
             return Err(AttitudeError::NonFiniteAngularVelocity);
         }
-        Ok(Self { value, frame })
+        Ok(Self {
+            value,
+            body_frame,
+            relative_to,
+        })
     }
 
     /// Returns the angular-velocity vector.
@@ -125,8 +134,14 @@ impl FramedAngularVelocity {
 
     /// Returns the expression frame.
     #[must_use]
-    pub const fn frame(self) -> ReferenceFrame {
-        self.frame
+    pub const fn body_frame(self) -> ReferenceFrame {
+        self.body_frame
+    }
+
+    /// Returns the reference frame relative to which the body rotates.
+    #[must_use]
+    pub const fn relative_to(self) -> ReferenceFrame {
+        self.relative_to
     }
 
     /// Returns angular speeds about x/y/z.
@@ -140,17 +155,20 @@ impl FramedAngularVelocity {
 #[derive(Debug, Clone, PartialEq)]
 pub struct QuaternionAttitude {
     orientation: Orientation,
-    angular_velocity: FramedAngularVelocity,
+    angular_velocity: BodyAngularVelocity,
 }
 
 impl QuaternionAttitude {
     /// Constructs an attitude with angular velocity in the orientation's body frame.
     pub fn new(
         orientation: Orientation,
-        angular_velocity: FramedAngularVelocity,
+        angular_velocity: BodyAngularVelocity,
     ) -> Result<Self, AttitudeError> {
-        if orientation.from_frame() != angular_velocity.frame() {
-            return Err(AttitudeError::AngularVelocityFrameMismatch);
+        if orientation.from_frame() != angular_velocity.body_frame() {
+            return Err(AttitudeError::AngularVelocityBodyFrameMismatch);
+        }
+        if orientation.to_frame() != angular_velocity.relative_to() {
+            return Err(AttitudeError::AngularVelocityReferenceFrameMismatch);
         }
         Ok(Self {
             orientation,
@@ -166,7 +184,7 @@ impl QuaternionAttitude {
 
     /// Returns angular velocity expressed in the body frame.
     #[must_use]
-    pub const fn angular_velocity(&self) -> FramedAngularVelocity {
+    pub const fn angular_velocity(&self) -> BodyAngularVelocity {
         self.angular_velocity
     }
 
@@ -194,7 +212,7 @@ impl AttitudeState {
     /// Constructs the current quaternion attitude representation.
     pub fn new(
         orientation: Orientation,
-        angular_velocity: FramedAngularVelocity,
+        angular_velocity: BodyAngularVelocity,
     ) -> Result<Self, AttitudeError> {
         Ok(Self::Quaternion(QuaternionAttitude::new(
             orientation,
@@ -212,7 +230,7 @@ impl AttitudeState {
 
     /// Returns body angular velocity in any representation.
     #[must_use]
-    pub const fn angular_velocity(&self) -> FramedAngularVelocity {
+    pub const fn angular_velocity(&self) -> BodyAngularVelocity {
         match self {
             Self::Quaternion(attitude) => attitude.angular_velocity(),
         }
@@ -340,23 +358,41 @@ impl InertiaTensor {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spacecraft {
     id: String,
+    body_frame: ReferenceFrame,
     shape: SpacecraftShape,
 }
 
 impl Spacecraft {
     /// Creates a spacecraft with a stable non-empty identifier and geometry.
-    pub fn new(id: impl Into<String>, shape: SpacecraftShape) -> Result<Self, SpacecraftError> {
+    pub fn new(
+        id: impl Into<String>,
+        body_frame: ReferenceFrame,
+        shape: SpacecraftShape,
+    ) -> Result<Self, SpacecraftError> {
         let id = id.into();
         if id.trim().is_empty() {
             return Err(SpacecraftError::EmptyId);
         }
-        Ok(Self { id, shape })
+        if body_frame.motion() != FrameMotion::NonInertial {
+            return Err(SpacecraftError::BodyFrameNotNonInertial);
+        }
+        Ok(Self {
+            id,
+            body_frame,
+            shape,
+        })
     }
 
     /// Returns the stable spacecraft identifier.
     #[must_use]
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    /// Returns the spacecraft body frame used by geometry, inertia, and attitude.
+    #[must_use]
+    pub const fn body_frame(&self) -> ReferenceFrame {
+        self.body_frame
     }
 
     /// Returns the time-independent spacecraft geometry.
@@ -475,8 +511,14 @@ impl<'a> SpacecraftView<'a> {
         if mass_kg <= 0.0 {
             return Err(SpacecraftViewError::NotPositiveMass);
         }
-        if inertia.frame() != attitude.orientation().from_frame() {
+        if attitude.orientation().from_frame() != spacecraft.body_frame() {
+            return Err(SpacecraftViewError::AttitudeBodyFrameMismatch);
+        }
+        if inertia.frame() != spacecraft.body_frame() {
             return Err(SpacecraftViewError::InertiaFrameMismatch);
+        }
+        if attitude.orientation().to_frame() != orbit.state().frame() {
+            return Err(SpacecraftViewError::AttitudeReferenceFrameMismatch);
         }
         Ok(Self {
             spacecraft,
@@ -549,7 +591,10 @@ pub enum AttitudeError {
     NonFiniteAngularVelocity,
     /// Angular velocity is not expressed in the orientation body frame.
     #[error("angular velocity must be expressed in the attitude body frame")]
-    AngularVelocityFrameMismatch,
+    AngularVelocityBodyFrameMismatch,
+    /// Angular velocity is not relative to the orientation reference frame.
+    #[error("angular velocity reference frame must match the attitude reference frame")]
+    AngularVelocityReferenceFrameMismatch,
 }
 
 /// Invalid inertia tensor input.
@@ -572,6 +617,9 @@ pub enum SpacecraftError {
     /// The spacecraft identifier contains no non-whitespace characters.
     #[error("spacecraft identifier must not be empty")]
     EmptyId,
+    /// The declared body frame is not affirmatively non-inertial.
+    #[error("spacecraft body frame must be affirmatively non-inertial")]
+    BodyFrameNotNonInertial,
 }
 
 /// Invalid time-independent spacecraft geometry.
@@ -597,6 +645,12 @@ pub enum SpacecraftViewError {
     /// Inertia is not expressed in the attitude body frame.
     #[error("inertia tensor must be expressed in the attitude body frame")]
     InertiaFrameMismatch,
+    /// Attitude moving frame differs from the spacecraft body frame.
+    #[error("attitude body frame must match the spacecraft body frame")]
+    AttitudeBodyFrameMismatch,
+    /// Attitude reference frame differs from the orbit coordinate frame.
+    #[error("attitude reference frame must match the orbit frame")]
+    AttitudeReferenceFrameMismatch,
 }
 
 #[cfg(test)]
@@ -617,9 +671,10 @@ mod tests {
     fn attitude(body: ReferenceFrame) -> AttitudeState {
         QuaternionAttitude::new(
             Orientation::identity(body, ReferenceFrame::GCRF),
-            FramedAngularVelocity::new(
+            BodyAngularVelocity::new(
                 AngularVelocityVector::from_radians_per_second(0.1, 0.2, 0.3),
                 body,
+                ReferenceFrame::GCRF,
             )
             .expect("finite angular velocity"),
         )
@@ -666,7 +721,8 @@ mod tests {
     #[test]
     fn spacecraft_contains_only_time_independent_identity_and_geometry() {
         let shape = SpacecraftShape::sphere(Length::new::<meter>(1.5)).expect("valid shape");
-        let spacecraft = Spacecraft::new("SC-001", shape).expect("non-empty id");
+        let body = body_frame(1);
+        let spacecraft = Spacecraft::new("SC-001", body, shape).expect("non-empty id");
 
         assert_eq!(spacecraft.id(), "SC-001");
         assert_eq!(spacecraft.shape(), shape);
@@ -675,7 +731,7 @@ mod tests {
         };
         assert_eq!(sphere.radius(), Length::new::<meter>(1.5));
         assert_eq!(
-            Spacecraft::new("  ", SpacecraftShape::Point),
+            Spacecraft::new("  ", body, SpacecraftShape::Point),
             Err(SpacecraftError::EmptyId)
         );
         assert_eq!(
@@ -695,7 +751,8 @@ mod tests {
     #[test]
     fn spacecraft_view_composes_epoch_dependent_physical_data() {
         let body = body_frame(1);
-        let spacecraft = Spacecraft::new("SC-001", SpacecraftShape::Point).expect("valid craft");
+        let spacecraft =
+            Spacecraft::new("SC-001", body, SpacecraftShape::Point).expect("valid craft");
         let attitude = attitude(body);
         let view = SpacecraftView::new(
             &spacecraft,
@@ -728,8 +785,43 @@ mod tests {
     fn rigid_body_frames_and_mass_are_validated() {
         let body = body_frame(1);
         let other = body_frame(2);
-        let spacecraft = Spacecraft::new("SC-001", SpacecraftShape::Point).expect("valid craft");
+        let spacecraft =
+            Spacecraft::new("SC-001", body, SpacecraftShape::Point).expect("valid craft");
         let valid_attitude = attitude(body);
+        assert_eq!(
+            Spacecraft::new("BAD", ReferenceFrame::GCRF, SpacecraftShape::Point),
+            Err(SpacecraftError::BodyFrameNotNonInertial)
+        );
+        assert!(matches!(
+            SpacecraftView::new(
+                &spacecraft,
+                Orbit::new(Epoch::from_tai_seconds(0.0), state()),
+                Mass::new::<kilogram>(500.0),
+                inertia(body),
+                attitude(other),
+            ),
+            Err(SpacecraftViewError::AttitudeBodyFrameMismatch)
+        ));
+        let wrong_reference = AttitudeState::new(
+            Orientation::identity(body, ReferenceFrame::EME2000),
+            BodyAngularVelocity::new(
+                AngularVelocityVector::from_radians_per_second(0.0, 0.0, 0.0),
+                body,
+                ReferenceFrame::EME2000,
+            )
+            .expect("finite angular velocity"),
+        )
+        .expect("internally consistent attitude");
+        assert!(matches!(
+            SpacecraftView::new(
+                &spacecraft,
+                Orbit::new(Epoch::from_tai_seconds(0.0), state()),
+                Mass::new::<kilogram>(500.0),
+                inertia(body),
+                wrong_reference,
+            ),
+            Err(SpacecraftViewError::AttitudeReferenceFrameMismatch)
+        ));
         assert!(matches!(
             SpacecraftView::new(
                 &spacecraft,
@@ -754,13 +846,26 @@ mod tests {
         assert_eq!(
             AttitudeState::new(
                 Orientation::identity(body, ReferenceFrame::GCRF),
-                FramedAngularVelocity::new(
+                BodyAngularVelocity::new(
                     AngularVelocityVector::from_radians_per_second(0.0, 0.0, 0.0),
                     other,
+                    ReferenceFrame::GCRF,
                 )
                 .expect("finite angular velocity"),
             ),
-            Err(AttitudeError::AngularVelocityFrameMismatch)
+            Err(AttitudeError::AngularVelocityBodyFrameMismatch)
+        );
+        assert_eq!(
+            AttitudeState::new(
+                Orientation::identity(body, ReferenceFrame::GCRF),
+                BodyAngularVelocity::new(
+                    AngularVelocityVector::from_radians_per_second(0.0, 0.0, 0.0),
+                    body,
+                    ReferenceFrame::EME2000,
+                )
+                .expect("finite angular velocity"),
+            ),
+            Err(AttitudeError::AngularVelocityReferenceFrameMismatch)
         );
     }
 

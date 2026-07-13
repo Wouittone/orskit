@@ -99,7 +99,8 @@ missing abstraction or an incorrectly placed type.
   `TryFrom`/`TryTo` representation changes receive explicit conversion context.
   `OrbitalElements` lets every representation provide any supported state.
 - `Orbit` composes an epoch with one closed `SpacecraftState` representation.
-  `Spacecraft` contains only time-independent identity and body geometry.
+  `Spacecraft` contains time-independent identity, an affirmative non-inertial
+  body frame, and body geometry.
   `SpacecraftView` borrows it while owning an `Orbit`, a closed `AttitudeState`
   enum, positive mass, and framed inertia. No
   physical representation is a generic parameter or trait object in the
