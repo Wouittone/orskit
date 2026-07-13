@@ -1,6 +1,6 @@
 # ADR-0003: own streaming CCSDS ingestion at the I/O edge
 
-- Status: Accepted
+- Status: Accepted; decoder resource contract refined by ADR-0020
 - Date: 2026-07-04
 - Owners: orskit maintainers
 - Affected parity rows: I/O / CCSDS messages; orbits / Cartesian states;

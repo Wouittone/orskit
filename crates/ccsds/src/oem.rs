@@ -15,7 +15,130 @@ use rayon::prelude::*;
 #[cfg(feature = "async")]
 use tokio::io::{AsyncBufRead, AsyncBufReadExt};
 
-const DEFAULT_MAX_LINE_LENGTH: usize = 64 * 1024;
+const DEFAULT_MAX_LINE_BYTES: usize = 64 * 1024;
+const DEFAULT_MAX_SECTION_BYTES: usize = 256 * 1024 * 1024;
+const DEFAULT_MAX_SECTION_LINES: usize = 4_000_000;
+
+/// OEM KVN section in which a decoder resource limit was reached.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum OemSection {
+    /// Message header, through its `META_START` marker.
+    Header,
+    /// Segment metadata, through its `META_STOP` marker.
+    Metadata,
+    /// Segment ephemeris data, through the next `META_START` marker or EOF.
+    Data,
+}
+
+impl fmt::Display for OemSection {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Header => "header",
+            Self::Metadata => "metadata",
+            Self::Data => "data",
+        })
+    }
+}
+
+/// Kind of bounded OEM decoder resource.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum OemLimitKind {
+    /// Content bytes in one physical line, excluding LF or CRLF.
+    LineBytes,
+    /// Cumulative content bytes in one header, metadata, or data section.
+    SectionBytes,
+    /// Physical lines in one header, metadata, or data section.
+    SectionLines,
+}
+
+impl fmt::Display for OemLimitKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::LineBytes => "line bytes",
+            Self::SectionBytes => "section bytes",
+            Self::SectionLines => "section lines",
+        })
+    }
+}
+
+/// Finite allocation and work limits shared by every OEM KVN decoder mode.
+///
+/// Byte limits count source content only; LF and CRLF terminators do not count.
+/// Section counters reset after each structural section boundary. The defaults
+/// admit the documented approximately 100 MiB workload while keeping every
+/// decoder entry point finite.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OemDecoderLimits {
+    max_line_bytes: usize,
+    max_section_bytes: usize,
+    max_section_lines: usize,
+}
+
+impl OemDecoderLimits {
+    /// Constructs non-zero decoder limits.
+    pub fn new(
+        max_line_bytes: usize,
+        max_section_bytes: usize,
+        max_section_lines: usize,
+    ) -> Result<Self, OemDecoderLimitsError> {
+        for (kind, value) in [
+            (OemLimitKind::LineBytes, max_line_bytes),
+            (OemLimitKind::SectionBytes, max_section_bytes),
+            (OemLimitKind::SectionLines, max_section_lines),
+        ] {
+            if value == 0 {
+                return Err(OemDecoderLimitsError::Zero { kind });
+            }
+        }
+        Ok(Self {
+            max_line_bytes,
+            max_section_bytes,
+            max_section_lines,
+        })
+    }
+
+    /// Returns the maximum content bytes in one physical line.
+    #[must_use]
+    pub const fn max_line_bytes(self) -> usize {
+        self.max_line_bytes
+    }
+
+    /// Returns the maximum cumulative content bytes in one section.
+    #[must_use]
+    pub const fn max_section_bytes(self) -> usize {
+        self.max_section_bytes
+    }
+
+    /// Returns the maximum physical lines in one section.
+    #[must_use]
+    pub const fn max_section_lines(self) -> usize {
+        self.max_section_lines
+    }
+}
+
+impl Default for OemDecoderLimits {
+    fn default() -> Self {
+        Self {
+            max_line_bytes: DEFAULT_MAX_LINE_BYTES,
+            max_section_bytes: DEFAULT_MAX_SECTION_BYTES,
+            max_section_lines: DEFAULT_MAX_SECTION_LINES,
+        }
+    }
+}
+
+/// Invalid OEM decoder-limit configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum OemDecoderLimitsError {
+    /// A decoder limit was configured as zero.
+    #[error("OEM decoder {kind} limit must be non-zero")]
+    Zero {
+        /// Invalid limit kind.
+        kind: OemLimitKind,
+    },
+}
 
 /// Absolute CCSDS time systems supported by the OEM reader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -268,13 +391,21 @@ pub enum OemError {
         #[source]
         source: std::io::Error,
     },
-    /// A line exceeded the configured allocation boundary.
-    #[error("OEM line {line} exceeds the configured {max_bytes}-byte limit")]
-    LineTooLong {
-        /// Source line.
+    /// A configured decoder resource limit was exceeded.
+    #[error(
+        "OEM {section} {kind} limit exceeded at line {line}: configured {configured}, observed {observed}"
+    )]
+    ResourceLimitExceeded {
+        /// Source line that crossed the limit.
         line: usize,
-        /// Configured byte limit.
-        max_bytes: usize,
+        /// Structural section containing that line.
+        section: OemSection,
+        /// Resource whose limit was crossed.
+        kind: OemLimitKind,
+        /// Configured finite limit.
+        configured: usize,
+        /// Observed value when the error was reported.
+        observed: usize,
     },
     /// The KVN source was not UTF-8 text.
     #[error("OEM line {line} is not valid UTF-8")]
@@ -417,7 +548,14 @@ pub enum OemError {
 enum BoundedLine {
     Line,
     Eof,
-    TooLong,
+    TooLong { observed: usize },
+}
+
+fn line_content_bytes(source: &str) -> usize {
+    match source.strip_suffix('\n') {
+        Some(line) => line.strip_suffix('\r').unwrap_or(line).len(),
+        None => source.len(),
+    }
 }
 
 fn read_bounded_line<R: BufRead>(
@@ -426,27 +564,48 @@ fn read_bounded_line<R: BufRead>(
     max_bytes: usize,
 ) -> std::io::Result<BoundedLine> {
     buffer.clear();
+    let buffer_limit = max_bytes.saturating_add(2);
+    let mut raw_bytes = 0usize;
+    let mut last_byte = None;
     loop {
         let available = reader.fill_buf()?;
         if available.is_empty() {
-            return Ok(if buffer.is_empty() {
+            return Ok(if raw_bytes == 0 {
                 BoundedLine::Eof
+            } else if raw_bytes > max_bytes {
+                BoundedLine::TooLong {
+                    observed: raw_bytes,
+                }
             } else {
                 BoundedLine::Line
             });
         }
         let newline = available.iter().position(|byte| *byte == b'\n');
         let take = newline.map_or(available.len(), |index| index + 1);
-        let remaining = max_bytes.saturating_sub(buffer.len());
-        if take > remaining {
-            buffer.extend_from_slice(&available[..remaining]);
-            reader.consume(remaining);
-            return Ok(BoundedLine::TooLong);
-        }
-        buffer.extend_from_slice(&available[..take]);
+        let byte_before_newline = newline.and_then(|index| {
+            if index == 0 {
+                last_byte
+            } else {
+                Some(available[index - 1])
+            }
+        });
+        let remaining = buffer_limit.saturating_sub(buffer.len());
+        buffer.extend_from_slice(&available[..take.min(remaining)]);
+        raw_bytes = raw_bytes.saturating_add(take);
+        last_byte = Some(available[take - 1]);
         reader.consume(take);
         if newline.is_some() {
-            return Ok(BoundedLine::Line);
+            let terminator_bytes = if byte_before_newline == Some(b'\r') {
+                2
+            } else {
+                1
+            };
+            let observed = raw_bytes.saturating_sub(terminator_bytes);
+            return Ok(if observed > max_bytes {
+                BoundedLine::TooLong { observed }
+            } else {
+                BoundedLine::Line
+            });
         }
     }
 }
@@ -458,27 +617,48 @@ async fn read_bounded_line_async<R: AsyncBufRead + Unpin>(
     max_bytes: usize,
 ) -> std::io::Result<BoundedLine> {
     buffer.clear();
+    let buffer_limit = max_bytes.saturating_add(2);
+    let mut raw_bytes = 0usize;
+    let mut last_byte = None;
     loop {
         let available = reader.fill_buf().await?;
         if available.is_empty() {
-            return Ok(if buffer.is_empty() {
+            return Ok(if raw_bytes == 0 {
                 BoundedLine::Eof
+            } else if raw_bytes > max_bytes {
+                BoundedLine::TooLong {
+                    observed: raw_bytes,
+                }
             } else {
                 BoundedLine::Line
             });
         }
         let newline = available.iter().position(|byte| *byte == b'\n');
         let take = newline.map_or(available.len(), |index| index + 1);
-        let remaining = max_bytes.saturating_sub(buffer.len());
-        if take > remaining {
-            buffer.extend_from_slice(&available[..remaining]);
-            reader.consume(remaining);
-            return Ok(BoundedLine::TooLong);
-        }
-        buffer.extend_from_slice(&available[..take]);
+        let byte_before_newline = newline.and_then(|index| {
+            if index == 0 {
+                last_byte
+            } else {
+                Some(available[index - 1])
+            }
+        });
+        let remaining = buffer_limit.saturating_sub(buffer.len());
+        buffer.extend_from_slice(&available[..take.min(remaining)]);
+        raw_bytes = raw_bytes.saturating_add(take);
+        last_byte = Some(available[take - 1]);
         reader.consume(take);
         if newline.is_some() {
-            return Ok(BoundedLine::Line);
+            let terminator_bytes = if byte_before_newline == Some(b'\r') {
+                2
+            } else {
+                1
+            };
+            let observed = raw_bytes.saturating_sub(terminator_bytes);
+            return Ok(if observed > max_bytes {
+                BoundedLine::TooLong { observed }
+            } else {
+                BoundedLine::Line
+            });
         }
     }
 }
@@ -491,7 +671,7 @@ pub struct OemKvnReader<R> {
     reader: R,
     decoder: Decoder,
     buffer: Vec<u8>,
-    max_line_length: usize,
+    limits: OemDecoderLimits,
     finished: bool,
 }
 
@@ -499,24 +679,18 @@ impl<R: BufRead> OemKvnReader<R> {
     /// Constructs a reader over any blocking buffered source.
     #[must_use]
     pub fn new(reader: R) -> Self {
-        Self {
-            reader,
-            decoder: Decoder::default(),
-            buffer: Vec::new(),
-            max_line_length: DEFAULT_MAX_LINE_LENGTH,
-            finished: false,
-        }
+        Self::with_limits(reader, OemDecoderLimits::default())
     }
 
-    /// Constructs a reader with a caller-selected maximum source-line length.
-    ///
-    /// A zero-byte limit is promoted to one byte. Limiting individual lines
-    /// prevents an untrusted source from forcing an unbounded line allocation.
+    /// Constructs a reader with caller-selected finite decoder limits.
     #[must_use]
-    pub fn with_max_line_length(reader: R, max_bytes: usize) -> Self {
+    pub fn with_limits(reader: R, limits: OemDecoderLimits) -> Self {
         Self {
-            max_line_length: max_bytes.max(1),
-            ..Self::new(reader)
+            reader,
+            decoder: Decoder::new(limits),
+            buffer: Vec::new(),
+            limits,
+            finished: false,
         }
     }
 }
@@ -530,16 +704,23 @@ impl<R: BufRead> Iterator for OemKvnReader<R> {
         }
 
         loop {
-            match read_bounded_line(&mut self.reader, &mut self.buffer, self.max_line_length) {
+            match read_bounded_line(
+                &mut self.reader,
+                &mut self.buffer,
+                self.limits.max_line_bytes,
+            ) {
                 Ok(BoundedLine::Eof) => {
                     self.finished = true;
                     return self.decoder.finish().transpose();
                 }
-                Ok(BoundedLine::TooLong) => {
+                Ok(BoundedLine::TooLong { observed }) => {
                     self.finished = true;
-                    return Some(Err(OemError::LineTooLong {
+                    return Some(Err(OemError::ResourceLimitExceeded {
                         line: self.decoder.line + 1,
-                        max_bytes: self.max_line_length,
+                        section: self.decoder.section(),
+                        kind: OemLimitKind::LineBytes,
+                        configured: self.limits.max_line_bytes,
+                        observed,
                     }));
                 }
                 Ok(BoundedLine::Line) => {
@@ -576,7 +757,7 @@ pub struct AsyncOemKvnReader<R> {
     reader: R,
     decoder: Decoder,
     buffer: Vec<u8>,
-    max_line_length: usize,
+    limits: OemDecoderLimits,
     finished: bool,
 }
 
@@ -585,21 +766,18 @@ impl<R: AsyncBufRead + Unpin> AsyncOemKvnReader<R> {
     /// Constructs a reader over any Tokio buffered source.
     #[must_use]
     pub fn new(reader: R) -> Self {
-        Self {
-            reader,
-            decoder: Decoder::default(),
-            buffer: Vec::new(),
-            max_line_length: DEFAULT_MAX_LINE_LENGTH,
-            finished: false,
-        }
+        Self::with_limits(reader, OemDecoderLimits::default())
     }
 
-    /// Constructs a reader with a caller-selected maximum source-line length.
+    /// Constructs a reader with caller-selected finite decoder limits.
     #[must_use]
-    pub fn with_max_line_length(reader: R, max_bytes: usize) -> Self {
+    pub fn with_limits(reader: R, limits: OemDecoderLimits) -> Self {
         Self {
-            max_line_length: max_bytes.max(1),
-            ..Self::new(reader)
+            reader,
+            decoder: Decoder::new(limits),
+            buffer: Vec::new(),
+            limits,
+            finished: false,
         }
     }
 
@@ -610,18 +788,25 @@ impl<R: AsyncBufRead + Unpin> AsyncOemKvnReader<R> {
         }
 
         loop {
-            match read_bounded_line_async(&mut self.reader, &mut self.buffer, self.max_line_length)
-                .await
+            match read_bounded_line_async(
+                &mut self.reader,
+                &mut self.buffer,
+                self.limits.max_line_bytes,
+            )
+            .await
             {
                 Ok(BoundedLine::Eof) => {
                     self.finished = true;
                     return self.decoder.finish().transpose();
                 }
-                Ok(BoundedLine::TooLong) => {
+                Ok(BoundedLine::TooLong { observed }) => {
                     self.finished = true;
-                    return Some(Err(OemError::LineTooLong {
+                    return Some(Err(OemError::ResourceLimitExceeded {
                         line: self.decoder.line + 1,
-                        max_bytes: self.max_line_length,
+                        section: self.decoder.section(),
+                        kind: OemLimitKind::LineBytes,
+                        configured: self.limits.max_line_bytes,
+                        observed,
                     }));
                 }
                 Ok(BoundedLine::Line) => {
@@ -656,7 +841,15 @@ impl<R: AsyncBufRead + Unpin> AsyncOemKvnReader<R> {
 ///
 /// Use [`OemKvnReader`] when the complete document does not need to be retained.
 pub fn parse_oem_kvn(input: &str) -> Result<Oem, OemError> {
-    collect_document(OemKvnReader::new(std::io::Cursor::new(input.as_bytes())))
+    parse_oem_kvn_with_limits(input, OemDecoderLimits::default())
+}
+
+/// Parses and collects an OEM KVN document with explicit decoder limits.
+pub fn parse_oem_kvn_with_limits(input: &str, limits: OemDecoderLimits) -> Result<Oem, OemError> {
+    collect_document(OemKvnReader::with_limits(
+        std::io::Cursor::new(input.as_bytes()),
+        limits,
+    ))
 }
 
 /// Parses and collects an in-memory OEM KVN document with ordered Rayon state
@@ -666,17 +859,21 @@ pub fn parse_oem_kvn(input: &str) -> Result<Oem, OemError> {
 /// converted in parallel, after their segment frame and time system are known.
 #[cfg(feature = "parallel")]
 pub fn parse_oem_kvn_parallel(input: &str) -> Result<Oem, OemError> {
-    let mut decoder = Decoder::default();
+    parse_oem_kvn_parallel_with_limits(input, OemDecoderLimits::default())
+}
+
+/// Parses and collects an in-memory OEM KVN document in parallel with explicit
+/// decoder limits.
+#[cfg(feature = "parallel")]
+pub fn parse_oem_kvn_parallel_with_limits(
+    input: &str,
+    limits: OemDecoderLimits,
+) -> Result<Oem, OemError> {
+    let mut decoder = Decoder::new(limits);
     let mut layout = Vec::new();
     let mut states = Vec::new();
 
     for line in input.lines() {
-        if line.len() > DEFAULT_MAX_LINE_LENGTH {
-            return Err(OemError::LineTooLong {
-                line: decoder.line + 1,
-                max_bytes: DEFAULT_MAX_LINE_LENGTH,
-            });
-        }
         if let Some(output) = decoder.push_line(line)? {
             match output {
                 DecoderOutput::Event(event) => layout.push(ParallelLayout::Event(Box::new(event))),
@@ -788,14 +985,22 @@ fn decode_output(output: DecoderOutput<'_>) -> Result<OemEvent, OemError> {
     }
 }
 
-#[derive(Default)]
 struct Decoder {
     line: usize,
     phase: Phase,
+    limits: OemDecoderLimits,
+    section_bytes: usize,
+    section_lines: usize,
     header: HeaderBuilder,
     metadata: MetadataBuilder,
     current_metadata: Option<OemMetadata>,
     current_state_count: usize,
+}
+
+impl Default for Decoder {
+    fn default() -> Self {
+        Self::new(OemDecoderLimits::default())
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -823,8 +1028,72 @@ struct RawState<'a> {
 }
 
 impl Decoder {
+    fn new(limits: OemDecoderLimits) -> Self {
+        Self {
+            line: 0,
+            phase: Phase::Header,
+            limits,
+            section_bytes: 0,
+            section_lines: 0,
+            header: HeaderBuilder::default(),
+            metadata: MetadataBuilder::default(),
+            current_metadata: None,
+            current_state_count: 0,
+        }
+    }
+
+    const fn section(&self) -> OemSection {
+        match self.phase {
+            Phase::Header => OemSection::Header,
+            Phase::Metadata => OemSection::Metadata,
+            Phase::Data | Phase::Done => OemSection::Data,
+        }
+    }
+
+    fn account_line(&mut self, source: &str) -> Result<(), OemError> {
+        let section = self.section();
+        let bytes = line_content_bytes(source);
+        if bytes > self.limits.max_line_bytes {
+            return Err(OemError::ResourceLimitExceeded {
+                line: self.line,
+                section,
+                kind: OemLimitKind::LineBytes,
+                configured: self.limits.max_line_bytes,
+                observed: bytes,
+            });
+        }
+
+        self.section_bytes = self.section_bytes.saturating_add(bytes);
+        self.section_lines = self.section_lines.saturating_add(1);
+        if self.section_bytes > self.limits.max_section_bytes {
+            return Err(OemError::ResourceLimitExceeded {
+                line: self.line,
+                section,
+                kind: OemLimitKind::SectionBytes,
+                configured: self.limits.max_section_bytes,
+                observed: self.section_bytes,
+            });
+        }
+        if self.section_lines > self.limits.max_section_lines {
+            return Err(OemError::ResourceLimitExceeded {
+                line: self.line,
+                section,
+                kind: OemLimitKind::SectionLines,
+                configured: self.limits.max_section_lines,
+                observed: self.section_lines,
+            });
+        }
+        Ok(())
+    }
+
+    const fn reset_section_counters(&mut self) {
+        self.section_bytes = 0;
+        self.section_lines = 0;
+    }
+
     fn push_line<'a>(&mut self, source: &'a str) -> Result<Option<DecoderOutput<'a>>, OemError> {
         self.line += 1;
+        self.account_line(source)?;
         let line = source.trim();
         if line.is_empty() {
             return Ok(None);
@@ -835,6 +1104,7 @@ impl Decoder {
                 if line == "META_START" {
                     let header = std::mem::take(&mut self.header).finish(self.line)?;
                     self.phase = Phase::Metadata;
+                    self.reset_section_counters();
                     Ok(Some(DecoderOutput::Event(OemEvent::Header(header))))
                 } else {
                     self.header.push(line, self.line)?;
@@ -847,6 +1117,7 @@ impl Decoder {
                     self.current_metadata = Some(metadata.clone());
                     self.current_state_count = 0;
                     self.phase = Phase::Data;
+                    self.reset_section_counters();
                     Ok(Some(DecoderOutput::Event(OemEvent::SegmentStart(metadata))))
                 } else {
                     self.metadata.push(line, self.line)?;
@@ -860,6 +1131,7 @@ impl Decoder {
                     }
                     self.current_metadata = None;
                     self.phase = Phase::Metadata;
+                    self.reset_section_counters();
                     return Ok(Some(DecoderOutput::Event(OemEvent::SegmentEnd)));
                 }
                 if line == "COVARIANCE_START" {
@@ -1323,6 +1595,50 @@ STOP_TIME = 2024-01-01T00:01:00\n\
 META_STOP\n\
 2024-01-01T00:00:00 1 2 3 4 5 6\n";
 
+    fn limits(
+        max_line_bytes: usize,
+        max_section_bytes: usize,
+        max_section_lines: usize,
+    ) -> OemDecoderLimits {
+        OemDecoderLimits::new(max_line_bytes, max_section_bytes, max_section_lines)
+            .expect("test decoder limits are non-zero")
+    }
+
+    fn maximum_section_totals(input: &str) -> (usize, usize) {
+        let mut phase = Phase::Header;
+        let mut bytes = 0usize;
+        let mut lines = 0usize;
+        let mut maximum_bytes = 0usize;
+        let mut maximum_lines = 0usize;
+
+        for line in input.lines() {
+            bytes += line.len();
+            lines += 1;
+            let boundary = match phase {
+                Phase::Header if line.trim() == "META_START" => {
+                    phase = Phase::Metadata;
+                    true
+                }
+                Phase::Metadata if line.trim() == "META_STOP" => {
+                    phase = Phase::Data;
+                    true
+                }
+                Phase::Data if line.trim() == "META_START" => {
+                    phase = Phase::Metadata;
+                    true
+                }
+                _ => false,
+            };
+            if boundary {
+                maximum_bytes = maximum_bytes.max(bytes);
+                maximum_lines = maximum_lines.max(lines);
+                bytes = 0;
+                lines = 0;
+            }
+        }
+        (maximum_bytes.max(bytes), maximum_lines.max(lines))
+    }
+
     #[test]
     fn parses_multiple_segments_into_typed_coordinates() {
         let message = parse_oem_kvn(SAMPLE).expect("valid CCSDS OEM KVN");
@@ -1484,19 +1800,155 @@ META_STOP\n\
     }
 
     #[test]
-    fn blocking_reader_enforces_line_allocation_limit() {
-        let error = OemKvnReader::with_max_line_length(std::io::Cursor::new(SAMPLE.as_bytes()), 8)
-            .next()
-            .expect("the source has a first line")
-            .expect_err("the first line exceeds eight bytes");
+    fn decoder_limits_must_be_non_zero() {
+        for (configured, expected) in [
+            ((0, 1, 1), OemLimitKind::LineBytes),
+            ((1, 0, 1), OemLimitKind::SectionBytes),
+            ((1, 1, 0), OemLimitKind::SectionLines),
+        ] {
+            assert_eq!(
+                OemDecoderLimits::new(configured.0, configured.1, configured.2),
+                Err(OemDecoderLimitsError::Zero { kind: expected })
+            );
+        }
+    }
+
+    #[test]
+    fn line_byte_limit_is_inclusive() {
+        let longest = SAMPLE
+            .lines()
+            .map(str::len)
+            .max()
+            .expect("sample has lines");
+        parse_oem_kvn_with_limits(
+            SAMPLE,
+            limits(
+                longest,
+                DEFAULT_MAX_SECTION_BYTES,
+                DEFAULT_MAX_SECTION_LINES,
+            ),
+        )
+        .expect("a line exactly at the configured boundary is valid");
+
+        let error = parse_oem_kvn_with_limits(
+            SAMPLE,
+            limits(
+                longest - 1,
+                DEFAULT_MAX_SECTION_BYTES,
+                DEFAULT_MAX_SECTION_LINES,
+            ),
+        )
+        .expect_err("the longest source line exceeds the smaller boundary");
 
         assert!(matches!(
             error,
-            OemError::LineTooLong {
-                line: 1,
-                max_bytes: 8
-            }
+            OemError::ResourceLimitExceeded {
+                kind: OemLimitKind::LineBytes,
+                configured,
+                observed,
+                ..
+            } if configured == longest - 1 && observed == longest
         ));
+    }
+
+    #[test]
+    fn section_limits_are_inclusive_and_reset_at_boundaries() {
+        let (max_bytes, max_lines) = maximum_section_totals(SAMPLE);
+        parse_oem_kvn_with_limits(SAMPLE, limits(DEFAULT_MAX_LINE_BYTES, max_bytes, max_lines))
+            .expect("each section independently fits its exact boundary");
+
+        assert!(matches!(
+            parse_oem_kvn_with_limits(
+                SAMPLE,
+                limits(DEFAULT_MAX_LINE_BYTES, max_bytes - 1, DEFAULT_MAX_SECTION_LINES),
+            ),
+            Err(OemError::ResourceLimitExceeded {
+                kind: OemLimitKind::SectionBytes,
+                configured,
+                observed,
+                ..
+            }) if configured == max_bytes - 1 && observed > configured
+        ));
+        assert!(matches!(
+            parse_oem_kvn_with_limits(
+                SAMPLE,
+                limits(DEFAULT_MAX_LINE_BYTES, DEFAULT_MAX_SECTION_BYTES, max_lines - 1),
+            ),
+            Err(OemError::ResourceLimitExceeded {
+                kind: OemLimitKind::SectionLines,
+                configured,
+                observed,
+                ..
+            }) if configured == max_lines - 1 && observed == max_lines
+        ));
+    }
+
+    #[test]
+    fn repeated_short_comments_hit_a_finite_header_limit() {
+        let input = format!("CCSDS_OEM_VERS = 3.0\n{}", "COMMENT filler\n".repeat(10));
+        assert!(matches!(
+            parse_oem_kvn_with_limits(&input, limits(64, 1_024, 3)),
+            Err(OemError::ResourceLimitExceeded {
+                line: 4,
+                section: OemSection::Header,
+                kind: OemLimitKind::SectionLines,
+                configured: 3,
+                observed: 4,
+            })
+        ));
+    }
+
+    #[test]
+    fn lf_and_crlf_are_equivalent_in_blocking_and_parallel_modes() {
+        let crlf = SAMPLE.replace('\n', "\r\n");
+        let (max_section_bytes, max_section_lines) = maximum_section_totals(SAMPLE);
+        let longest = SAMPLE
+            .lines()
+            .map(str::len)
+            .max()
+            .expect("sample has lines");
+        let limits = limits(longest, max_section_bytes, max_section_lines);
+
+        assert_eq!(
+            parse_oem_kvn_with_limits(SAMPLE, limits).expect("LF document"),
+            parse_oem_kvn_with_limits(&crlf, limits).expect("CRLF document")
+        );
+        let lf_events = OemKvnReader::with_limits(std::io::Cursor::new(SAMPLE.as_bytes()), limits)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("LF stream");
+        let crlf_events = OemKvnReader::with_limits(std::io::Cursor::new(crlf.as_bytes()), limits)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("CRLF stream");
+        assert_eq!(lf_events, crlf_events);
+
+        #[cfg(feature = "parallel")]
+        assert_eq!(
+            parse_oem_kvn_parallel_with_limits(SAMPLE, limits).expect("parallel LF document"),
+            parse_oem_kvn_parallel_with_limits(&crlf, limits).expect("parallel CRLF document")
+        );
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test]
+    async fn explicit_limits_and_line_endings_match_in_async_mode() {
+        let crlf = SAMPLE.replace('\n', "\r\n");
+        let (max_section_bytes, max_section_lines) = maximum_section_totals(SAMPLE);
+        let longest = SAMPLE
+            .lines()
+            .map(str::len)
+            .max()
+            .expect("sample has lines");
+        let limits = limits(longest, max_section_bytes, max_section_lines);
+        let expected = OemKvnReader::with_limits(std::io::Cursor::new(SAMPLE.as_bytes()), limits)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("blocking LF stream");
+        let mut reader =
+            AsyncOemKvnReader::with_limits(tokio::io::BufReader::new(crlf.as_bytes()), limits);
+        let mut actual = Vec::new();
+        while let Some(event) = reader.next_event().await {
+            actual.push(event.expect("async CRLF stream"));
+        }
+        assert_eq!(actual, expected);
     }
 
     #[test]
