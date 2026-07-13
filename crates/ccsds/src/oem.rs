@@ -530,6 +530,20 @@ pub enum OemError {
         /// Source line.
         line: usize,
     },
+    /// State epochs in one segment did not increase strictly in source order.
+    #[error(
+        "OEM state epoch {current_epoch} at line {current_line} is not later than {previous_epoch} at line {previous_line}"
+    )]
+    NonIncreasingStateEpoch {
+        /// Source line of the preceding state.
+        previous_line: usize,
+        /// Epoch of the preceding state.
+        previous_epoch: Epoch,
+        /// Source line of the state that violated ordering.
+        current_line: usize,
+        /// Epoch of the state that violated ordering.
+        current_epoch: Epoch,
+    },
     /// A segment contained no ephemeris states.
     #[error("OEM segment ending at line {line} contains no state records")]
     EmptySegment {
@@ -670,6 +684,7 @@ async fn read_bounded_line_async<R: AsyncBufRead + Unpin>(
 pub struct OemKvnReader<R> {
     reader: R,
     decoder: Decoder,
+    chronology: SegmentChronology,
     buffer: Vec<u8>,
     limits: OemDecoderLimits,
     finished: bool,
@@ -688,6 +703,7 @@ impl<R: BufRead> OemKvnReader<R> {
         Self {
             reader,
             decoder: Decoder::new(limits),
+            chronology: SegmentChronology::default(),
             buffer: Vec::new(),
             limits,
             finished: false,
@@ -711,7 +727,15 @@ impl<R: BufRead> Iterator for OemKvnReader<R> {
             ) {
                 Ok(BoundedLine::Eof) => {
                     self.finished = true;
-                    return self.decoder.finish().transpose();
+                    return match self.decoder.finish() {
+                        Ok(Some(event)) => Some(validate_event_chronology(
+                            event,
+                            self.decoder.line,
+                            &mut self.chronology,
+                        )),
+                        Ok(None) => None,
+                        Err(error) => Some(Err(error)),
+                    };
                 }
                 Ok(BoundedLine::TooLong { observed }) => {
                     self.finished = true;
@@ -731,7 +755,13 @@ impl<R: BufRead> Iterator for OemKvnReader<R> {
                         }));
                     };
                     match self.decoder.push_line(line) {
-                        Ok(Some(output)) => return Some(decode_output(output)),
+                        Ok(Some(output)) => {
+                            let result = decode_output(output, &mut self.chronology);
+                            if matches!(&result, Err(OemError::NonIncreasingStateEpoch { .. })) {
+                                self.finished = true;
+                            }
+                            return Some(result);
+                        }
                         Ok(None) => {}
                         Err(error) => {
                             self.finished = true;
@@ -756,6 +786,7 @@ impl<R: BufRead> Iterator for OemKvnReader<R> {
 pub struct AsyncOemKvnReader<R> {
     reader: R,
     decoder: Decoder,
+    chronology: SegmentChronology,
     buffer: Vec<u8>,
     limits: OemDecoderLimits,
     finished: bool,
@@ -775,6 +806,7 @@ impl<R: AsyncBufRead + Unpin> AsyncOemKvnReader<R> {
         Self {
             reader,
             decoder: Decoder::new(limits),
+            chronology: SegmentChronology::default(),
             buffer: Vec::new(),
             limits,
             finished: false,
@@ -797,7 +829,15 @@ impl<R: AsyncBufRead + Unpin> AsyncOemKvnReader<R> {
             {
                 Ok(BoundedLine::Eof) => {
                     self.finished = true;
-                    return self.decoder.finish().transpose();
+                    return match self.decoder.finish() {
+                        Ok(Some(event)) => Some(validate_event_chronology(
+                            event,
+                            self.decoder.line,
+                            &mut self.chronology,
+                        )),
+                        Ok(None) => None,
+                        Err(error) => Some(Err(error)),
+                    };
                 }
                 Ok(BoundedLine::TooLong { observed }) => {
                     self.finished = true;
@@ -817,7 +857,13 @@ impl<R: AsyncBufRead + Unpin> AsyncOemKvnReader<R> {
                         }));
                     };
                     match self.decoder.push_line(line) {
-                        Ok(Some(output)) => return Some(decode_output(output)),
+                        Ok(Some(output)) => {
+                            let result = decode_output(output, &mut self.chronology);
+                            if matches!(&result, Err(OemError::NonIncreasingStateEpoch { .. })) {
+                                self.finished = true;
+                            }
+                            return Some(result);
+                        }
                         Ok(None) => {}
                         Err(error) => {
                             self.finished = true;
@@ -903,15 +949,22 @@ pub fn parse_oem_kvn_parallel_with_limits(
         })
         .collect();
     let mut parsed = parsed.into_iter().map(Some).collect::<Vec<_>>();
-    let events = layout.into_iter().map(|item| match item {
-        ParallelLayout::Event(event) => Ok(*event),
-        ParallelLayout::State(index) => parsed[index]
-            .take()
-            .ok_or(OemError::InvalidEventOrder {
-                message: "parallel state layout was consumed more than once",
-            })?
-            .map(OemEvent::Coordinates),
-    });
+    let mut chronology = SegmentChronology::default();
+    let events = layout
+        .into_iter()
+        .map(|item| -> Result<OemEvent, OemError> {
+            let (event, line) = match item {
+                ParallelLayout::Event(event) => (*event, 0),
+                ParallelLayout::State(index) => {
+                    let line = states[index].line;
+                    let sample = parsed[index].take().ok_or(OemError::InvalidEventOrder {
+                        message: "parallel state layout was consumed more than once",
+                    })??;
+                    (OemEvent::Coordinates(sample), line)
+                }
+            };
+            validate_event_chronology(event, line, &mut chronology)
+        });
     collect_document(events)
 }
 
@@ -970,19 +1023,67 @@ fn collect_document(
     })
 }
 
-fn decode_output(output: DecoderOutput<'_>) -> Result<OemEvent, OemError> {
-    match output {
-        DecoderOutput::Event(event) => Ok(event),
-        DecoderOutput::State(raw) => parse_state_line(
-            raw.text,
-            raw.line,
-            raw.frame,
-            raw.time_system,
-            raw.start_time,
-            raw.stop_time,
-        )
-        .map(OemEvent::Coordinates),
+#[derive(Default)]
+struct SegmentChronology {
+    previous: Option<(usize, Epoch)>,
+}
+
+impl SegmentChronology {
+    const fn reset(&mut self) {
+        self.previous = None;
     }
+
+    fn observe(&mut self, line: usize, epoch: Epoch) -> Result<(), OemError> {
+        if let Some((previous_line, previous_epoch)) = self.previous {
+            if epoch <= previous_epoch {
+                return Err(OemError::NonIncreasingStateEpoch {
+                    previous_line,
+                    previous_epoch,
+                    current_line: line,
+                    current_epoch: epoch,
+                });
+            }
+        }
+        self.previous = Some((line, epoch));
+        Ok(())
+    }
+}
+
+fn validate_event_chronology(
+    event: OemEvent,
+    line: usize,
+    chronology: &mut SegmentChronology,
+) -> Result<OemEvent, OemError> {
+    match &event {
+        OemEvent::Header(_) | OemEvent::SegmentStart(_) | OemEvent::SegmentEnd => {
+            chronology.reset();
+        }
+        OemEvent::Coordinates(sample) => chronology.observe(line, sample.epoch())?,
+    }
+    Ok(event)
+}
+
+fn decode_output(
+    output: DecoderOutput<'_>,
+    chronology: &mut SegmentChronology,
+) -> Result<OemEvent, OemError> {
+    let (event, line) = match output {
+        DecoderOutput::Event(event) => (event, 0),
+        DecoderOutput::State(raw) => {
+            let line = raw.line;
+            let event = parse_state_line(
+                raw.text,
+                raw.line,
+                raw.frame,
+                raw.time_system,
+                raw.start_time,
+                raw.stop_time,
+            )
+            .map(OemEvent::Coordinates)?;
+            (event, line)
+        }
+    };
+    validate_event_chronology(event, line, chronology)
 }
 
 struct Decoder {
@@ -1639,6 +1740,22 @@ META_STOP\n\
         (maximum_bytes.max(bytes), maximum_lines.max(lines))
     }
 
+    fn duplicate_epoch_input() -> String {
+        SAMPLE.replacen("2024-01-01T00:01:00 6990", "2024-01-01T00:00:00 6990", 1)
+    }
+
+    fn chronology_signature(error: OemError) -> (usize, Epoch, usize, Epoch) {
+        match error {
+            OemError::NonIncreasingStateEpoch {
+                previous_line,
+                previous_epoch,
+                current_line,
+                current_epoch,
+            } => (previous_line, previous_epoch, current_line, current_epoch),
+            other => panic!("expected chronology error, received {other}"),
+        }
+    }
+
     #[test]
     fn parses_multiple_segments_into_typed_coordinates() {
         let message = parse_oem_kvn(SAMPLE).expect("valid CCSDS OEM KVN");
@@ -1959,6 +2076,94 @@ META_STOP\n\
             .expect_err("OEM KVN is UTF-8 text");
 
         assert!(matches!(error, OemError::InvalidUtf8 { line: 1 }));
+    }
+
+    #[test]
+    fn duplicate_state_epoch_is_rejected() {
+        let (previous_line, previous_epoch, current_line, current_epoch) =
+            chronology_signature(parse_oem_kvn(&duplicate_epoch_input()).expect_err("duplicate"));
+
+        assert_eq!((previous_line, current_line), (16, 17));
+        assert_eq!(previous_epoch, current_epoch);
+    }
+
+    #[test]
+    fn reversed_state_epochs_are_rejected() {
+        let input = SAMPLE.replacen("2024-01-01T00:00:00 7000", "2024-01-01T00:02:00 7000", 1);
+        let (previous_line, previous_epoch, current_line, current_epoch) =
+            chronology_signature(parse_oem_kvn(&input).expect_err("reversed chronology"));
+
+        assert_eq!((previous_line, current_line), (16, 17));
+        assert!(previous_epoch > current_epoch);
+    }
+
+    #[test]
+    fn chronology_resets_between_segments() {
+        let message = parse_oem_kvn(SAMPLE).expect("each segment is independently ordered");
+        let first_segment_last = message.segments()[0]
+            .coordinates()
+            .last()
+            .expect("first segment has states")
+            .epoch();
+        let second_segment_first = message.segments()[1]
+            .coordinates()
+            .first()
+            .expect("second segment has states")
+            .epoch();
+
+        assert!(second_segment_first < first_segment_last);
+    }
+
+    #[test]
+    fn chronology_error_matches_blocking_and_parallel_modes() {
+        let input = duplicate_epoch_input();
+        let expected = chronology_signature(parse_oem_kvn(&input).expect_err("sequential error"));
+        let mut reader = OemKvnReader::new(std::io::Cursor::new(input.as_bytes()));
+        let mut coordinates = 0usize;
+        let streaming_error = loop {
+            match reader.next().expect("stream reaches chronology error") {
+                Ok(OemEvent::Coordinates(_)) => coordinates += 1,
+                Ok(_) => {}
+                Err(error) => break chronology_signature(error),
+            }
+        };
+        assert_eq!(coordinates, 1, "invalid sample is not emitted");
+        assert!(
+            reader.next().is_none(),
+            "reader terminates after chronology error"
+        );
+        assert_eq!(streaming_error, expected);
+
+        #[cfg(feature = "parallel")]
+        assert_eq!(
+            chronology_signature(
+                parse_oem_kvn_parallel(&input).expect_err("parallel chronology error")
+            ),
+            expected
+        );
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test]
+    async fn chronology_error_matches_async_mode() {
+        let input = duplicate_epoch_input();
+        let expected = chronology_signature(parse_oem_kvn(&input).expect_err("sequential error"));
+        let mut reader = AsyncOemKvnReader::new(tokio::io::BufReader::new(input.as_bytes()));
+        let mut coordinates = 0usize;
+        let actual = loop {
+            match reader
+                .next_event()
+                .await
+                .expect("async stream reaches chronology error")
+            {
+                Ok(OemEvent::Coordinates(_)) => coordinates += 1,
+                Ok(_) => {}
+                Err(error) => break chronology_signature(error),
+            }
+        };
+        assert_eq!(coordinates, 1, "invalid sample is not emitted");
+        assert!(reader.next_event().await.is_none());
+        assert_eq!(actual, expected);
     }
 
     #[test]
