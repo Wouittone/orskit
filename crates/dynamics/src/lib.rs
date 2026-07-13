@@ -5,7 +5,11 @@
 //! inertia. Environmental bodies and other configuration belong to the force
 //! model, not to the interaction input. The first narrow evaluator provides
 //! orbit-only analytical elliptic two-body propagation; general state derivatives,
-//! numerical integration, events, and variational equations remain absent.
+//! numerical integration, events, and variational equations remain absent. The
+//! concrete [`TwoBodyDynamics`] description is deliberately strict: it contains
+//! one central point-mass model and cannot be extended with additional forces.
+//! Third-body descriptions remain unavailable until their ephemeris, frame, and
+//! acceleration-assembly contracts are explicit.
 //!
 //! ```
 //! use bodies::Body;
@@ -27,7 +31,6 @@
 use std::{fmt, sync::Arc};
 
 use bodies::Body;
-use thiserror::Error;
 use units::GravitationalParameter;
 
 mod propagator;
@@ -223,50 +226,50 @@ impl ForceModel for PointMassGravityModel {
 
 impl ConservativeForceModel for PointMassGravityModel {}
 
-/// Simplified two-body spacecraft dynamics description.
+/// Strict two-body spacecraft dynamics description.
 ///
-/// The two bodies are the spacecraft and one configured point-mass attractor.
-/// Additional conservative and non-conservative force-model implementations
-/// may be attached without changing the system contract.
-#[derive(Debug, Clone)]
+/// The system contains exactly the spacecraft and one configured central
+/// point-mass gravity model. Additional force models would change that physical
+/// topology and therefore cannot be attached to this type. General multi-force
+/// and third-body propagation remain unavailable until their state and data
+/// provider contracts are defined.
+#[derive(Clone)]
 pub struct TwoBodyDynamics {
-    attractor: Body,
-    conservative_force_models: Vec<ConservativeForceModelHandle>,
-    non_conservative_force_models: Vec<NonConservativeForceModelHandle>,
+    central_gravity_model: Arc<PointMassGravityModel>,
+    conservative_force_models: [ConservativeForceModelHandle; 1],
 }
 
 impl TwoBodyDynamics {
-    /// Describes spacecraft motion under one point-mass gravity model.
+    /// Describes spacecraft motion under exactly one central point-mass model.
     #[must_use]
     pub fn new(model: PointMassGravityModel) -> Self {
+        let central_gravity_model = Arc::new(model);
+        let model_handle: ConservativeForceModelHandle = central_gravity_model.clone();
         Self {
-            attractor: model.attractor(),
-            conservative_force_models: vec![Arc::new(model)],
-            non_conservative_force_models: Vec::new(),
+            central_gravity_model,
+            conservative_force_models: [model_handle],
         }
     }
 
     /// Returns the configured attracting body.
     #[must_use]
-    pub const fn attractor(&self) -> Body {
-        self.attractor
+    pub fn attractor(&self) -> Body {
+        self.central_gravity_model.attractor()
     }
 
-    /// Adds a conservative force-model description in declaration order.
+    /// Returns the sole central point-mass gravity model.
     #[must_use]
-    pub fn with_conservative_force_model(mut self, model: ConservativeForceModelHandle) -> Self {
-        self.conservative_force_models.push(model);
-        self
+    pub fn central_gravity_model(&self) -> &PointMassGravityModel {
+        &self.central_gravity_model
     }
+}
 
-    /// Adds a non-conservative force-model description in declaration order.
-    #[must_use]
-    pub fn with_non_conservative_force_model(
-        mut self,
-        model: NonConservativeForceModelHandle,
-    ) -> Self {
-        self.non_conservative_force_models.push(model);
-        self
+impl fmt::Debug for TwoBodyDynamics {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TwoBodyDynamics")
+            .field("central_gravity_model", &self.central_gravity_model)
+            .finish()
     }
 }
 
@@ -280,85 +283,8 @@ impl SystemDynamics for TwoBodyDynamics {
     }
 
     fn non_conservative_force_models(&self) -> &[NonConservativeForceModelHandle] {
-        &self.non_conservative_force_models
+        &[]
     }
-}
-
-/// Simplified three-body spacecraft dynamics description.
-///
-/// The three bodies are the spacecraft and two distinct point-mass attractors.
-/// The description does not select restricted/full equations, ephemerides, or
-/// a numerical resolution method.
-#[derive(Debug, Clone)]
-pub struct ThreeBodyDynamics {
-    attractors: [Body; 2],
-    conservative_force_models: Vec<ConservativeForceModelHandle>,
-    non_conservative_force_models: Vec<NonConservativeForceModelHandle>,
-}
-
-impl ThreeBodyDynamics {
-    /// Describes spacecraft motion under two distinct point-mass attractors.
-    pub fn new(
-        first: PointMassGravityModel,
-        second: PointMassGravityModel,
-    ) -> Result<Self, DynamicsDescriptionError> {
-        if first.attractor() == second.attractor() {
-            return Err(DynamicsDescriptionError::DuplicateAttractor(
-                first.attractor(),
-            ));
-        }
-        Ok(Self {
-            attractors: [first.attractor(), second.attractor()],
-            conservative_force_models: vec![Arc::new(first), Arc::new(second)],
-            non_conservative_force_models: Vec::new(),
-        })
-    }
-
-    /// Returns the two configured attracting bodies.
-    #[must_use]
-    pub const fn attractors(&self) -> [Body; 2] {
-        self.attractors
-    }
-
-    /// Adds a conservative force-model description in declaration order.
-    #[must_use]
-    pub fn with_conservative_force_model(mut self, model: ConservativeForceModelHandle) -> Self {
-        self.conservative_force_models.push(model);
-        self
-    }
-
-    /// Adds a non-conservative force-model description in declaration order.
-    #[must_use]
-    pub fn with_non_conservative_force_model(
-        mut self,
-        model: NonConservativeForceModelHandle,
-    ) -> Self {
-        self.non_conservative_force_models.push(model);
-        self
-    }
-}
-
-impl SystemDynamics for ThreeBodyDynamics {
-    fn name(&self) -> &str {
-        "three-body spacecraft dynamics"
-    }
-
-    fn conservative_force_models(&self) -> &[ConservativeForceModelHandle] {
-        &self.conservative_force_models
-    }
-
-    fn non_conservative_force_models(&self) -> &[NonConservativeForceModelHandle] {
-        &self.non_conservative_force_models
-    }
-}
-
-/// Invalid dynamics description.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-#[non_exhaustive]
-pub enum DynamicsDescriptionError {
-    /// A three-body description repeated the same attracting body.
-    #[error("three-body dynamics contains duplicate attractor {0}")]
-    DuplicateAttractor(Body),
 }
 
 #[cfg(test)]
@@ -377,76 +303,18 @@ mod tests {
         point_mass(Body::EARTH, 3.986_004_418e14)
     }
 
-    fn moon_gravity() -> PointMassGravityModel {
-        point_mass(Body::MOON, 4.904_869_5e12)
-    }
-
-    #[derive(Debug)]
-    struct PotentialForce;
-
-    impl Force for PotentialForce {
-        fn name(&self) -> &str {
-            "test potential"
-        }
-    }
-
-    static POTENTIAL_FORCE: PotentialForce = PotentialForce;
-
-    #[derive(Debug)]
-    struct PositionPotentialModel;
-
-    impl ForceModel for PositionPotentialModel {
-        fn model_name(&self) -> &str {
-            "position potential model"
-        }
-
-        fn force(&self) -> &dyn Force {
-            &POTENTIAL_FORCE
-        }
-
-        fn state_dependencies(&self) -> SpacecraftStateDependencies {
-            SpacecraftStateDependencies::POSITION
-        }
-    }
-
-    impl ConservativeForceModel for PositionPotentialModel {}
-
-    #[derive(Debug)]
-    struct AerodynamicForce;
-
-    impl Force for AerodynamicForce {
-        fn name(&self) -> &str {
-            "aerodynamic force"
-        }
-    }
-
-    static AERODYNAMIC_FORCE: AerodynamicForce = AerodynamicForce;
-
-    #[derive(Debug)]
-    struct AerodynamicDragModel;
-
-    impl ForceModel for AerodynamicDragModel {
-        fn model_name(&self) -> &str {
-            "isotropic drag model"
-        }
-
-        fn force(&self) -> &dyn Force {
-            &AERODYNAMIC_FORCE
-        }
-
-        fn state_dependencies(&self) -> SpacecraftStateDependencies {
-            SpacecraftStateDependencies::ALL
-        }
-    }
-
-    impl NonConservativeForceModel for AerodynamicDragModel {}
-
     #[test]
-    fn two_body_is_a_system_dynamics_implementation() {
+    fn two_body_preserves_exactly_one_central_point_mass_model() {
+        let expected_mu = earth_gravity().gravitational_parameter();
         let dynamics = TwoBodyDynamics::new(earth_gravity());
 
         assert_eq!(dynamics.name(), "two-body spacecraft dynamics");
         assert_eq!(dynamics.attractor(), Body::EARTH);
+        assert_eq!(dynamics.central_gravity_model().attractor(), Body::EARTH);
+        assert_eq!(
+            dynamics.central_gravity_model().gravitational_parameter(),
+            expected_mu
+        );
         assert_eq!(dynamics.conservative_force_models().len(), 1);
         assert!(dynamics.non_conservative_force_models().is_empty());
         assert_eq!(
@@ -464,57 +332,6 @@ mod tests {
     }
 
     #[test]
-    fn three_body_configures_two_independent_attractors() {
-        let dynamics = ThreeBodyDynamics::new(earth_gravity(), moon_gravity())
-            .expect("Earth and Moon are distinct attractors");
-
-        assert_eq!(dynamics.attractors(), [Body::EARTH, Body::MOON]);
-        assert_eq!(dynamics.conservative_force_models().len(), 2);
-        assert_eq!(
-            dynamics.conservative_force_models()[0].state_dependencies(),
-            SpacecraftStateDependencies::POSITION
-        );
-        assert_eq!(
-            dynamics.conservative_force_models()[1].state_dependencies(),
-            SpacecraftStateDependencies::POSITION
-        );
-        assert!(dynamics
-            .conservative_force_models()
-            .iter()
-            .all(|model| model.force().name() == "gravity"));
-    }
-
-    #[test]
-    fn heterogeneous_force_models_are_split_and_ordered_without_downcasting() {
-        let dynamics = TwoBodyDynamics::new(earth_gravity())
-            .with_conservative_force_model(Arc::new(PositionPotentialModel))
-            .with_non_conservative_force_model(Arc::new(AerodynamicDragModel));
-
-        assert_eq!(dynamics.conservative_force_models().len(), 2);
-        assert_eq!(
-            dynamics.conservative_force_models()[1].force().name(),
-            "test potential"
-        );
-        assert_eq!(
-            dynamics.conservative_force_models()[1].model_name(),
-            "position potential model"
-        );
-        assert_eq!(dynamics.non_conservative_force_models().len(), 1);
-        assert_eq!(
-            dynamics.non_conservative_force_models()[0].force().name(),
-            "aerodynamic force"
-        );
-        assert_eq!(
-            dynamics.non_conservative_force_models()[0].model_name(),
-            "isotropic drag model"
-        );
-        assert_eq!(
-            dynamics.non_conservative_force_models()[0].state_dependencies(),
-            SpacecraftStateDependencies::ALL
-        );
-    }
-
-    #[test]
     fn state_dependencies_are_limited_to_the_spacecraft_state_contract() {
         let dependencies = SpacecraftStateDependencies::new(true, true, false, true);
 
@@ -522,13 +339,5 @@ mod tests {
         assert!(dependencies.speed());
         assert!(!dependencies.orientation());
         assert!(dependencies.inertia());
-    }
-
-    #[test]
-    fn duplicate_three_body_attractors_are_rejected() {
-        assert!(matches!(
-            ThreeBodyDynamics::new(earth_gravity(), earth_gravity()),
-            Err(DynamicsDescriptionError::DuplicateAttractor(Body::EARTH))
-        ));
     }
 }

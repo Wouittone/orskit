@@ -188,17 +188,18 @@ owns a broader almanac/orbit context than this foundational slice needs. Keep
 the boundary adapter-friendly and revisit both for transform providers rather
 than leaking either API into spacecraft state.
 
-`dynamics` currently describes spacecraft-state dependencies, split
-conservative/non-conservative force models, and deterministic model composition.
+`dynamics` currently describes spacecraft-state dependencies and open
+conservative/non-conservative force-model contracts. Concrete
+`TwoBodyDynamics` is intentionally stricter and owns exactly one central
+point-mass model.
 Its first `Propagator<ForceModel>` implementation analytically advances an
 epoch-qualified Cartesian, Keplerian, or equinoctial elliptic `Orbit` with an
 explicit point-mass gravity model and returns the same native enum variant.
 Complete spacecraft views are composed separately from properties known to be
 valid at the propagated epoch.
-General
-force evaluation and numerical propagation remain deferred; their design must
+General force evaluation and numerical propagation remain deferred; their design must
 cover coupled translational, rotational, mass, and variational states, explicit
-data, events, and integration. Two- and three-body descriptions are peer
-implementations rather than the organizing abstraction.
+data, events, and integration. Third-body descriptions remain unavailable until
+their ephemeris, frame, provenance, and acceleration-assembly contracts exist.
 There is no `stations` crate: ground and spacecraft participants belong to the
 measurement topology and estimation workflows.
