@@ -44,8 +44,10 @@ passing test. Preserve accuracy checks when optimizing.
   failures. Avoid stringly typed errors in the scientific core.
 - Validate invariants at construction. Make invalid combinations difficult to
   express with types.
-- Avoid `unsafe`. When unavoidable, add a `// SAFETY:` explanation, keep the
-  block minimal, test the boundary, and run Miri or sanitizers where useful.
+- Every active Rust crate uses `#![forbid(unsafe_code)]`; unsafe code is not an
+  accepted implementation technique in the scientific workspace. Disabled
+  binding prototypes stay outside the dependency graph and require an explicit
+  binding task plus policy review before modification or re-enablement.
 - Do not panic across FFI or on untrusted data. Avoid hidden allocations in
   hot loops and expose reusable workspaces only when profiling justifies them.
 - Declare and test the minimum supported Rust version before the first public

@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Core state types for orskit.
 //!
 //! Physical scalars and vectors are strongly typed, epochs use Hifitime
@@ -7,22 +9,27 @@
 //! contains time-independent identity and geometry; [`SpacecraftView`]
 //! composes a complete epoch-specific physical state.
 
+mod gravity;
 mod kinematics;
 mod spacecraft;
 mod state;
 
 pub use frames;
+pub use gravity::{
+    CentralGravity, PointMassGravity, ReferenceSource, ScientificSource, ScientificSourceError,
+    SharedCentralGravity, SharedScientificSource,
+};
 pub use hifitime::Epoch;
 pub use kinematics::{
     CartesianCoordinates, FramedAcceleration, FramedPosition, FramedVelocity, KinematicError,
 };
 pub use spacecraft::{
-    AttitudeError, AttitudeState, FramedAngularVelocity, InertiaError, InertiaTensor, Orientation,
-    OrientationError, QuaternionAttitude, ShapeError, Spacecraft, SpacecraftError, SpacecraftShape,
-    SpacecraftView, SpacecraftViewError,
+    AttitudeError, AttitudeState, BodyAngularVelocity, CuboidShape, InertiaError, InertiaTensor,
+    Orientation, OrientationError, QuaternionAttitude, ShapeError, Spacecraft, SpacecraftBodyFrame,
+    SpacecraftError, SpacecraftShape, SpacecraftView, SpacecraftViewError, SphereShape,
 };
 pub use state::{
-    CartesianState, CoordinateSample, EquinoctialState, KeplerianState, Orbit, OrbitalConversion,
-    OrbitalElements, SpacecraftState, StateError, To, TryTo,
+    CartesianState, CoordinateSample, EquinoctialState, KeplerianState, Orbit, SpacecraftState,
+    StateError, To,
 };
 pub use units;

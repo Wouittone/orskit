@@ -1,19 +1,18 @@
 [package]
-name = "orskit-dynamics"
+name = "orskit"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Composable system-dynamics and force-model descriptions for orskit"
-
-[lib]
-name = "dynamics"
+description = "Public Rust facade for orskit astrodynamics"
 
 [dependencies]
-hifitime.workspace = true
 bodies = { package = "orskit-bodies", path = "../bodies" }
+ccsds = { package = "orskit-ccsds", path = "../ccsds" }
 core_crate = { package = "orskit-core", path = "../core" }
+dynamics = { package = "orskit-dynamics", path = "../dynamics" }
+frames = { package = "orskit-frames", path = "../frames" }
+measurements = { package = "orskit-measurements", path = "../measurements" }
 units = { package = "orskit-units", path = "../units" }
-thiserror.workspace = true

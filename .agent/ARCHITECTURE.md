@@ -40,9 +40,10 @@ missing abstraction or an incorrectly placed type.
   membership, followed by reference ellipsoids, geodetic conversion, rotation,
   and ephemeris providers. Identity does not imply a physical-data model.
 - **Frames:** lightweight identities compose a body, body-system barycenter, or
-  explicit custom origin with an orientation. `DerivedFrame` definitions add a
-  caller-owned direct parent and a fixed, typed origin offset in the parent
-  axes; definitions can form explicit chains without a global registry.
+  explicit custom origin with an orientation. Caller-owned `FrameCatalog`
+  values issue namespace-qualified `FrameId` identities and validated
+  `DerivedFrame` definitions with fixed typed offsets; only registered parents
+  form chains, without a global registry.
   Orientations declare inertial, non-inertial, or unspecified motion;
   algorithms requiring inertial axes accept only an affirmative inertial
   declaration. Transform-provider contracts admit optional external adapters
@@ -62,8 +63,10 @@ missing abstraction or an incorrectly placed type.
   orientation, and inertia. Environmental bodies and other parameters belong
   to force-model configuration and explicit future data providers. Dynamics
   composes heterogeneous model trait objects without matching model types.
-- **Propagation:** `Propagator<ForceModel>` advances epoch-qualified `Orbit`
-  values and preserves the native `SpacecraftState` enum variant. A
+- **Propagation:** `Propagator<Problem>` separates a solution method from the
+  physical problem it advances. The current analytical implementation accepts
+  `TwoBodyDynamics`, advances epoch-qualified `Orbit` values, and preserves the
+  native `SpacecraftState` enum variant. A
   translational propagator does not imply that attitude or other
   epoch-dependent spacecraft properties were advanced. Analytical, numerical,
   semi-analytical, and TLE
@@ -98,16 +101,19 @@ missing abstraction or an incorrectly placed type.
   `TryFrom`/`TryTo` representation changes receive explicit conversion context.
   `OrbitalElements` lets every representation provide any supported state.
 - `Orbit` composes an epoch with one closed `SpacecraftState` representation.
-  `Spacecraft` contains only time-independent identity and body geometry.
+  `Spacecraft` contains time-independent identity, an opaque spacecraft-owned
+  non-inertial body-frame capability, and body geometry.
   `SpacecraftView` borrows it while owning an `Orbit`, a closed `AttitudeState`
   enum, positive mass, and framed inertia. No
   physical representation is a generic parameter or trait object in the
   spacecraft definition or view.
   Position, velocity, acceleration, orientation, inertia tensor, covariance,
   and every other coordinate-dependent value carries the frame information
-  needed to interpret it. The six elements in a `SpacecraftState` alternative
-  share its declared frame; lower-level format coordinates may remain separate
-  until validated into that state.
+  needed to interpret it. Cartesian coordinates remain gravity-independent;
+  osculating element alternatives share an application-extensible
+  `Arc<dyn CentralGravity>` binding origin, parameter, and trait-based
+  provenance. Lower-level
+  format coordinates may remain separate until validated into that state.
 - File formats that omit physical properties yield values such as
   `CoordinateSample<CartesianCoordinates>`, not fabricated complete states.
   Callers enrich them into an explicit `Spacecraft` at the workflow boundary.
@@ -168,9 +174,10 @@ There is no ambient mutable "current data context."
 
 ## Crate evolution
 
-Focused packages use concise domain names such as `core`, `frames`, and
-`units`. Directory names such as `crates/core` match the package layout.
-New boundaries should use concise domain names such as `time` and `frames`.
+Focused Cargo packages use the `orskit-*` namespace while retaining concise
+Rust library names such as `frames` and `units` where that does not conflict
+with the standard library. Directory names such as `crates/core` remain concise.
+New boundaries should follow the same namespaced-package convention.
 Split crates only when the domain boundary and dependency direction are clear;
 do not create one crate per noun pre-emptively.
 
@@ -188,17 +195,19 @@ owns a broader almanac/orbit context than this foundational slice needs. Keep
 the boundary adapter-friendly and revisit both for transform providers rather
 than leaking either API into spacecraft state.
 
-`dynamics` currently describes spacecraft-state dependencies, split
-conservative/non-conservative force models, and deterministic model composition.
-Its first `Propagator<ForceModel>` implementation analytically advances an
+`dynamics` currently describes named spacecraft-state requirements and open
+conservative/non-conservative force-model contracts. Concrete
+`TwoBodyDynamics` is intentionally stricter and owns exactly one central
+point-mass model sharing an application-extensible central-gravity object.
+Its object-safe `Propagator<Problem>` contract separates solution method from
+physical topology. `EllipticKeplerPropagator` analytically advances an
 epoch-qualified Cartesian, Keplerian, or equinoctial elliptic `Orbit` with an
-explicit point-mass gravity model and returns the same native enum variant.
+explicit `TwoBodyDynamics` problem and returns the same native enum variant.
 Complete spacecraft views are composed separately from properties known to be
 valid at the propagated epoch.
-General
-force evaluation and numerical propagation remain deferred; their design must
+General force evaluation and numerical propagation remain deferred; their design must
 cover coupled translational, rotational, mass, and variational states, explicit
-data, events, and integration. Two- and three-body descriptions are peer
-implementations rather than the organizing abstraction.
+data, events, and integration. Third-body descriptions remain unavailable until
+their ephemeris, frame, provenance, and acceleration-assembly contracts exist.
 There is no `stations` crate: ground and spacecraft participants belong to the
 measurement topology and estimation workflows.

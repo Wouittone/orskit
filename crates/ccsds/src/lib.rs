@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! CCSDS navigation-message ingestion at the orskit I/O boundary.
 //!
 //! The first supported vertical slice is the CCSDS 502.0-B-3 Orbit
@@ -26,7 +28,9 @@
 mod oem;
 
 pub use oem::{
-    parse_oem_kvn, Oem, OemError, OemEvent, OemHeader, OemKvnReader, OemMetadata, OemSegment,
+    parse_oem_kvn, parse_oem_kvn_with_limits, Oem, OemComment, OemDecoderLimits,
+    OemDecoderLimitsError, OemError, OemEvent, OemHeader, OemKvnReader, OemLimitKind, OemMetadata,
+    OemRecordRef, OemSample, OemSection, OemSegment, OemSegmentContext, OemSegmentId,
     OemTimeSystem,
 };
 
@@ -34,4 +38,4 @@ pub use oem::{
 pub use oem::AsyncOemKvnReader;
 
 #[cfg(feature = "parallel")]
-pub use oem::parse_oem_kvn_parallel;
+pub use oem::{parse_oem_kvn_parallel, parse_oem_kvn_parallel_with_limits};

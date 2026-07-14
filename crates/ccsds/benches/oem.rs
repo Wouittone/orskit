@@ -1,4 +1,4 @@
-use std::{hint::black_box, io::Cursor};
+use std::{fmt::Write as _, hint::black_box, io::Cursor};
 
 use ccsds::{parse_oem_kvn, parse_oem_kvn_parallel, OemKvnReader};
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
@@ -16,16 +16,24 @@ CENTER_NAME = EARTH\n\
 REF_FRAME = GCRF\n\
 TIME_SYSTEM = UTC\n\
 START_TIME = 2024-01-01T00:00:00\n\
-STOP_TIME = 2024-01-01T00:01:00\n\
+STOP_TIME = 2024-01-01T00:00:01\n\
 META_STOP\n";
-    let record = "2024-01-01T00:00:00.000000000 7000.0 0.0 0.0 0.0 7.5 0.0\n";
+    let record_length = "2024-01-01T00:00:00.000000000 7000.0 0.0 0.0 0.0 7.5 0.0\n".len();
     let count = TARGET_BYTES
         .saturating_sub(header.len())
-        .div_ceil(record.len());
-    let mut input = String::with_capacity(header.len() + count * record.len());
+        .div_ceil(record_length);
+    assert!(
+        count < 1_000_000_000,
+        "nanosecond benchmark epochs fit one second"
+    );
+    let mut input = String::with_capacity(header.len() + count * record_length);
     input.push_str(header);
-    for _ in 0..count {
-        input.push_str(record);
+    for nanosecond in 0..count {
+        writeln!(
+            input,
+            "2024-01-01T00:00:00.{nanosecond:09} 7000.0 0.0 0.0 0.0 7.5 0.0"
+        )
+        .expect("writing to a String cannot fail");
     }
     input
 }

@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Celestial-body and body-system identities for orskit.
 //!
 //! This crate deliberately contains identity and classification only. Physical

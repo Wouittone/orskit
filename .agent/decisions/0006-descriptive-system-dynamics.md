@@ -1,6 +1,6 @@
 # ADR-0006: separate dynamics description from evaluation and resolution
 
-- Status: Accepted; refined by ADR-0008 and evaluation deferral superseded in part by ADR-0007
+- Status: Superseded by ADR-0017
 - Date: 2026-07-04
 - Owners: orskit maintainers
 - Affected parity rows: dynamics composition; propagation; force models
