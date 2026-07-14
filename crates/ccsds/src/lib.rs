@@ -8,6 +8,11 @@
 //! without retaining a complete message. Callers that already own a complete
 //! input may use the Rayon parser for ordered parallel coordinate conversion.
 //!
+//! This implementation crate depends on the core contract library as
+//! `orskit_core`; it cannot depend on the `orskit` facade because the facade
+//! optionally re-exports `ccsds`. Applications use the public
+//! `orskit::core::Epoch` path instead.
+//!
 //! ```no_run
 //! use std::{fs::File, io::BufReader};
 //! use ccsds::{OemEvent, OemKvnReader};
