@@ -1,5 +1,5 @@
 [package]
-name = "orskit-dynamics"
+name = "dynamics"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,7 +13,7 @@ name = "dynamics"
 
 [dependencies]
 hifitime.workspace = true
-bodies = { package = "orskit-bodies", path = "../bodies" }
-core_crate = { package = "orskit-core", path = "../core" }
-units = { package = "orskit-units", path = "../units" }
+bodies = { path = "../bodies" }
+orskit_core = { package = "core", path = "../core" }
+units = { path = "../units" }
 thiserror.workspace = true

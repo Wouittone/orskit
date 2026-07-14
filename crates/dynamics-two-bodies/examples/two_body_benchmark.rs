@@ -1,13 +1,12 @@
 use std::{hint::black_box, sync::Arc, time::Instant};
 
-use bodies::Body;
-use core_crate::frames::{FrameOrigin, ReferenceFrame};
-use core_crate::{Orbit, SharedCentralGravity, SharedScientificSource};
 use dynamics::Propagator;
-use dynamics_two_body::{EllipticKeplerPropagator, PointMassGravityModel, TwoBodyDynamics};
-use gravity_point_mass::{PointMassGravity, ReferenceSource};
+use dynamics_two_bodies::{EllipticKeplerPropagator, PointMassGravityModel, TwoBodyDynamics};
+use frames::{Body, FrameOrigin, ReferenceFrame};
+use gravity::{PointMass, SharedCentralGravity};
 use hifitime::{Duration, Epoch};
-use orbits_cartesian::{CartesianState, SpacecraftState};
+use orbits::cartesian::CartesianState;
+use orskit_core::Orbit;
 use units::{GravitationalParameter, Position, VelocityVector};
 
 const DEFAULT_ITERATIONS: usize = 1_000_000;
@@ -25,24 +24,11 @@ fn main() {
     assert!(iterations > 0, "iterations must be positive");
 
     let initial = initial_orbit();
-    let source: SharedScientificSource = Arc::new(
-        ReferenceSource::new(
-            "International Earth Rotation and Reference Systems Service",
-            "IERS Conventions",
-            "2010",
-            "IERS Technical Note 36",
-        )
-        .expect("complete benchmark source"),
-    );
-    let gravity: SharedCentralGravity = Arc::new(
-        PointMassGravity::new(
-            FrameOrigin::Body(Body::EARTH),
-            GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)
-                .expect("positive gravitational parameter"),
-            source,
-        )
-        .expect("complete benchmark source"),
-    );
+    let gravity: SharedCentralGravity = Arc::new(PointMass::new(
+        FrameOrigin::Body(Body::EARTH),
+        GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)
+            .expect("positive gravitational parameter"),
+    ));
     let problem = TwoBodyDynamics::new(PointMassGravityModel::new(gravity));
     let propagator = EllipticKeplerPropagator::new();
 
@@ -69,7 +55,7 @@ fn main() {
 
 fn run_queries(
     propagator: &EllipticKeplerPropagator,
-    initial: Orbit<SpacecraftState>,
+    initial: Orbit<CartesianState>,
     problem: &TwoBodyDynamics,
     iterations: usize,
 ) -> f64 {
@@ -80,13 +66,10 @@ fn run_queries(
             .propagate(
                 black_box(initial.clone()),
                 black_box(problem),
-                Duration::from_seconds(black_box(elapsed_seconds)),
+                initial.epoch() + Duration::from_seconds(black_box(elapsed_seconds)),
             )
             .expect("benchmark query must remain in the supported elliptic regime");
-        let cartesian = match state.state() {
-            SpacecraftState::Cartesian(state) => state,
-            _ => unreachable!("the propagator preserves the Cartesian variant"),
-        };
+        let cartesian = state.state();
         let position = cartesian.position().to_metres();
         let velocity = cartesian.velocity().to_metres_per_second();
         checksum += position[0] * 1.0e-6 + position[2] * 2.0e-6 + velocity[1] * 1.0e-3;
@@ -98,7 +81,7 @@ fn query_offset_seconds(index: usize) -> f64 {
     ((index.wrapping_mul(104_729) % 172_800) as f64) - 86_400.0
 }
 
-fn initial_orbit() -> Orbit<SpacecraftState> {
+fn initial_orbit() -> Orbit<CartesianState> {
     let state = CartesianState::new(
         ReferenceFrame::GCRF,
         Position::from_metres(
@@ -113,5 +96,5 @@ fn initial_orbit() -> Orbit<SpacecraftState> {
         ),
     )
     .expect("finite benchmark state");
-    Orbit::new(Epoch::from_tai_seconds(0.0), state.into())
+    Orbit::new(Epoch::from_tai_seconds(0.0), state)
 }

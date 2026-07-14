@@ -1,17 +1,20 @@
 [package]
-name = "frames"
+name = "gravity"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Reference-frame identities and contracts for orskit"
+description = "Point-mass gravity selection implementation for orskit"
 
 [lib]
-name = "frames"
+name = "gravity"
+
+[features]
+default = []
+point-mass = []
 
 [dependencies]
-bodies = { path = "../bodies" }
+frames = { path = "../frames" }
 units = { path = "../units" }
-thiserror.workspace = true

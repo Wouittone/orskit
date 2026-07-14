@@ -6,8 +6,8 @@
 //! dynamics, and I/O implementations explicitly with Cargo features; the
 //! default facade intentionally links no physical model implementation.
 
-pub use core_crate as core;
 pub use frames;
+pub use orskit_core as core;
 pub use units;
 
 #[cfg(feature = "bodies")]
@@ -16,14 +16,14 @@ pub use bodies;
 pub use ccsds;
 #[cfg(feature = "dynamics")]
 pub use dynamics;
-#[cfg(feature = "two-body")]
-pub use dynamics_two_body;
+#[cfg(feature = "two-bodies")]
+pub use dynamics_two_bodies;
 #[cfg(feature = "point-mass-gravity")]
-pub use gravity_point_mass;
+pub use gravity;
 #[cfg(feature = "measurements")]
 pub use measurements;
 #[cfg(feature = "cartesian")]
-pub use orbits_cartesian;
+pub use orbits;
 
 /// Conservative imports for selected workflow capabilities.
 pub mod prelude {
@@ -35,12 +35,14 @@ pub mod prelude {
     pub use crate::bodies::{Body, BodySystem};
     #[cfg(feature = "dynamics")]
     pub use crate::dynamics::{ComposedDynamics, Propagator};
-    #[cfg(feature = "two-body")]
-    pub use crate::dynamics_two_body::{EllipticKeplerPropagator, TwoBodyDynamics};
+    #[cfg(feature = "two-bodies")]
+    pub use crate::dynamics_two_bodies::{EllipticKeplerPropagator, TwoBodyDynamics};
     #[cfg(feature = "point-mass-gravity")]
-    pub use crate::gravity_point_mass::{PointMassGravity, ReferenceSource};
+    pub use crate::gravity::PointMass;
     #[cfg(feature = "measurements")]
     pub use crate::measurements::{ParticipantId, RangeMeasurement, SignalPath};
     #[cfg(feature = "cartesian")]
-    pub use crate::orbits_cartesian::{CartesianState, EquinoctialState, KeplerianState};
+    pub use crate::orbits::{
+        cartesian::CartesianState, equinoctial::EquinoctialState, keplerian::KeplerianState,
+    };
 }

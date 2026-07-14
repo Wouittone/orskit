@@ -2,12 +2,12 @@
 
 use std::{fmt, io::BufRead, str::FromStr, sync::Arc};
 
-use core_crate::Epoch;
 use frames::{Body, FrameOrientation, FrameOrigin, ReferenceFrame};
-use orbits_cartesian::{
+use orbits::cartesian::{
     CartesianCoordinates, CoordinateSample, FramedAcceleration, FramedPosition, FramedVelocity,
     KinematicError,
 };
+use orskit_core::Epoch;
 use thiserror::Error;
 use units::{AccelerationVector, Position, VelocityVector};
 
@@ -2007,12 +2007,12 @@ fn required(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core_crate::{
+    use frames::{CustomFrameId, FrameMotion, FrameOrientation};
+    use orbits::cartesian::CartesianState;
+    use orskit_core::{
         AttitudeState, BodyAngularVelocity, InertiaTensor, Orbit, Orientation, Spacecraft,
         SpacecraftBodyFrame, SpacecraftShape, SpacecraftView,
     };
-    use frames::{CustomFrameId, FrameMotion, FrameOrientation};
-    use orbits_cartesian::CartesianState;
     use units::uom::si::{mass::kilogram, moment_of_inertia::kilogram_square_meter};
     use units::{AngularVelocityVector, Mass, MomentOfInertia};
 

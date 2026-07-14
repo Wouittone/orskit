@@ -1,0 +1,34 @@
+[package]
+name = "dynamics-two-bodies"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Point-mass two-body dynamics and elliptic Kepler propagation for orskit"
+
+[lib]
+name = "dynamics_two_bodies"
+
+[features]
+default = []
+point-mass = ["gravity/point-mass"]
+
+[dependencies]
+orskit_core = { package = "core", path = "../core" }
+dynamics = { path = "../dynamics" }
+gravity = { path = "../gravity" }
+hifitime.workspace = true
+orbits = { path = "../orbits", features = ["cartesian"] }
+thiserror.workspace = true
+units = { path = "../units" }
+
+[dev-dependencies]
+bodies = { path = "../bodies" }
+frames = { path = "../frames" }
+
+[[example]]
+name = "two_body_benchmark"
+path = "examples/two_body_benchmark.rs"
+required-features = ["point-mass"]

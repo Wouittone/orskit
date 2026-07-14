@@ -9,12 +9,10 @@
 //! contains time-independent identity and geometry; [`SpacecraftView`]
 //! composes it with a chosen epoch-specific state implementation.
 
-mod gravity;
 mod orbit;
 mod spacecraft;
 
 pub use frames;
-pub use gravity::{CentralGravity, ScientificSource, SharedCentralGravity, SharedScientificSource};
 pub use hifitime::Epoch;
 pub use orbit::{Orbit, SpacecraftState};
 pub use spacecraft::{

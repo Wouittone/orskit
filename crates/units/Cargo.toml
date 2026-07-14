@@ -1,5 +1,5 @@
 [package]
-name = "orskit-units"
+name = "units"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

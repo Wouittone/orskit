@@ -542,7 +542,7 @@ fn validate_dimension(dimension: Length) -> Result<(), ShapeError> {
 /// orbit plus a closed attitude state. The orbital representation is selected
 /// by the caller through the open [`SpacecraftState`] contract.
 #[derive(Debug, Clone, PartialEq)]
-pub struct SpacecraftView<'a, S> {
+pub struct SpacecraftView<'a, S: SpacecraftState> {
     spacecraft: &'a Spacecraft,
     orbit: Orbit<S>,
     mass: Mass,

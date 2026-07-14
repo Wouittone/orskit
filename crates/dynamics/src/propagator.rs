@@ -1,7 +1,7 @@
 use std::{error::Error, fmt};
 
-use core_crate::{Orbit, SpacecraftState};
-use hifitime::{Duration, Epoch};
+use hifitime::Epoch;
+use orskit_core::{Orbit, SpacecraftState};
 
 /// Propagates an epoch-qualified orbit.
 ///
@@ -17,22 +17,15 @@ pub trait Propagator<Problem: ?Sized, State: SpacecraftState>: fmt::Debug + Send
     /// Typed error returned by this problem/algorithm combination.
     type Error: Error + Send + Sync + 'static;
 
-    /// Propagates `initial` by a signed duration for `problem`.
+    /// Propagates `initial` to `target` for `problem`.
+    ///
+    /// An absolute epoch makes the time scale and requested output instant
+    /// explicit at the public boundary. Implementations may derive a duration
+    /// internally from the initial epoch.
     fn propagate(
         &self,
         initial: Orbit<State>,
         problem: &Problem,
-        duration: Duration,
-    ) -> Result<Orbit<State>, Self::Error>;
-
-    /// Propagates `initial` to an explicit target epoch for `problem`.
-    fn propagate_to(
-        &self,
-        initial: Orbit<State>,
-        problem: &Problem,
         target: Epoch,
-    ) -> Result<Orbit<State>, Self::Error> {
-        let duration = target - initial.epoch();
-        self.propagate(initial, problem, duration)
-    }
+    ) -> Result<Orbit<State>, Self::Error>;
 }

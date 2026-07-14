@@ -1,5 +1,5 @@
 [package]
-name = "orskit-ccsds"
+name = "ccsds"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -17,10 +17,10 @@ async = ["dep:tokio"]
 parallel = ["dep:rayon"]
 
 [dependencies]
-core_crate = { package = "orskit-core", path = "../core" }
-orbits_cartesian = { package = "orskit-orbits-cartesian", path = "../orbits-cartesian" }
-frames = { package = "orskit-frames", path = "../frames" }
-units = { package = "orskit-units", path = "../units" }
+orskit_core = { package = "core", path = "../core" }
+orbits = { path = "../orbits", features = ["cartesian"] }
+frames = { path = "../frames" }
+units = { path = "../units" }
 rayon = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util"], optional = true }

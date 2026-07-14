@@ -9,14 +9,15 @@ use thiserror::Error;
 use units::uom::si::{angle::radian, length::meter, ratio::ratio};
 use units::{Angle, Length, Position, Ratio, Velocity, VelocityVector};
 
-use core_crate::{SharedCentralGravity, SpacecraftState as SpacecraftStateContract};
+use gravity::SharedCentralGravity;
+use orskit_core::SpacecraftState as SpacecraftStateContract;
 
-use crate::{CartesianCoordinates, FramedPosition, FramedVelocity, KinematicError};
+use crate::cartesian::{CartesianCoordinates, FramedPosition, FramedVelocity, KinematicError};
 
 /// Coordinates tied to the epoch at which they are valid.
 ///
 /// File formats may provide a timed coordinate sample without the mass,
-/// inertia, and attitude required to construct a [`crate::Spacecraft`].
+/// inertia, and attitude required to construct an [`orskit_core::Spacecraft`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CoordinateSample<C> {
     epoch: Epoch,
@@ -437,55 +438,6 @@ impl SpacecraftStateContract for EquinoctialState {
     }
 }
 
-/// Convenient closed bundle of the representations implemented by this crate.
-///
-/// This is an implementation-level convenience, not the core state contract;
-/// generic APIs accept each representation directly or any application state
-/// implementing [`core_crate::SpacecraftState`].
-#[derive(Debug, Clone, PartialEq)]
-pub enum SpacecraftState {
-    Cartesian(CartesianState),
-    Keplerian(KeplerianState),
-    Equinoctial(EquinoctialState),
-}
-
-impl SpacecraftState {
-    #[must_use]
-    pub const fn central_gravity(&self) -> Option<&SharedCentralGravity> {
-        match self {
-            Self::Cartesian(_) => None,
-            Self::Keplerian(state) => Some(state.central_gravity()),
-            Self::Equinoctial(state) => Some(state.central_gravity()),
-        }
-    }
-}
-
-impl SpacecraftStateContract for SpacecraftState {
-    fn frame(&self) -> ReferenceFrame {
-        match self {
-            Self::Cartesian(state) => state.frame(),
-            Self::Keplerian(state) => state.frame(),
-            Self::Equinoctial(state) => state.frame(),
-        }
-    }
-}
-
-impl From<CartesianState> for SpacecraftState {
-    fn from(state: CartesianState) -> Self {
-        Self::Cartesian(state)
-    }
-}
-impl From<KeplerianState> for SpacecraftState {
-    fn from(state: KeplerianState) -> Self {
-        Self::Keplerian(state)
-    }
-}
-impl From<EquinoctialState> for SpacecraftState {
-    fn from(state: EquinoctialState) -> Self {
-        Self::Equinoctial(state)
-    }
-}
-
 /// Source-side counterpart to [`From`].
 ///
 /// This blanket implementation makes `value.to()` equivalent to
@@ -617,11 +569,7 @@ fn cartesian_from_keplerian(
     let nu = elements.true_anomaly_rad;
     let p = elements.semi_major_axis_m * (1.0 - e * e);
     let radius = p / (1.0 + e * nu.cos());
-    let speed_scale = (gravity
-        .gravitational_parameter()
-        .as_cubic_metres_per_second_squared()
-        / p)
-        .sqrt();
+    let speed_scale = (gravity.parameter().as_cubic_metres_per_second_squared() / p).sqrt();
     let (sin_nu, cos_nu) = nu.sin_cos();
     let position_perifocal = [radius * cos_nu, radius * sin_nu, 0.0];
     let velocity_perifocal = [-speed_scale * sin_nu, speed_scale * (e + cos_nu), 0.0];
@@ -673,9 +621,7 @@ fn keplerian_from_cartesian(
         return Err(StateError::DegenerateCartesianOrbit);
     }
 
-    let mu = gravity
-        .gravitational_parameter()
-        .as_cubic_metres_per_second_squared();
+    let mu = gravity.parameter().as_cubic_metres_per_second_squared();
     let velocity_cross_momentum = cross(velocity_m_s, angular_momentum);
     let eccentricity_vector = subtract(
         scale(velocity_cross_momentum, 1.0 / mu),
@@ -893,26 +839,13 @@ mod tests {
 
     fn central_gravity(
         origin: FrameOrigin,
-        gravitational_parameter: GravitationalParameter,
-        scenario: &str,
+        parameter: GravitationalParameter,
     ) -> SharedCentralGravity {
-        let source = Arc::new(
-            gravity_point_mass::ReferenceSource::new(
-                "orskit test suite",
-                "orbital conversion fixture",
-                scenario,
-                "urn:orskit:test:orbital-conversion",
-            )
-            .expect("complete test provenance"),
-        );
-        Arc::new(
-            gravity_point_mass::PointMassGravity::new(origin, gravitational_parameter, source)
-                .expect("valid central gravity"),
-        )
+        Arc::new(gravity::PointMass::new(origin, parameter))
     }
 
     fn earth_gravity() -> SharedCentralGravity {
-        central_gravity(FrameOrigin::Body(frames::Body::EARTH), earth_mu(), "earth")
+        central_gravity(FrameOrigin::Body(frames::Body::EARTH), earth_mu())
     }
 
     fn keplerian(inclination: f64, raan: f64, periapsis: f64, anomaly: f64) -> KeplerianState {
@@ -940,19 +873,15 @@ mod tests {
     }
 
     #[test]
-    fn from_and_to_wrap_all_concrete_states() {
+    fn infallible_coordinate_conversion_remains_explicit() {
         let cartesian = CartesianState::new(
             ReferenceFrame::GCRF,
             Position::from_metres(7_000_000.0, 0.0, 0.0),
             VelocityVector::from_metres_per_second(0.0, 7_500.0, 0.0),
         )
         .expect("finite state");
-        let keplerian = keplerian(0.2, 0.3, 0.4, 0.5);
-        let equinoctial = keplerian.clone().to_equinoctial().expect("convertible");
-
-        assert_eq!(SpacecraftState::from(cartesian), cartesian.to());
-        assert_eq!(SpacecraftState::from(keplerian.clone()), keplerian.to());
-        assert_eq!(SpacecraftState::from(equinoctial.clone()), equinoctial.to());
+        let coordinates: CartesianCoordinates = cartesian.to();
+        assert_eq!(CartesianState::try_from(coordinates), Ok(cartesian));
     }
 
     #[test]
@@ -998,21 +927,13 @@ mod tests {
     #[test]
     fn cartesian_conversion_rejects_context_identity_and_origin_mismatches() {
         let source = keplerian(0.2, 0.3, 0.4, 0.5);
-        let other_identity = central_gravity(
-            FrameOrigin::Body(frames::Body::EARTH),
-            earth_mu(),
-            "other-earth-scenario",
-        );
+        let other_identity = central_gravity(FrameOrigin::Body(frames::Body::EARTH), earth_mu());
         assert_eq!(
             source.to_cartesian(&other_identity),
             Err(StateError::CentralGravityMismatch)
         );
 
-        let mars_gravity = central_gravity(
-            FrameOrigin::Body(frames::Body::MARS),
-            earth_mu(),
-            "mars-origin",
-        );
+        let mars_gravity = central_gravity(FrameOrigin::Body(frames::Body::MARS), earth_mu());
         let cartesian = CartesianState::new(
             ReferenceFrame::GCRF,
             Position::from_metres(7_000_000.0, 0.0, 0.0),
@@ -1030,11 +951,7 @@ mod tests {
 
     #[test]
     fn element_constructors_reject_gravity_from_another_origin() {
-        let mars_gravity = central_gravity(
-            FrameOrigin::Body(frames::Body::MARS),
-            earth_mu(),
-            "mars-origin",
-        );
+        let mars_gravity = central_gravity(FrameOrigin::Body(frames::Body::MARS), earth_mu());
         let expected = StateError::CentralGravityOriginMismatch {
             gravity_origin: FrameOrigin::Body(frames::Body::MARS),
             frame_origin: FrameOrigin::Body(frames::Body::EARTH),

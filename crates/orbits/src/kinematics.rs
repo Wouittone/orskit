@@ -83,8 +83,9 @@ pub struct FramedAcceleration {
 ///
 /// Each component retains its own frame. The coordinate fields of formats such
 /// as CCSDS OEM map to this type; their epoch is attached separately with
-/// [`crate::CoordinateSample`] because those formats do not provide all
-/// physical properties required by a complete [`crate::SpacecraftView`].
+/// [`crate::cartesian::CoordinateSample`] because those formats do not provide
+/// all physical properties required by a complete
+/// [`orskit_core::SpacecraftView`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CartesianCoordinates {
     position: FramedPosition,

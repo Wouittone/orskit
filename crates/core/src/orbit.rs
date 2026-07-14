@@ -18,12 +18,12 @@ pub trait SpacecraftState: fmt::Debug + Clone + Send + Sync {
 /// `Orbit` owns no coordinate implementation. Its state type is selected by
 /// the caller, preserving the native representation through generic workflows.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Orbit<S> {
+pub struct Orbit<S: SpacecraftState> {
     epoch: Epoch,
     state: S,
 }
 
-impl<S> Orbit<S> {
+impl<S: SpacecraftState> Orbit<S> {
     /// Associates a state representation with its epoch.
     #[must_use]
     pub const fn new(epoch: Epoch, state: S) -> Self {
@@ -38,10 +38,7 @@ impl<S> Orbit<S> {
 
     /// Returns the native state representation.
     #[must_use]
-    pub fn state(&self) -> S
-    where
-        S: Clone,
-    {
+    pub fn state(&self) -> S {
         self.state.clone()
     }
 

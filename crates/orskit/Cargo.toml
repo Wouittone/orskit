@@ -11,21 +11,21 @@ description = "Public Rust facade for orskit astrodynamics"
 [features]
 default = []
 bodies = ["dep:bodies"]
-ccsds = ["dep:ccsds", "dep:orbits_cartesian"]
-cartesian = ["dep:orbits_cartesian"]
+ccsds = ["dep:ccsds", "cartesian"]
+cartesian = ["dep:orbits", "orbits/cartesian"]
 dynamics = ["dep:dynamics"]
-point-mass-gravity = ["dep:gravity_point_mass"]
-two-body = ["cartesian", "dynamics", "point-mass-gravity", "dep:dynamics_two_body"]
+point-mass-gravity = ["dep:gravity", "gravity/point-mass"]
+two-bodies = ["cartesian", "dynamics", "point-mass-gravity", "dep:dynamics_two_bodies", "dynamics_two_bodies/point-mass"]
 measurements = ["dep:measurements"]
 
 [dependencies]
-bodies = { package = "orskit-bodies", path = "../bodies", optional = true }
-ccsds = { package = "orskit-ccsds", path = "../ccsds", optional = true }
-core_crate = { package = "orskit-core", path = "../core" }
-dynamics = { package = "orskit-dynamics", path = "../dynamics", optional = true }
-dynamics_two_body = { package = "orskit-dynamics-two-body", path = "../dynamics-two-body", optional = true }
-gravity_point_mass = { package = "orskit-gravity-point-mass", path = "../gravity-point-mass", optional = true }
-frames = { package = "orskit-frames", path = "../frames" }
-measurements = { package = "orskit-measurements", path = "../measurements", optional = true }
-orbits_cartesian = { package = "orskit-orbits-cartesian", path = "../orbits-cartesian", optional = true }
-units = { package = "orskit-units", path = "../units" }
+bodies = { path = "../bodies", optional = true }
+ccsds = { path = "../ccsds", optional = true }
+orskit_core = { package = "core", path = "../core" }
+dynamics = { path = "../dynamics", optional = true }
+dynamics_two_bodies = { package = "dynamics-two-bodies", path = "../dynamics-two-bodies", optional = true }
+gravity = { path = "../gravity", optional = true }
+frames = { path = "../frames" }
+measurements = { path = "../measurements", optional = true }
+orbits = { path = "../orbits", optional = true }
+units = { path = "../units" }

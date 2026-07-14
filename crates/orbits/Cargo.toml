@@ -1,5 +1,5 @@
 [package]
-name = "orskit-orbits-cartesian"
+name = "orbits"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,14 +9,19 @@ repository.workspace = true
 description = "Cartesian and elliptic element state implementations for orskit"
 
 [lib]
-name = "orbits_cartesian"
+name = "orbits"
+
+[features]
+default = []
+cartesian = []
 
 [dependencies]
-core_crate = { package = "orskit-core", path = "../core" }
-frames = { package = "orskit-frames", path = "../frames" }
+orskit_core = { package = "core", path = "../core" }
+frames = { path = "../frames" }
+gravity = { path = "../gravity" }
 hifitime.workspace = true
 thiserror.workspace = true
-units = { package = "orskit-units", path = "../units" }
+units = { path = "../units" }
 
 [dev-dependencies]
-gravity_point_mass = { package = "orskit-gravity-point-mass", path = "../gravity-point-mass" }
+gravity = { path = "../gravity", features = ["point-mass"] }
