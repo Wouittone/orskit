@@ -1,15 +1,18 @@
 use std::f64::consts::{PI, TAU};
 use std::sync::Arc;
 
-use core_crate::{
-    EquinoctialState, KeplerianState, Orbit, SharedCentralGravity, SpacecraftState, StateError,
-};
+use core_crate::{Orbit, SharedCentralGravity};
+use dynamics::Propagator;
 use hifitime::Duration;
 use thiserror::Error;
 use units::uom::si::{angle::radian, length::meter, ratio::ratio};
 use units::{Angle, Length};
 
-use crate::{Propagator, TwoBodyDynamics};
+use orbits_cartesian::{
+    CartesianState, EquinoctialState, KeplerianState, SpacecraftState, StateError,
+};
+
+use crate::TwoBodyDynamics;
 
 const DEFAULT_TOLERANCE_RADIANS: f64 = 1.0e-13;
 const DEFAULT_MAX_ITERATIONS: usize = 32;
@@ -39,14 +42,16 @@ const MAX_EXACT_F64_INTEGER: u128 = 1_u128 << f64::MANTISSA_DIGITS;
 /// constant. This keeps every finite supported `hx`/`hy` valid near the
 /// retrograde singular limit of the intermediate Keplerian representation.
 ///
-/// The solver implements [`Propagator<TwoBodyDynamics>`]; the problem owns the
+/// The solver implements [`Propagator<TwoBodyDynamics, KeplerianState>`],
+/// [`Propagator<TwoBodyDynamics, EquinoctialState>`], and
+/// [`Propagator<TwoBodyDynamics, CartesianState>`]; the problem owns the
 /// two-body topology and gravity provider, while this type owns only analytical
 /// solution settings. A different compatible solver can implement the same
 /// propagation contract without changing the problem type.
 ///
-/// The input [`SpacecraftState`] variant is preserved. This translational
-/// evaluator returns only an epoch-qualified orbit and makes no claim about
-/// spacecraft mass, inertia, or attitude at the resulting epoch.
+/// The input state representation is selected at the trait boundary and is
+/// preserved. This evaluator returns only an epoch-qualified orbit and makes
+/// no claim about spacecraft mass, inertia, or attitude at the resulting epoch.
 #[derive(Debug, Clone)]
 pub struct EllipticKeplerPropagator {
     tolerance_radians: f64,
@@ -105,12 +110,12 @@ impl EllipticKeplerPropagator {
     /// separately configured anomaly-solver residual tolerance.
     ///
     /// ```
-    /// use dynamics::EllipticKeplerPropagator;
+    /// use dynamics_two_body::EllipticKeplerPropagator;
     ///
     /// let propagator = EllipticKeplerPropagator::new()
     ///     .with_phase_error_budget_radians(1.0e-8)?;
     /// assert_eq!(propagator.phase_error_budget_radians(), 1.0e-8);
-    /// # Ok::<(), dynamics::EllipticKeplerError>(())
+    /// # Ok::<(), dynamics_two_body::EllipticKeplerError>(())
     /// ```
     pub fn with_phase_error_budget_radians(
         mut self,
@@ -262,29 +267,6 @@ impl EllipticKeplerPropagator {
         )?)
     }
 
-    fn propagate_state(
-        &self,
-        initial: SpacecraftState,
-        problem: &TwoBodyDynamics,
-        duration: Duration,
-    ) -> Result<SpacecraftState, EllipticKeplerError> {
-        match initial {
-            SpacecraftState::Keplerian(state) => {
-                Ok(self.propagate_keplerian(state, problem, duration)?.into())
-            }
-            SpacecraftState::Equinoctial(state) => {
-                Ok(self.propagate_equinoctial(state, problem, duration)?.into())
-            }
-            SpacecraftState::Cartesian(state) => {
-                let keplerian = state.to_keplerian(problem.central_gravity())?;
-                let propagated = self.propagate_keplerian(keplerian, problem, duration)?;
-                Ok(SpacecraftState::Cartesian(
-                    propagated.to_cartesian(problem.central_gravity())?,
-                ))
-            }
-        }
-    }
-
     fn normalize_input_angle(&self, angle_radians: f64) -> Result<(f64, f64), EllipticKeplerError> {
         let estimated_phase_error_radians = range_reduction_error_bound_radians(angle_radians);
         if estimated_phase_error_radians > self.phase_error_budget_radians {
@@ -300,22 +282,113 @@ impl EllipticKeplerPropagator {
     }
 }
 
-impl Propagator<TwoBodyDynamics> for EllipticKeplerPropagator {
+impl Propagator<TwoBodyDynamics, KeplerianState> for EllipticKeplerPropagator {
     type Error = EllipticKeplerError;
 
     fn propagate(
         &self,
-        initial: Orbit,
+        initial: Orbit<KeplerianState>,
         problem: &TwoBodyDynamics,
         duration: Duration,
-    ) -> Result<Orbit, Self::Error> {
+    ) -> Result<Orbit<KeplerianState>, Self::Error> {
+        ensure_problem_gravity(initial.state().central_gravity(), problem.central_gravity())?;
+        if duration.total_nanoseconds() == 0 {
+            return Ok(initial);
+        }
+        let epoch = initial.epoch();
+        let state = self.propagate_keplerian(initial.into_state(), problem, duration)?;
+        Ok(Orbit::new(epoch + duration, state))
+    }
+}
+
+impl Propagator<TwoBodyDynamics, EquinoctialState> for EllipticKeplerPropagator {
+    type Error = EllipticKeplerError;
+
+    fn propagate(
+        &self,
+        initial: Orbit<EquinoctialState>,
+        problem: &TwoBodyDynamics,
+        duration: Duration,
+    ) -> Result<Orbit<EquinoctialState>, Self::Error> {
+        ensure_problem_gravity(initial.state().central_gravity(), problem.central_gravity())?;
+        if duration.total_nanoseconds() == 0 {
+            return Ok(initial);
+        }
+        let epoch = initial.epoch();
+        let state = self.propagate_equinoctial(initial.into_state(), problem, duration)?;
+        Ok(Orbit::new(epoch + duration, state))
+    }
+}
+
+impl Propagator<TwoBodyDynamics, CartesianState> for EllipticKeplerPropagator {
+    type Error = EllipticKeplerError;
+
+    fn propagate(
+        &self,
+        initial: Orbit<CartesianState>,
+        problem: &TwoBodyDynamics,
+        duration: Duration,
+    ) -> Result<Orbit<CartesianState>, Self::Error> {
+        ensure_cartesian_problem_compatible(&initial.state(), problem)?;
+        if duration.total_nanoseconds() == 0 {
+            return Ok(initial);
+        }
+        let epoch = initial.epoch();
+        let state = initial.into_state();
+        let keplerian = state.to_keplerian(problem.central_gravity())?;
+        let propagated = self.propagate_keplerian(keplerian, problem, duration)?;
+        let state = propagated.to_cartesian(problem.central_gravity())?;
+        Ok(Orbit::new(epoch + duration, state))
+    }
+}
+
+impl Propagator<TwoBodyDynamics, SpacecraftState> for EllipticKeplerPropagator {
+    type Error = EllipticKeplerError;
+
+    fn propagate(
+        &self,
+        initial: Orbit<SpacecraftState>,
+        problem: &TwoBodyDynamics,
+        duration: Duration,
+    ) -> Result<Orbit<SpacecraftState>, Self::Error> {
         ensure_state_problem_compatible(&initial.state(), problem)?;
         if duration.total_nanoseconds() == 0 {
             return Ok(initial);
         }
-        let state = self.propagate_state(initial.state(), problem, duration)?;
-        Ok(Orbit::new(initial.epoch() + duration, state))
+        let epoch = initial.epoch();
+        let state = match initial.into_state() {
+            SpacecraftState::Keplerian(state) => {
+                SpacecraftState::Keplerian(self.propagate_keplerian(state, problem, duration)?)
+            }
+            SpacecraftState::Equinoctial(state) => {
+                SpacecraftState::Equinoctial(self.propagate_equinoctial(state, problem, duration)?)
+            }
+            SpacecraftState::Cartesian(state) => {
+                let elements = state.to_keplerian(problem.central_gravity())?;
+                SpacecraftState::Cartesian(
+                    self.propagate_keplerian(elements, problem, duration)?
+                        .to_cartesian(problem.central_gravity())?,
+                )
+            }
+        };
+        Ok(Orbit::new(epoch + duration, state))
     }
+}
+
+fn ensure_cartesian_problem_compatible(
+    state: &CartesianState,
+    problem: &TwoBodyDynamics,
+) -> Result<(), EllipticKeplerError> {
+    let frame_origin = state.frame().origin();
+    let gravity_origin = problem.central_gravity().origin();
+    if frame_origin != gravity_origin {
+        return Err(StateError::CentralGravityOriginMismatch {
+            gravity_origin,
+            frame_origin,
+        }
+        .into());
+    }
+    Ok(())
 }
 
 fn ensure_state_problem_compatible(
@@ -329,18 +402,7 @@ fn ensure_state_problem_compatible(
         SpacecraftState::Equinoctial(state) => {
             ensure_problem_gravity(state.central_gravity(), problem.central_gravity())
         }
-        SpacecraftState::Cartesian(state) => {
-            let frame_origin = state.frame().origin();
-            let gravity_origin = problem.central_gravity().origin();
-            if frame_origin != gravity_origin {
-                return Err(StateError::CentralGravityOriginMismatch {
-                    gravity_origin,
-                    frame_origin,
-                }
-                .into());
-            }
-            Ok(())
-        }
+        SpacecraftState::Cartesian(state) => ensure_cartesian_problem_compatible(state, problem),
     }
 }
 
@@ -581,11 +643,12 @@ mod tests {
     use super::*;
     use bodies::Body;
     use core_crate::frames::{FrameOrigin, InertialFrame};
-    use core_crate::{CartesianState, CentralGravity, ScientificSource};
+    use core_crate::{CentralGravity, ScientificSource};
     use hifitime::Epoch;
     use units::{GravitationalParameter, Length, Ratio};
 
     use crate::PointMassGravityModel;
+    use orbits_cartesian::CartesianState;
 
     #[derive(Debug)]
     struct TestSource;
@@ -677,7 +740,7 @@ mod tests {
         central_gravity: &SharedCentralGravity,
         eccentricity: f64,
         true_anomaly: f64,
-    ) -> Orbit {
+    ) -> Orbit<SpacecraftState> {
         Orbit::new(
             Epoch::from_tai_seconds(1_000.0),
             orbit(central_gravity, eccentricity, true_anomaly).into(),
@@ -856,7 +919,11 @@ mod tests {
         let duration = Duration::from_seconds(900.0);
         let target = initial.epoch() + duration;
         let concrete = EllipticKeplerPropagator::new();
-        let propagator: &dyn Propagator<TwoBodyDynamics, Error = EllipticKeplerError> = &concrete;
+        let propagator: &dyn Propagator<
+            TwoBodyDynamics,
+            SpacecraftState,
+            Error = EllipticKeplerError,
+        > = &concrete;
         let by_duration = propagator
             .propagate(initial.clone(), &problem, duration)
             .expect("duration propagation converges");
@@ -944,7 +1011,7 @@ mod tests {
                 Duration::from_total_nanoseconds(whole_seconds + 1),
             )
             .expect("nanosecond-resolved propagation succeeds");
-        let anomaly = |orbit: Orbit| match orbit.state() {
+        let anomaly = |orbit: Orbit<SpacecraftState>| match orbit.state() {
             SpacecraftState::Keplerian(state) => state.true_anomaly().get::<radian>(),
             _ => unreachable!(),
         };
@@ -1009,7 +1076,10 @@ mod tests {
         let initial_longitude = state.true_longitude();
         let propagated = EllipticKeplerPropagator::new()
             .propagate(
-                Orbit::new(Epoch::from_tai_seconds(1_000.0), state.into()),
+                Orbit::new(
+                    Epoch::from_tai_seconds(1_000.0),
+                    SpacecraftState::from(state),
+                ),
                 &problem,
                 Duration::from_total_nanoseconds(60 * NANOSECONDS_PER_SECOND as i128),
             )
@@ -1049,7 +1119,10 @@ mod tests {
 
         assert!(matches!(
             EllipticKeplerPropagator::new().propagate(
-                Orbit::new(Epoch::from_tai_seconds(1_000.0), state.into()),
+                Orbit::new(
+                    Epoch::from_tai_seconds(1_000.0),
+                    SpacecraftState::from(state)
+                ),
                 &problem,
                 Duration::from_seconds(1_000.0),
             ),
@@ -1093,7 +1166,7 @@ mod tests {
 
         assert!(matches!(
             propagator.propagate(
-                Orbit::new(Epoch::from_tai_seconds(1_000.0), state.into()),
+                Orbit::new(Epoch::from_tai_seconds(1_000.0), SpacecraftState::from(state)),
                 &problem,
                 duration,
             ),
@@ -1159,7 +1232,10 @@ mod tests {
         let cartesian_state = earth_elements
             .to_cartesian(&earth_gravity)
             .expect("fixture conversion");
-        let initial = Orbit::new(Epoch::from_tai_seconds(1_000.0), cartesian_state.into());
+        let initial = Orbit::new(
+            Epoch::from_tai_seconds(1_000.0),
+            SpacecraftState::from(cartesian_state),
+        );
         let mars_gravity = gravity(FrameOrigin::Body(Body::MARS), earth_mu());
         let problem = problem(&mars_gravity);
 

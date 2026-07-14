@@ -539,25 +539,28 @@ fn validate_dimension(dimension: Length) -> Result<(), ShapeError> {
 /// Epoch-specific physical view of a time-independent [`Spacecraft`].
 ///
 /// The view borrows the spacecraft definition and owns an epoch-qualified
-/// orbit plus a closed attitude state. It is not generic over any physical
-/// representation.
+/// orbit plus a closed attitude state. The orbital representation is selected
+/// by the caller through the open [`SpacecraftState`] contract.
 #[derive(Debug, Clone, PartialEq)]
-pub struct SpacecraftView<'a> {
+pub struct SpacecraftView<'a, S> {
     spacecraft: &'a Spacecraft,
-    orbit: Orbit,
+    orbit: Orbit<S>,
     mass: Mass,
     inertia: InertiaTensor,
     attitude: AttitudeState,
 }
 
-impl<'a> SpacecraftView<'a> {
+impl<'a, S> SpacecraftView<'a, S>
+where
+    S: SpacecraftState,
+{
     /// Composes all physical quantities valid at one epoch.
     ///
     /// The caller is responsible for supplying mass, inertia, and attitude
     /// that are valid at the orbit's epoch.
     pub fn new(
         spacecraft: &'a Spacecraft,
-        orbit: Orbit,
+        orbit: Orbit<S>,
         mass: Mass,
         inertia: InertiaTensor,
         attitude: AttitudeState,
@@ -603,7 +606,7 @@ impl<'a> SpacecraftView<'a> {
 
     /// Returns the epoch-qualified orbit in this complete view.
     #[must_use]
-    pub fn orbit(&self) -> Orbit {
+    pub fn orbit(&self) -> Orbit<S> {
         self.orbit.clone()
     }
 
@@ -615,7 +618,7 @@ impl<'a> SpacecraftView<'a> {
 
     /// Returns the orbital state at the view epoch.
     #[must_use]
-    pub fn state(&self) -> SpacecraftState {
+    pub fn state(&self) -> S {
         self.orbit.state()
     }
 
@@ -717,8 +720,16 @@ pub enum SpacecraftViewError {
 mod tests {
     use super::*;
     use frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin};
-    use units::uom::si::{angular_velocity::radian_per_second, velocity::meter_per_second};
-    use units::{Position, VelocityVector};
+    use units::uom::si::angular_velocity::radian_per_second;
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct TestState(ReferenceFrame);
+
+    impl SpacecraftState for TestState {
+        fn frame(&self) -> ReferenceFrame {
+            self.0
+        }
+    }
 
     fn body_frame(id: u64) -> ReferenceFrame {
         let id = CustomFrameId::new(id);
@@ -758,14 +769,8 @@ mod tests {
         .expect("physical inertia")
     }
 
-    fn state() -> SpacecraftState {
-        crate::CartesianState::new(
-            ReferenceFrame::GCRF,
-            Position::from_metres(7_000_000.0, 0.0, 0.0),
-            VelocityVector::from_metres_per_second(0.0, 7_500.0, 0.0),
-        )
-        .expect("finite state")
-        .into()
+    fn state() -> TestState {
+        TestState(ReferenceFrame::GCRF)
     }
 
     #[test]
@@ -836,13 +841,7 @@ mod tests {
             Orbit::new(Epoch::from_tai_seconds(42.0), state())
         );
         assert_eq!(view.mass(), Mass::new::<kilogram>(500.0));
-        assert_eq!(
-            match view.state() {
-                SpacecraftState::Cartesian(state) => state.speed().get::<meter_per_second>(),
-                _ => unreachable!("fixture is Cartesian"),
-            },
-            7_500.0
-        );
+        assert_eq!(view.state().frame(), ReferenceFrame::GCRF);
         assert_eq!(view.inertia().frame(), body);
         assert_eq!(view.attitude().orientation().from_frame(), body);
     }

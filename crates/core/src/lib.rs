@@ -1,35 +1,25 @@
 #![forbid(unsafe_code)]
 
-//! Core state types for orskit.
+//! Implementation-neutral domain contracts for orskit.
 //!
 //! Physical scalars and vectors are strongly typed, epochs use Hifitime
 //! directly, and each coordinate-dependent value carries its own frame.
-//! [`SpacecraftState`] is the closed set of six-element orbital
-//! representations and [`Orbit`] qualifies one with an epoch. [`Spacecraft`]
+//! [`SpacecraftState`] is an open frame-qualified state contract and
+//! [`Orbit`] qualifies any selected state with an epoch. [`Spacecraft`]
 //! contains time-independent identity and geometry; [`SpacecraftView`]
-//! composes a complete epoch-specific physical state.
+//! composes it with a chosen epoch-specific state implementation.
 
 mod gravity;
-mod kinematics;
+mod orbit;
 mod spacecraft;
-mod state;
 
 pub use frames;
-pub use gravity::{
-    CentralGravity, PointMassGravity, ReferenceSource, ScientificSource, ScientificSourceError,
-    SharedCentralGravity, SharedScientificSource,
-};
+pub use gravity::{CentralGravity, ScientificSource, SharedCentralGravity, SharedScientificSource};
 pub use hifitime::Epoch;
-pub use kinematics::{
-    CartesianCoordinates, FramedAcceleration, FramedPosition, FramedVelocity, KinematicError,
-};
+pub use orbit::{Orbit, SpacecraftState};
 pub use spacecraft::{
     AttitudeError, AttitudeState, BodyAngularVelocity, CuboidShape, InertiaError, InertiaTensor,
     Orientation, OrientationError, QuaternionAttitude, ShapeError, Spacecraft, SpacecraftBodyFrame,
     SpacecraftError, SpacecraftShape, SpacecraftView, SpacecraftViewError, SphereShape,
-};
-pub use state::{
-    CartesianState, CoordinateSample, EquinoctialState, KeplerianState, Orbit, SpacecraftState,
-    StateError, To,
 };
 pub use units;

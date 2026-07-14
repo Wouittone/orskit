@@ -2,12 +2,12 @@ use std::{hint::black_box, sync::Arc, time::Instant};
 
 use bodies::Body;
 use core_crate::frames::{FrameOrigin, ReferenceFrame};
-use core_crate::{
-    CartesianState, Orbit, PointMassGravity, ReferenceSource, SharedCentralGravity,
-    SharedScientificSource, SpacecraftState,
-};
-use dynamics::{EllipticKeplerPropagator, PointMassGravityModel, Propagator, TwoBodyDynamics};
+use core_crate::{Orbit, SharedCentralGravity, SharedScientificSource};
+use dynamics::Propagator;
+use dynamics_two_body::{EllipticKeplerPropagator, PointMassGravityModel, TwoBodyDynamics};
+use gravity_point_mass::{PointMassGravity, ReferenceSource};
 use hifitime::{Duration, Epoch};
+use orbits_cartesian::{CartesianState, SpacecraftState};
 use units::{GravitationalParameter, Position, VelocityVector};
 
 const DEFAULT_ITERATIONS: usize = 1_000_000;
@@ -69,7 +69,7 @@ fn main() {
 
 fn run_queries(
     propagator: &EllipticKeplerPropagator,
-    initial: Orbit,
+    initial: Orbit<SpacecraftState>,
     problem: &TwoBodyDynamics,
     iterations: usize,
 ) -> f64 {
@@ -98,7 +98,7 @@ fn query_offset_seconds(index: usize) -> f64 {
     ((index.wrapping_mul(104_729) % 172_800) as f64) - 86_400.0
 }
 
-fn initial_orbit() -> Orbit {
+fn initial_orbit() -> Orbit<SpacecraftState> {
     let state = CartesianState::new(
         ReferenceFrame::GCRF,
         Position::from_metres(

@@ -9,9 +9,9 @@ use thiserror::Error;
 use units::uom::si::{angle::radian, length::meter, ratio::ratio};
 use units::{Angle, Length, Position, Ratio, Velocity, VelocityVector};
 
-use crate::{
-    CartesianCoordinates, FramedPosition, FramedVelocity, KinematicError, SharedCentralGravity,
-};
+use core_crate::{SharedCentralGravity, SpacecraftState as SpacecraftStateContract};
+
+use crate::{CartesianCoordinates, FramedPosition, FramedVelocity, KinematicError};
 
 /// Coordinates tied to the epoch at which they are valid.
 ///
@@ -419,29 +419,37 @@ impl EquinoctialState {
     }
 }
 
-/// The closed set of currently supported six-element spacecraft states.
+impl SpacecraftStateContract for CartesianState {
+    fn frame(&self) -> ReferenceFrame {
+        CartesianState::frame(*self)
+    }
+}
+
+impl SpacecraftStateContract for KeplerianState {
+    fn frame(&self) -> ReferenceFrame {
+        KeplerianState::frame(self)
+    }
+}
+
+impl SpacecraftStateContract for EquinoctialState {
+    fn frame(&self) -> ReferenceFrame {
+        EquinoctialState::frame(self)
+    }
+}
+
+/// Convenient closed bundle of the representations implemented by this crate.
+///
+/// This is an implementation-level convenience, not the core state contract;
+/// generic APIs accept each representation directly or any application state
+/// implementing [`core_crate::SpacecraftState`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum SpacecraftState {
-    /// Cartesian `(x, y, z, vx, vy, vz)` state.
     Cartesian(CartesianState),
-    /// Keplerian `(a, e, i, Omega, omega, nu)` state.
     Keplerian(KeplerianState),
-    /// Equinoctial `(a, ex, ey, hx, hy, lv)` state.
     Equinoctial(EquinoctialState),
 }
 
 impl SpacecraftState {
-    /// Returns the frame shared by the six elements.
-    #[must_use]
-    pub const fn frame(&self) -> ReferenceFrame {
-        match self {
-            Self::Cartesian(state) => state.frame(),
-            Self::Keplerian(state) => state.frame(),
-            Self::Equinoctial(state) => state.frame(),
-        }
-    }
-
-    /// Returns the bound gravity-context identity for an element representation.
     #[must_use]
     pub const fn central_gravity(&self) -> Option<&SharedCentralGravity> {
         match self {
@@ -452,51 +460,29 @@ impl SpacecraftState {
     }
 }
 
+impl SpacecraftStateContract for SpacecraftState {
+    fn frame(&self) -> ReferenceFrame {
+        match self {
+            Self::Cartesian(state) => state.frame(),
+            Self::Keplerian(state) => state.frame(),
+            Self::Equinoctial(state) => state.frame(),
+        }
+    }
+}
+
 impl From<CartesianState> for SpacecraftState {
     fn from(state: CartesianState) -> Self {
         Self::Cartesian(state)
     }
 }
-
 impl From<KeplerianState> for SpacecraftState {
     fn from(state: KeplerianState) -> Self {
         Self::Keplerian(state)
     }
 }
-
 impl From<EquinoctialState> for SpacecraftState {
     fn from(state: EquinoctialState) -> Self {
         Self::Equinoctial(state)
-    }
-}
-
-/// An orbital state qualified by the epoch at which its elements are valid.
-///
-/// This is the complete input and output of translational propagation. It does
-/// not imply that spacecraft mass, inertia, or attitude were propagated.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Orbit {
-    epoch: Epoch,
-    state: SpacecraftState,
-}
-
-impl Orbit {
-    /// Associates an orbital representation with its epoch.
-    #[must_use]
-    pub const fn new(epoch: Epoch, state: SpacecraftState) -> Self {
-        Self { epoch, state }
-    }
-
-    /// Returns the epoch at which the orbital state is valid.
-    #[must_use]
-    pub const fn epoch(&self) -> Epoch {
-        self.epoch
-    }
-
-    /// Returns the native orbital representation.
-    #[must_use]
-    pub fn state(&self) -> SpacecraftState {
-        self.state.clone()
     }
 }
 
@@ -911,7 +897,7 @@ mod tests {
         scenario: &str,
     ) -> SharedCentralGravity {
         let source = Arc::new(
-            crate::ReferenceSource::new(
+            gravity_point_mass::ReferenceSource::new(
                 "orskit test suite",
                 "orbital conversion fixture",
                 scenario,
@@ -920,7 +906,7 @@ mod tests {
             .expect("complete test provenance"),
         );
         Arc::new(
-            crate::PointMassGravity::new(origin, gravitational_parameter, source)
+            gravity_point_mass::PointMassGravity::new(origin, gravitational_parameter, source)
                 .expect("valid central gravity"),
         )
     }

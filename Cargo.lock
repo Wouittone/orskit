@@ -487,8 +487,11 @@ dependencies = [
  "orskit-ccsds",
  "orskit-core",
  "orskit-dynamics",
+ "orskit-dynamics-two-body",
  "orskit-frames",
+ "orskit-gravity-point-mass",
  "orskit-measurements",
+ "orskit-orbits-cartesian",
  "orskit-units",
 ]
 
@@ -506,6 +509,7 @@ dependencies = [
  "criterion",
  "orskit-core",
  "orskit-frames",
+ "orskit-orbits-cartesian",
  "orskit-units",
  "rayon",
  "thiserror",
@@ -535,10 +539,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "orskit-dynamics-two-body"
+version = "0.0.0"
+dependencies = [
+ "hifitime",
+ "orskit-bodies",
+ "orskit-core",
+ "orskit-dynamics",
+ "orskit-gravity-point-mass",
+ "orskit-orbits-cartesian",
+ "orskit-units",
+ "thiserror",
+]
+
+[[package]]
 name = "orskit-frames"
 version = "0.0.0"
 dependencies = [
  "orskit-bodies",
+ "orskit-units",
+ "thiserror",
+]
+
+[[package]]
+name = "orskit-gravity-point-mass"
+version = "0.0.0"
+dependencies = [
+ "orskit-core",
+ "orskit-frames",
  "orskit-units",
  "thiserror",
 ]
@@ -549,6 +577,18 @@ version = "0.0.0"
 dependencies = [
  "hifitime",
  "orskit-frames",
+ "orskit-units",
+ "thiserror",
+]
+
+[[package]]
+name = "orskit-orbits-cartesian"
+version = "0.0.0"
+dependencies = [
+ "hifitime",
+ "orskit-core",
+ "orskit-frames",
+ "orskit-gravity-point-mass",
  "orskit-units",
  "thiserror",
 ]

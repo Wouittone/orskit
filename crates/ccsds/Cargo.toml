@@ -18,6 +18,7 @@ parallel = ["dep:rayon"]
 
 [dependencies]
 core_crate = { package = "orskit-core", path = "../core" }
+orbits_cartesian = { package = "orskit-orbits-cartesian", path = "../orbits-cartesian" }
 frames = { package = "orskit-frames", path = "../frames" }
 units = { package = "orskit-units", path = "../units" }
 rayon = { workspace = true, optional = true }
