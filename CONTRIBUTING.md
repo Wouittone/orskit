@@ -50,7 +50,9 @@ set is:
 cargo fmt --all --check
 cargo check --workspace --all-targets --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo nextest run --workspace --all-features
+cargo nextest run --workspace --all-targets --all-features --locked
+# cargo-nextest does not support doctests on stable Rust.
+cargo test --workspace --doc --all-features --locked
 cargo doc --workspace --all-features --no-deps
 ```
 

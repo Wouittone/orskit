@@ -77,13 +77,35 @@ missing abstraction or an incorrectly placed type.
   distinct capabilities.
 - **Events:** detector functions, direction, root localization, handlers, and
   deterministic simultaneous-event policy.
-- **Attitude:** rotations, angular derivatives, attitude providers, and
-  spacecraft geometry.
-- **Measurements:** typed observations, participants, timing, modifiers,
-  uncertainties, ground assets, spacecraft links, and correction models. The
-  initial `GroundStation` participant owns a parent-relative fixed frame;
-  clocks, displacement, topocentric axes, and signal paths remain future
-  contracts. A ground observer is not a separate top-level domain or crate.
+- **Attitude:** open `Attitude` and `SpacecraftGeometry` contracts compose
+  caller-selected representations into a `SpacecraftView`; optional built-in
+  quaternion attitude and standard geometry implementations are separately
+  feature-gated in `core`.
+- **Measurements:** an object-safe `Measurement` trait composes heterogeneous
+  observations without erasing their dimensions. Concrete range, range-rate,
+  azimuth/elevation, and Doppler implementations each retain an explicit
+  signal path, epoch, frame, typed values, and an explicit known-or-unknown
+  error; no shared observation-context object or time tag can assign metadata
+  to another measurement.
+  One-value observations use a scalar standard error; multi-value observations
+  accept a typed positive-definite covariance matrix and retain only its lower
+  triangular Cholesky matrix. Construction validates finite, exactly symmetric
+  input through strict factorization without an arbitrary tolerance. Generic
+  correction chains apply only to their matching implementation, with typed
+  additive corrections and retained open physical-provenance types. Known scalar
+  errors combine by root-sum-of-squares and stored lower matrices as
+  `L₁L₁ᵀ + L₂L₂ᵀ`, while an unknown input remains unknown.
+  Built-in observable families and correction-provenance markers each have an
+  explicit `measurements` feature, so `default-features = false` can retain
+  only application-selected implementations. Ground-observation data types
+  include azimuth/elevation, right ascension/declination, range/range-rate,
+  Doppler, bistatic and turn-around range, TDOA, FDOA, and carrier phase;
+  physical prediction and estimation remain separate contracts.
+  `GroundStation` owns a parent-relative fixed frame; geodetic conversion,
+  displacement, topocentric-frame construction,
+  clocks, weather inputs, light-time solving, and physical correction-model
+  evaluation remain future contracts. A ground observer is not a separate
+  top-level domain or crate.
 - **Estimation:** parameters, residuals, least squares, filters, covariance,
   and state-transition/sensitivity machinery.
 
@@ -108,8 +130,12 @@ missing abstraction or an incorrectly placed type.
 - `Orbit<S>` composes an epoch with its caller-selected state representation.
   `Spacecraft` contains time-independent identity, an opaque spacecraft-owned
   non-inertial body-frame capability, and body geometry.
-  `SpacecraftView<S>` borrows it while owning an `Orbit<S>`, a closed
-  `AttitudeState` enum, positive mass, and framed inertia.
+  `SpacecraftView<S, G, A>` borrows it while owning an `Orbit<S>`, an open
+  caller-selected `A: Attitude`, positive mass, and framed inertia; `G:
+  SpacecraftGeometry` identifies the borrowed spacecraft geometry. The
+  optional `QuaternionAttitude` implementation remains available as the
+  compatibility alias `AttitudeState` when the `quaternion-attitude` feature
+  is selected.
   Position, velocity, acceleration, orientation, inertia tensor, covariance,
   and every other coordinate-dependent value carries the frame information
   needed to interpret it. Cartesian coordinates remain gravity-independent;

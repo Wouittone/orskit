@@ -85,7 +85,9 @@ is pinned in `rust-toolchain.toml` and package metadata. Install
 
 ```powershell
 cargo build --workspace
-cargo nextest run --workspace
+cargo nextest run --workspace --all-targets --all-features --locked
+# cargo-nextest does not support doctests on stable Rust.
+cargo test --workspace --doc --all-features --locked
 ```
 
 Small Rust examples can import the focused crates directly:

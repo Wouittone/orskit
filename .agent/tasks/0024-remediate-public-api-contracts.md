@@ -102,10 +102,9 @@ project is used.
 - [x] Relevant checks pass
 - [x] Binding impact handled or explicitly deferred
 
-The workspace formatting, check, Clippy, all-target Cargo test, doctest, and
-documentation commands pass with all features and the lockfile. The required
-`cargo nextest` command was attempted but is unavailable in the validation
-environment; `cargo test --workspace --all-targets --all-features --locked`
-was run successfully as an explicitly reported fallback. Disabled Python and
-JVM bindings remain outside the active workspace and were not modified or
+The workspace formatting, check, Clippy, all-target `cargo nextest` suite, and
+documentation commands pass with all features and the lockfile. `cargo nextest`
+does not support doctests on stable Rust, so doctests remain in the separate
+`cargo test --workspace --doc --all-features --locked` step. Disabled Python
+and JVM bindings remain outside the active workspace and were not modified or
 validated.
