@@ -63,11 +63,11 @@ roadmap. Start with [`.agent/README.md`](.agent/README.md).
 | `crates/units` | `uom`-backed physical quantities and typed Cartesian vectors |
 | `crates/bodies` | Planet, moon, dwarf-planet, custom-body, and explicit body-system identities |
 | `crates/frames` | Reference-frame identities plus caller-owned, parent-relative fixed frame definitions |
-| `crates/core` | Open state and generic orbit contracts, scientific context, spacecraft identity/geometry, and complete physical views |
-| `crates/orbits-cartesian` | Cartesian, elliptic Keplerian, and elliptic equinoctial state implementations and conversions |
-| `crates/gravity-point-mass` | Optional immutable point-mass gravity and provenance implementation |
+| `crates/core` | Open state and generic orbit contracts plus spacecraft identity/geometry and complete physical views |
+| `crates/orbits` | Feature-gated state representations; `cartesian` provides Cartesian, elliptic Keplerian, and equinoctial states |
+| `crates/gravity` | Gravity-provider contract; the `point-mass` feature provides an immutable point-mass provider |
 | `crates/dynamics` | Open force-model composition, `ComposedDynamics`, and generic propagation contracts |
-| `crates/dynamics-two-body` | Point-mass two-body dynamics and analytical elliptic Kepler propagation |
+| `crates/dynamics-two-bodies` | One concrete dynamics implementation: point-mass two-body dynamics and analytical elliptic Kepler propagation |
 | `crates/ccsds` | Blocking/Tokio streaming and Rayon collection for CCSDS OEM KVN coordinates |
 | `crates/measurements` | Typed measurements and fixed ground-station participants built on parent-relative frames |
 | `crates/utils` | Typed sourced constants; package boundary remains transitional |
@@ -90,7 +90,7 @@ cargo nextest run --workspace
 
 Small Rust examples can import the focused crates directly:
 
-The Cargo package `orskit-core` exposes the Rust library `orskit_core`,
+The Cargo package `core` exposes the Rust library `orskit_core`,
 avoiding a collision with Rust's built-in `core` crate.
 
 ```rust
@@ -124,8 +124,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 OEM supplies timed coordinates but not mass, inertia, attitude, or angular
-velocity. Enable the facade `cartesian` feature (or depend on
-`orskit-orbits-cartesian`) to convert OEM coordinates to `CartesianState`, then
+velocity. Enable the facade `cartesian` feature (or depend on `orbits` with its
+`cartesian` feature) to convert OEM coordinates to `CartesianState`, then
 combine them with those missing values in a `SpacecraftView<CartesianState>`.
 This is presently
 CCSDS 502.0-B-3 OEM KVN coordinate

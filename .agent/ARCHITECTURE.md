@@ -95,12 +95,14 @@ missing abstraction or an incorrectly placed type.
 
 ## Core data contracts
 
-- `SpacecraftState` is an open, frame-qualified contract. Concrete Cartesian,
-  Keplerian, and equinoctial representations belong to
-  `orskit-orbits-cartesian`; applications can provide another implementation
-  without changing core APIs. The implementation crate may offer a closed
-  convenience enum, but no core workflow requires it.
-- `Orbit<S>` composes an epoch with a caller-selected state representation.
+- `SpacecraftState` is an open, frame-qualified contract. `Orbit<S>` is bound
+  to `S: SpacecraftState`, so every epoch-qualified orbit is a valid spacecraft
+  state. Concrete representations are selected through the feature-gated
+  `orbits` crate (`orbits::cartesian`, `orbits::keplerian`, and
+  `orbits::equinoctial` today); applications can provide another implementation
+  without changing core APIs. There is no closed convenience enum in a public
+  contract.
+- `Orbit<S>` composes an epoch with its caller-selected state representation.
   `Spacecraft` contains time-independent identity, an opaque spacecraft-owned
   non-inertial body-frame capability, and body geometry.
   `SpacecraftView<S>` borrows it while owning an `Orbit<S>`, a closed
@@ -109,8 +111,9 @@ missing abstraction or an incorrectly placed type.
   and every other coordinate-dependent value carries the frame information
   needed to interpret it. Cartesian coordinates remain gravity-independent;
   osculating element alternatives share an application-extensible
-  `Arc<dyn CentralGravity>` binding origin, parameter, and trait-based
-  provenance. Lower-level
+  `Arc<dyn gravity::CentralGravityProvider>` binding origin and parameter.
+  The provider is selected by the application or a feature in the dedicated
+  `gravity` crate; lower-level
   format coordinates may remain separate until validated into that state.
 - File formats that omit physical properties yield values such as
   `CoordinateSample<CartesianCoordinates>`, not fabricated complete states.
@@ -172,10 +175,12 @@ There is no ambient mutable "current data context."
 
 ## Crate evolution
 
-Focused Cargo packages use the `orskit-*` namespace while retaining concise
-Rust library names such as `frames` and `units` where that does not conflict
-with the standard library. Directory names such as `crates/core` remain concise.
-New boundaries should follow the same namespaced-package convention.
+Focused Cargo packages retain concise domain names. The public facade is the
+`orskit` package; internal implementation packages use names such as `orbits`,
+`gravity`, and `dynamics-two-bodies` because the workspace already establishes
+their provenance. Rust's built-in `core` crate remains reserved, so the core
+contract library is imported internally as `orskit_core` and re-exported to
+facade users as `orskit::core`.
 Split crates only when the domain boundary and dependency direction are clear;
 do not create one crate per noun pre-emptively.
 
@@ -186,11 +191,11 @@ vertical slices.
 
 The initial split includes `units` for typed quantities, `bodies` for celestial
 and body-system identities, `frames` for body-backed frame identity,
-implementation-neutral `core` contracts, and the
-`orskit-orbits-cartesian` implementation crate for Cartesian, elliptic
-Keplerian, and elliptic equinoctial six-element representations.
-`orskit-gravity-point-mass` similarly provides the optional built-in
-point-mass gravity/provenance selection; core retains only the open contracts.
+implementation-neutral `core` contracts, the feature-gated `orbits` crate for
+Cartesian, elliptic Keplerian, and elliptic equinoctial six-element
+representations, and the `gravity` crate for independently selected gravity
+providers. Its `point-mass` feature is optional; no scientific provenance
+record is imposed on application-owned providers.
 `lox-frames` is scientifically promising but still alpha; ANISE is mature but
 owns a broader almanac/orbit context than this foundational slice needs. Keep
 the boundary adapter-friendly and revisit both for transform providers rather
@@ -200,9 +205,10 @@ than leaking either API into spacecraft state.
 conservative/non-conservative force-model contracts, `ComposedDynamics`, and
 the generic `Propagator<Problem, State>` boundary. Concrete `TwoBodyDynamics`,
 its point-mass model, and `EllipticKeplerPropagator` live in
-`orskit-dynamics-two-body`, which depends explicitly on the Cartesian orbit
-implementation. The solver advances an epoch-qualified `Orbit<S>` and returns
-the same selected representation.
+`dynamics-two-bodies`, one implementation crate among future dynamics
+implementations. It depends explicitly on the `orbits` Cartesian feature. The
+solver accepts a target epoch, derives its internal duration, and advances an
+epoch-qualified `Orbit<S>` while returning the same selected representation.
 Complete spacecraft views are composed separately from properties known to be
 valid at the propagated epoch.
 General force evaluation and numerical propagation remain deferred; their design must

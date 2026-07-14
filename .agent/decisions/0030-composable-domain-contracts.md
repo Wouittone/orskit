@@ -1,6 +1,6 @@
 # ADR-0030: compose domain contracts independently from implementations
 
-- Status: Accepted
+- Status: Superseded by ADR-0031
 - Date: 2026-07-14
 - Affected parity rows: orbits; dynamics and force-model composition; two-body propagation; stable Rust facade
 - Supersedes: ADR-0025
@@ -17,17 +17,17 @@ capabilities.
 ## Decision
 
 1. `orskit-core` owns open, implementation-neutral contracts: `SpacecraftState`,
-   generic epoch-qualified `Orbit<S>`, generic `SpacecraftView<S>`, scientific
-   provenance, gravity selection, and attitude/spacecraft definitions.
+   generic epoch-qualified `Orbit<S>`, generic `SpacecraftView<S>`, and
+   attitude/spacecraft definitions.
 2. `orskit-dynamics` owns only open force-model, dynamics-topology, and generic
    propagation contracts. `ComposedDynamics` is the standard ordered assembly
    of heterogeneous conservative and non-conservative model handles.
-3. Cartesian, Keplerian, and equinoctial state representations live in
-   `orskit-orbits-cartesian`. Point-mass gravity topology and the elliptic
-   Kepler solution live in `orskit-dynamics-two-body`.
+3. Cartesian, Keplerian, and equinoctial state representations live in a
+   dedicated implementation crate. Point-mass gravity topology and the
+   elliptic Kepler solution live in a dedicated dynamics implementation crate.
 4. The `orskit` facade exposes implementation crates only through explicit
    Cargo features. `default` is intentionally empty; `cartesian` and
-   `two-body` select the current implementations, and the latter implies the
+   `two-bodies` select the current implementations, and the latter implies the
    former.
 5. File-format adapters depend on the concrete representation they decode, not
    on a closed core enum.
