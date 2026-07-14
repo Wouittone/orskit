@@ -8,11 +8,24 @@ license.workspace = true
 repository.workspace = true
 description = "Public Rust facade for orskit astrodynamics"
 
+[features]
+default = []
+bodies = ["dep:bodies"]
+ccsds = ["dep:ccsds", "cartesian"]
+cartesian = ["dep:orbits", "orbits/cartesian"]
+dynamics = ["dep:dynamics"]
+point-mass-gravity = ["dep:gravity", "gravity/point-mass"]
+two-bodies = ["cartesian", "dynamics", "point-mass-gravity", "dep:dynamics_two_bodies", "dynamics_two_bodies/point-mass"]
+measurements = ["dep:measurements"]
+
 [dependencies]
-bodies = { package = "orskit-bodies", path = "../bodies" }
-ccsds = { package = "orskit-ccsds", path = "../ccsds" }
-core_crate = { package = "orskit-core", path = "../core" }
-dynamics = { package = "orskit-dynamics", path = "../dynamics" }
-frames = { package = "orskit-frames", path = "../frames" }
-measurements = { package = "orskit-measurements", path = "../measurements" }
-units = { package = "orskit-units", path = "../units" }
+bodies = { path = "../bodies", optional = true }
+ccsds = { path = "../ccsds", optional = true }
+orskit_core = { package = "core", path = "../core" }
+dynamics = { path = "../dynamics", optional = true }
+dynamics_two_bodies = { package = "dynamics-two-bodies", path = "../dynamics-two-bodies", optional = true }
+gravity = { path = "../gravity", optional = true }
+frames = { path = "../frames" }
+measurements = { path = "../measurements", optional = true }
+orbits = { path = "../orbits", optional = true }
+units = { path = "../units" }

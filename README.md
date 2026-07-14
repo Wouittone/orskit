@@ -13,9 +13,9 @@ project-owned code. That code is intended to remain available under either the
 MIT or Apache-2.0 license.
 
 > **Status: pre-alpha.** The repository currently contains an early workspace
-> scaffold with typed units, celestial-body and frame identities, a closed
-> six-element Cartesian/Keplerian/equinoctial state enum, epoch-qualified
-> orbits, orbital conversion traits, time-independent spacecraft definitions,
+> scaffold with typed units, celestial-body and frame identities, open
+> frame-qualified spacecraft-state and generic epoch-qualified-orbit contracts,
+> feature-gated Cartesian/Keplerian/equinoctial implementations, time-independent spacecraft definitions,
 > and epoch-specific views
 > with attitude and angular velocity,
 > streaming CCSDS OEM KVN ingestion, composable dynamics descriptions, a
@@ -59,12 +59,15 @@ roadmap. Start with [`.agent/README.md`](.agent/README.md).
 
 | Path | Current role |
 | --- | --- |
-| `crates/orskit` | Thin public facade and conservative prelude over the focused Rust crates |
+| `crates/orskit` | Feature-gated public facade: contracts by default, selected implementations on demand |
 | `crates/units` | `uom`-backed physical quantities and typed Cartesian vectors |
 | `crates/bodies` | Planet, moon, dwarf-planet, custom-body, and explicit body-system identities |
 | `crates/frames` | Reference-frame identities plus caller-owned, parent-relative fixed frame definitions |
-| `crates/core` | Six-element orbital states, epoch-qualified orbits, time-independent spacecraft identity/geometry, and complete physical views |
-| `crates/dynamics` | System/force-model composition plus orbit-only analytical elliptic point-mass propagation |
+| `crates/core` | Open state and generic orbit contracts plus spacecraft identity/geometry and complete physical views |
+| `crates/orbits` | Feature-gated state representations; `cartesian` provides Cartesian, elliptic Keplerian, and equinoctial states |
+| `crates/gravity` | Gravity-provider contract; the `point-mass` feature provides an immutable point-mass provider |
+| `crates/dynamics` | Open force-model composition, `ComposedDynamics`, and generic propagation contracts |
+| `crates/dynamics-two-bodies` | One concrete dynamics implementation: point-mass two-body dynamics and analytical elliptic Kepler propagation |
 | `crates/ccsds` | Blocking/Tokio streaming and Rayon collection for CCSDS OEM KVN coordinates |
 | `crates/measurements` | Typed measurements and fixed ground-station participants built on parent-relative frames |
 | `crates/utils` | Typed sourced constants; package boundary remains transitional |
@@ -87,8 +90,8 @@ cargo nextest run --workspace
 
 Small Rust examples can import the focused crates directly:
 
-The Cargo package named `core` exposes the Rust library
-`astrodynamics_core`, avoiding a collision with Rust's built-in `core` crate.
+The Cargo package `core` exposes the Rust library `orskit_core`,
+avoiding a collision with Rust's built-in `core` crate.
 
 ```rust
 use frames::ReferenceFrame;
@@ -121,9 +124,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 OEM supplies timed coordinates but not mass, inertia, attitude, or angular
-velocity. Define the time-independent `Spacecraft` from identity and geometry,
-convert the OEM coordinates to `CartesianState`, then combine them with those
-missing values in a `SpacecraftView`. This is presently
+velocity. Enable the facade `cartesian` feature (or depend on `orbits` with its
+`cartesian` feature) to convert OEM coordinates to `CartesianState`, then
+combine them with those missing values in a `SpacecraftView<CartesianState>`.
+This is presently
 CCSDS 502.0-B-3 OEM KVN coordinate
 ingestion only. XML,
 covariance, OPM/OMM/OCM, attitude, and tracking messages remain explicit gaps.

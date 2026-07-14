@@ -1,5 +1,5 @@
 [package]
-name = "orskit-measurements"
+name = "measurements"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,6 +13,6 @@ name = "measurements"
 
 [dependencies]
 hifitime.workspace = true
-frames = { package = "orskit-frames", path = "../frames" }
-units = { package = "orskit-units", path = "../units" }
+frames = { path = "../frames" }
+units = { path = "../units" }
 thiserror.workspace = true

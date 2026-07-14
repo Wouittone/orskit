@@ -2,11 +2,12 @@
 
 use std::{fmt, io::BufRead, str::FromStr, sync::Arc};
 
-use core_crate::{
-    CartesianCoordinates, CoordinateSample, Epoch, FramedAcceleration, FramedPosition,
-    FramedVelocity, KinematicError,
-};
 use frames::{Body, FrameOrientation, FrameOrigin, ReferenceFrame};
+use orbits::cartesian::{
+    CartesianCoordinates, CoordinateSample, FramedAcceleration, FramedPosition, FramedVelocity,
+    KinematicError,
+};
+use orskit_core::Epoch;
 use thiserror::Error;
 use units::{AccelerationVector, Position, VelocityVector};
 
@@ -2006,11 +2007,12 @@ fn required(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core_crate::{
-        AttitudeState, BodyAngularVelocity, CartesianState, InertiaTensor, Orbit, Orientation,
-        Spacecraft, SpacecraftBodyFrame, SpacecraftShape, SpacecraftView,
-    };
     use frames::{CustomFrameId, FrameMotion, FrameOrientation};
+    use orbits::cartesian::CartesianState;
+    use orskit_core::{
+        AttitudeState, BodyAngularVelocity, InertiaTensor, Orbit, Orientation, Spacecraft,
+        SpacecraftBodyFrame, SpacecraftShape, SpacecraftView,
+    };
     use units::uom::si::{mass::kilogram, moment_of_inertia::kilogram_square_meter};
     use units::{AngularVelocityVector, Mass, MomentOfInertia};
 
@@ -2283,7 +2285,7 @@ META_STOP\n\
         let spacecraft = Spacecraft::new(owned_body, SpacecraftShape::Point);
         let view = SpacecraftView::new(
             &spacecraft,
-            Orbit::new(coordinates.epoch(), state.into()),
+            Orbit::new(coordinates.epoch(), state),
             Mass::new::<kilogram>(500.0),
             inertia,
             attitude,

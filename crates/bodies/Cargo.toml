@@ -1,5 +1,5 @@
 [package]
-name = "orskit-bodies"
+name = "bodies"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

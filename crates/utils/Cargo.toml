@@ -1,5 +1,5 @@
 [package]
-name = "orskit-utils"
+name = "utils"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,4 +12,4 @@ description = "Utility functions and helpers for orskit"
 name = "utils"
 
 [dependencies]
-units = { package = "orskit-units", path = "../units" }
+units = { path = "../units" }

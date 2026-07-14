@@ -1,12 +1,16 @@
 [workspace]
+resolver = "2"
 members = [
     "crates/bodies",
     "crates/ccsds",
     "crates/core",
     "crates/dynamics",
+    "crates/dynamics-two-bodies",
     "crates/frames",
+    "crates/gravity",
     "crates/measurements",
     "crates/orskit",
+    "crates/orbits",
     "crates/units",
     "crates/utils",
 ]

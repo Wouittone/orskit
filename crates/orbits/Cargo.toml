@@ -1,0 +1,27 @@
+[package]
+name = "orbits"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Cartesian and elliptic element state implementations for orskit"
+
+[lib]
+name = "orbits"
+
+[features]
+default = []
+cartesian = []
+
+[dependencies]
+orskit_core = { package = "core", path = "../core" }
+frames = { path = "../frames" }
+gravity = { path = "../gravity" }
+hifitime.workspace = true
+thiserror.workspace = true
+units = { path = "../units" }
+
+[dev-dependencies]
+gravity = { path = "../gravity", features = ["point-mass"] }

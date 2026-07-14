@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <module type="EMPTY_MODULE" version="4">
-  <component name="NewModuleRootManager">
+  <component name="NewModuleRootManager" inherit-compiler-output="true">
+    <exclude-output />
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/crates/bodies/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/ccsds/benches" isTestSource="true" />
@@ -13,6 +14,10 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/orskit/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/units/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/utils/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/dynamics-two-body/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/dynamics-two-body/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/gravity-point-mass/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/orbits-cartesian/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
