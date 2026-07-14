@@ -4,11 +4,14 @@ use frames::{FrameMotion, FrameOrientation, FrameOrigin, ReferenceFrame};
 use hifitime::Epoch;
 use nalgebra::{Matrix3, Quaternion, UnitQuaternion};
 use thiserror::Error;
+#[cfg(feature = "standard-shapes")]
+use units::uom::si::length::meter;
 use units::uom::si::{
-    angle::radian, length::meter, mass::kilogram, moment_of_inertia::kilogram_square_meter,
-    ratio::ratio,
+    angle::radian, mass::kilogram, moment_of_inertia::kilogram_square_meter, ratio::ratio,
 };
-use units::{Angle, AngularVelocity, AngularVelocityVector, Length, Mass, MomentOfInertia, Ratio};
+#[cfg(feature = "standard-shapes")]
+use units::Length;
+use units::{Angle, AngularVelocity, AngularVelocityVector, Mass, MomentOfInertia, Ratio};
 
 use crate::{Orbit, SpacecraftState};
 
@@ -159,13 +162,40 @@ impl BodyAngularVelocity {
     }
 }
 
+/// Epoch-specific spacecraft attitude contract.
+///
+/// Applications may implement this for an estimator state, a tabulated
+/// attitude, or another representation. The view validates frame ownership
+/// through this contract without choosing a representation.
+pub trait Attitude: std::fmt::Debug + Send + Sync {
+    /// Returns the body-to-reference orientation.
+    fn orientation(&self) -> &Orientation;
+
+    /// Returns angular velocity expressed in body axes.
+    fn angular_velocity(&self) -> &BodyAngularVelocity;
+
+    /// Returns intrinsic roll/pitch/yaw angles about x/y/z.
+    #[must_use]
+    fn angles(&self) -> [Angle; 3] {
+        self.orientation().angles()
+    }
+
+    /// Returns angular speeds about body x/y/z.
+    #[must_use]
+    fn angular_speeds(&self) -> [AngularVelocity; 3] {
+        self.angular_velocity().components()
+    }
+}
+
 /// Immutable attitude represented by a quaternion and body angular velocity.
+#[cfg(feature = "quaternion-attitude")]
 #[derive(Debug, Clone, PartialEq)]
 pub struct QuaternionAttitude {
     orientation: Orientation,
     angular_velocity: BodyAngularVelocity,
 }
 
+#[cfg(feature = "quaternion-attitude")]
 impl QuaternionAttitude {
     /// Constructs an attitude with angular velocity in the orientation's body frame.
     pub fn new(
@@ -209,63 +239,23 @@ impl QuaternionAttitude {
     }
 }
 
-/// Closed set of supported spacecraft attitude representations.
-#[derive(Debug, Clone, PartialEq)]
-pub enum AttitudeState {
-    /// Quaternion orientation and body angular velocity.
-    Quaternion(QuaternionAttitude),
-}
-
-impl AttitudeState {
-    /// Constructs the current quaternion attitude representation.
-    pub fn new(
-        orientation: Orientation,
-        angular_velocity: BodyAngularVelocity,
-    ) -> Result<Self, AttitudeError> {
-        Ok(Self::Quaternion(QuaternionAttitude::new(
-            orientation,
-            angular_velocity,
-        )?))
+#[cfg(feature = "quaternion-attitude")]
+impl Attitude for QuaternionAttitude {
+    fn orientation(&self) -> &Orientation {
+        self.orientation()
     }
 
-    /// Returns the body-to-reference orientation in any representation.
-    #[must_use]
-    pub const fn orientation(&self) -> &Orientation {
-        match self {
-            Self::Quaternion(attitude) => attitude.orientation(),
-        }
-    }
-
-    /// Returns body angular velocity in any representation.
-    #[must_use]
-    pub const fn angular_velocity(&self) -> &BodyAngularVelocity {
-        match self {
-            Self::Quaternion(attitude) => attitude.angular_velocity(),
-        }
-    }
-
-    /// Returns intrinsic roll/pitch/yaw angles about x/y/z.
-    #[must_use]
-    pub fn angles(&self) -> [Angle; 3] {
-        match self {
-            Self::Quaternion(attitude) => attitude.angles(),
-        }
-    }
-
-    /// Returns angular speeds about body x/y/z.
-    #[must_use]
-    pub const fn angular_speeds(&self) -> [AngularVelocity; 3] {
-        match self {
-            Self::Quaternion(attitude) => attitude.angular_speeds(),
-        }
+    fn angular_velocity(&self) -> &BodyAngularVelocity {
+        self.angular_velocity()
     }
 }
 
-impl From<QuaternionAttitude> for AttitudeState {
-    fn from(attitude: QuaternionAttitude) -> Self {
-        Self::Quaternion(attitude)
-    }
-}
+/// Backwards-compatible name for the optional quaternion implementation.
+///
+/// New code should accept [`Attitude`] as a type parameter instead of relying
+/// on one crate-selected representation.
+#[cfg(feature = "quaternion-attitude")]
+pub type AttitudeState = QuaternionAttitude;
 
 /// Symmetric spacecraft inertia tensor expressed in its attached frame.
 #[derive(Debug, Clone, PartialEq)]
@@ -370,9 +360,9 @@ impl InertiaTensor {
 /// Epoch-dependent quantities such as orbit, mass, inertia, and attitude
 /// belong to [`SpacecraftView`], not this object.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Spacecraft {
+pub struct Spacecraft<G: SpacecraftGeometry> {
     body_frame: SpacecraftBodyFrame,
-    shape: SpacecraftShape,
+    shape: G,
 }
 
 /// Opaque proof that a frame is a particular spacecraft's body-fixed frame.
@@ -428,10 +418,10 @@ impl SpacecraftBodyFrame {
     }
 }
 
-impl Spacecraft {
+impl<G: SpacecraftGeometry> Spacecraft<G> {
     /// Creates a spacecraft from already validated, spacecraft-owned body axes.
     #[must_use]
-    pub const fn new(body_frame: SpacecraftBodyFrame, shape: SpacecraftShape) -> Self {
+    pub const fn new(body_frame: SpacecraftBodyFrame, shape: G) -> Self {
         Self { body_frame, shape }
     }
 
@@ -455,12 +445,19 @@ impl Spacecraft {
 
     /// Returns the time-independent spacecraft geometry.
     #[must_use]
-    pub const fn shape(&self) -> SpacecraftShape {
-        self.shape
+    pub const fn shape(&self) -> &G {
+        &self.shape
     }
 }
 
 /// Time-independent spacecraft geometry expressed in body axes.
+///
+/// This is intentionally an open marker contract. Applications can use their
+/// own geometric model without waiting for a crate-owned enum variant.
+pub trait SpacecraftGeometry: std::fmt::Debug + Send + Sync {}
+
+/// Built-in time-independent spacecraft geometry implementations.
+#[cfg(feature = "standard-shapes")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SpacecraftShape {
     /// Geometry is intentionally unresolved or irrelevant to the calculation.
@@ -472,11 +469,13 @@ pub enum SpacecraftShape {
 }
 
 /// Validated spherical spacecraft geometry.
+#[cfg(feature = "standard-shapes")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SphereShape {
     radius: Length,
 }
 
+#[cfg(feature = "standard-shapes")]
 impl SphereShape {
     /// Constructs a sphere with a finite, strictly positive radius.
     pub fn new(radius: Length) -> Result<Self, ShapeError> {
@@ -492,11 +491,13 @@ impl SphereShape {
 }
 
 /// Validated body-axis-aligned cuboid geometry.
+#[cfg(feature = "standard-shapes")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CuboidShape {
     dimensions: [Length; 3],
 }
 
+#[cfg(feature = "standard-shapes")]
 impl CuboidShape {
     /// Constructs a cuboid with finite, strictly positive x/y/z dimensions.
     pub fn new(dimensions: [Length; 3]) -> Result<Self, ShapeError> {
@@ -513,6 +514,7 @@ impl CuboidShape {
     }
 }
 
+#[cfg(feature = "standard-shapes")]
 impl SpacecraftShape {
     /// Constructs a spherical geometry.
     pub fn sphere(radius: Length) -> Result<Self, ShapeError> {
@@ -525,6 +527,10 @@ impl SpacecraftShape {
     }
 }
 
+#[cfg(feature = "standard-shapes")]
+impl SpacecraftGeometry for SpacecraftShape {}
+
+#[cfg(feature = "standard-shapes")]
 fn validate_dimension(dimension: Length) -> Result<(), ShapeError> {
     let metres = dimension.get::<meter>();
     if !metres.is_finite() {
@@ -539,31 +545,32 @@ fn validate_dimension(dimension: Length) -> Result<(), ShapeError> {
 /// Epoch-specific physical view of a time-independent [`Spacecraft`].
 ///
 /// The view borrows the spacecraft definition and owns an epoch-qualified
-/// orbit plus a closed attitude state. The orbital representation is selected
-/// by the caller through the open [`SpacecraftState`] contract.
+/// orbit, geometry, and attitude representations selected by the caller.
 #[derive(Debug, Clone, PartialEq)]
-pub struct SpacecraftView<'a, S: SpacecraftState> {
-    spacecraft: &'a Spacecraft,
+pub struct SpacecraftView<'a, S: SpacecraftState, G: SpacecraftGeometry, A: Attitude> {
+    spacecraft: &'a Spacecraft<G>,
     orbit: Orbit<S>,
     mass: Mass,
     inertia: InertiaTensor,
-    attitude: AttitudeState,
+    attitude: A,
 }
 
-impl<'a, S> SpacecraftView<'a, S>
+impl<'a, S, G, A> SpacecraftView<'a, S, G, A>
 where
     S: SpacecraftState,
+    G: SpacecraftGeometry,
+    A: Attitude,
 {
     /// Composes all physical quantities valid at one epoch.
     ///
     /// The caller is responsible for supplying mass, inertia, and attitude
     /// that are valid at the orbit's epoch.
     pub fn new(
-        spacecraft: &'a Spacecraft,
+        spacecraft: &'a Spacecraft<G>,
         orbit: Orbit<S>,
         mass: Mass,
         inertia: InertiaTensor,
-        attitude: AttitudeState,
+        attitude: A,
     ) -> Result<Self, SpacecraftViewError> {
         let mass_kg = mass.get::<kilogram>();
         if !mass_kg.is_finite() {
@@ -594,7 +601,7 @@ where
 
     /// Returns the time-independent spacecraft definition.
     #[must_use]
-    pub const fn spacecraft(&self) -> &'a Spacecraft {
+    pub const fn spacecraft(&self) -> &'a Spacecraft<G> {
         self.spacecraft
     }
 
@@ -630,7 +637,7 @@ where
 
     /// Returns the attitude at the view epoch.
     #[must_use]
-    pub const fn attitude(&self) -> &AttitudeState {
+    pub const fn attitude(&self) -> &A {
         &self.attitude
     }
 }
@@ -716,7 +723,7 @@ pub enum SpacecraftViewError {
     AttitudeReferenceFrameMismatch,
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "quaternion-attitude", feature = "standard-shapes"))]
 mod tests {
     use super::*;
     use frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin};
@@ -756,7 +763,6 @@ mod tests {
             .expect("finite angular velocity"),
         )
         .expect("consistent frames")
-        .into()
     }
 
     fn inertia(body: &SpacecraftBodyFrame) -> InertiaTensor {
@@ -796,7 +802,7 @@ mod tests {
         let spacecraft = Spacecraft::new(owned_body_frame("SC-001", 1), shape);
 
         assert_eq!(spacecraft.id(), "SC-001");
-        assert_eq!(spacecraft.shape(), shape);
+        assert_eq!(spacecraft.shape(), &shape);
         let SpacecraftShape::Sphere(sphere) = shape else {
             panic!("sphere constructor must return a sphere")
         };
@@ -844,6 +850,44 @@ mod tests {
         assert_eq!(view.state().frame(), ReferenceFrame::GCRF);
         assert_eq!(view.inertia().frame(), body);
         assert_eq!(view.attitude().orientation().from_frame(), body);
+    }
+
+    #[test]
+    fn spacecraft_view_accepts_application_geometry_and_attitude() {
+        #[derive(Debug, Clone, PartialEq)]
+        struct PanelMesh;
+
+        impl SpacecraftGeometry for PanelMesh {}
+
+        #[derive(Debug, Clone, PartialEq)]
+        struct EstimatedAttitude(QuaternionAttitude);
+
+        impl Attitude for EstimatedAttitude {
+            fn orientation(&self) -> &Orientation {
+                self.0.orientation()
+            }
+
+            fn angular_velocity(&self) -> &BodyAngularVelocity {
+                self.0.angular_velocity()
+            }
+        }
+
+        let owned_body = owned_body_frame("SC-001", 1);
+        let spacecraft = Spacecraft::new(owned_body.clone(), PanelMesh);
+        let view = SpacecraftView::new(
+            &spacecraft,
+            Orbit::new(Epoch::from_tai_seconds(42.0), state()),
+            Mass::new::<kilogram>(500.0),
+            inertia(&owned_body),
+            EstimatedAttitude(attitude(&owned_body)),
+        )
+        .expect("application implementations are accepted");
+
+        assert_eq!(view.spacecraft().shape(), &PanelMesh);
+        assert_eq!(
+            view.attitude().orientation().from_frame(),
+            owned_body.reference_frame()
+        );
     }
 
     #[test]

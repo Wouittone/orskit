@@ -16,8 +16,12 @@ pub use frames;
 pub use hifitime::Epoch;
 pub use orbit::{Orbit, SpacecraftState};
 pub use spacecraft::{
-    AttitudeError, AttitudeState, BodyAngularVelocity, CuboidShape, InertiaError, InertiaTensor,
-    Orientation, OrientationError, QuaternionAttitude, ShapeError, Spacecraft, SpacecraftBodyFrame,
-    SpacecraftError, SpacecraftShape, SpacecraftView, SpacecraftViewError, SphereShape,
+    Attitude, AttitudeError, BodyAngularVelocity, InertiaError, InertiaTensor, Orientation,
+    OrientationError, ShapeError, Spacecraft, SpacecraftBodyFrame, SpacecraftError,
+    SpacecraftGeometry, SpacecraftView, SpacecraftViewError,
 };
+#[cfg(feature = "quaternion-attitude")]
+pub use spacecraft::{AttitudeState, QuaternionAttitude};
+#[cfg(feature = "standard-shapes")]
+pub use spacecraft::{CuboidShape, SpacecraftShape, SphereShape};
 pub use units;
