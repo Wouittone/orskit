@@ -17,17 +17,23 @@ pub mod cartesian {
     pub use crate::kinematics::{
         CartesianCoordinates, FramedAcceleration, FramedPosition, FramedVelocity, KinematicError,
     };
-    pub use crate::state::{CartesianState, CoordinateSample, StateError, To};
+    pub use crate::state::{CartesianState, CoordinateSample, StateError};
+}
+
+/// Elliptic circular state representation.
+#[cfg(feature = "cartesian")]
+pub mod circular {
+    pub use crate::state::{CircularState, StateError};
 }
 
 /// Classical elliptic Keplerian state representation.
 #[cfg(feature = "cartesian")]
 pub mod keplerian {
-    pub use crate::state::{KeplerianState, StateError, To};
+    pub use crate::state::{KeplerianState, StateError};
 }
 
 /// Elliptic equinoctial state representation.
 #[cfg(feature = "cartesian")]
 pub mod equinoctial {
-    pub use crate::state::{EquinoctialState, StateError, To};
+    pub use crate::state::{EquinoctialState, StateError};
 }

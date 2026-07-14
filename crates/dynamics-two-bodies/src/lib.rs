@@ -118,7 +118,8 @@ mod tests {
     use gravity::CentralGravityProvider;
     use hifitime::{Duration, Epoch};
     use orbits::{
-        cartesian::CartesianState, equinoctial::EquinoctialState, keplerian::KeplerianState,
+        cartesian::CartesianState, circular::CircularState, equinoctial::EquinoctialState,
+        keplerian::KeplerianState,
     };
     use orskit_core::Orbit;
     use std::sync::Arc;
@@ -164,12 +165,21 @@ mod tests {
         let target = Epoch::from_tai_seconds(4_600.0);
         let solver = EllipticKeplerPropagator::new();
         let keplerian = keplerian(gravity.clone());
+        let circular = CircularState::try_from(keplerian.clone()).expect("conversion");
         let equinoctial = EquinoctialState::try_from(keplerian.clone()).expect("conversion");
-        let cartesian = keplerian
-            .clone()
-            .to_cartesian(&gravity)
-            .expect("conversion");
+        let cartesian: CartesianState = keplerian.clone().try_into().expect("conversion");
 
+        assert_eq!(
+            solver
+                .propagate(
+                    Orbit::new(Epoch::from_tai_seconds(1_000.0), circular),
+                    &problem,
+                    target
+                )
+                .expect("circular propagation")
+                .epoch(),
+            target,
+        );
         assert_eq!(
             solver
                 .propagate(

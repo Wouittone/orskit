@@ -101,22 +101,6 @@ impl CartesianState {
     pub fn speed(self) -> Velocity {
         self.velocity.speed()
     }
-
-    /// Converts this Cartesian state to osculating Keplerian elements.
-    pub fn to_keplerian(
-        self,
-        gravity: &SharedCentralGravity,
-    ) -> Result<KeplerianState, StateError> {
-        keplerian_from_cartesian(gravity, self)
-    }
-
-    /// Converts this Cartesian state to osculating equinoctial elements.
-    pub fn to_equinoctial(
-        self,
-        gravity: &SharedCentralGravity,
-    ) -> Result<EquinoctialState, StateError> {
-        EquinoctialState::try_from(self.to_keplerian(gravity)?)
-    }
 }
 
 impl TryFrom<CartesianCoordinates> for CartesianState {
@@ -140,6 +124,134 @@ impl From<CartesianState> for CartesianCoordinates {
             FramedVelocity::new(state.velocity, state.frame)
                 .expect("CartesianState guarantees finite velocity"),
         )
+    }
+}
+
+/// Elliptic circular state `(a, ex, ey, i, Omega, alpha_v)`.
+///
+/// `ex=e cos(omega)`, `ey=e sin(omega)`, and `alpha_v=nu+omega`, where
+/// `nu` is true anomaly and `omega` is the argument of periapsis. This
+/// representation remains valid at zero eccentricity by treating the true
+/// latitude argument as the physically meaningful angle. It supports the
+/// elliptic regime `a > 0` and `hypot(ex, ey) < 1`.
+#[derive(Debug, Clone)]
+pub struct CircularState {
+    frame: InertialFrame,
+    central_gravity: SharedCentralGravity,
+    semi_major_axis: Length,
+    eccentricity_x: Ratio,
+    eccentricity_y: Ratio,
+    inclination: Angle,
+    right_ascension_of_ascending_node: Angle,
+    true_latitude_argument: Angle,
+}
+
+impl PartialEq for CircularState {
+    fn eq(&self, other: &Self) -> bool {
+        self.frame == other.frame
+            && Arc::ptr_eq(&self.central_gravity, &other.central_gravity)
+            && self.semi_major_axis == other.semi_major_axis
+            && self.eccentricity_x == other.eccentricity_x
+            && self.eccentricity_y == other.eccentricity_y
+            && self.inclination == other.inclination
+            && self.right_ascension_of_ascending_node == other.right_ascension_of_ascending_node
+            && self.true_latitude_argument == other.true_latitude_argument
+    }
+}
+
+impl CircularState {
+    /// Constructs and validates elliptic circular elements.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        frame: InertialFrame,
+        central_gravity: SharedCentralGravity,
+        semi_major_axis: Length,
+        eccentricity_x: Ratio,
+        eccentricity_y: Ratio,
+        inclination: Angle,
+        right_ascension_of_ascending_node: Angle,
+        true_latitude_argument: Angle,
+    ) -> Result<Self, StateError> {
+        validate_positive_axis(semi_major_axis)?;
+        let eccentricity_x_value = finite_ratio(eccentricity_x, "circular ex")?;
+        let eccentricity_y_value = finite_ratio(eccentricity_y, "circular ey")?;
+        if !(0.0..1.0).contains(&eccentricity_x_value.hypot(eccentricity_y_value)) {
+            return Err(StateError::EccentricityOutOfRange);
+        }
+        let inclination_value = finite_angle(inclination, "inclination")?;
+        if !(0.0..=PI).contains(&inclination_value) {
+            return Err(StateError::InclinationOutOfRange);
+        }
+        finite_angle(
+            right_ascension_of_ascending_node,
+            "right ascension of ascending node",
+        )?;
+        finite_angle(true_latitude_argument, "true latitude argument")?;
+        validate_gravity_origin(&central_gravity, frame.reference_frame())?;
+        Ok(Self {
+            frame,
+            central_gravity,
+            semi_major_axis,
+            eccentricity_x,
+            eccentricity_y,
+            inclination,
+            right_ascension_of_ascending_node,
+            true_latitude_argument,
+        })
+    }
+
+    /// Returns the coordinate frame.
+    #[must_use]
+    pub const fn frame(&self) -> ReferenceFrame {
+        self.frame.reference_frame()
+    }
+
+    /// Returns the affirmative inertial-frame capability carried by the state.
+    #[must_use]
+    pub const fn inertial_frame(&self) -> InertialFrame {
+        self.frame
+    }
+
+    /// Returns the sourced gravity context to which these elements are bound.
+    #[must_use]
+    pub const fn central_gravity(&self) -> &SharedCentralGravity {
+        &self.central_gravity
+    }
+
+    /// Returns `a`.
+    #[must_use]
+    pub const fn semi_major_axis(&self) -> Length {
+        self.semi_major_axis
+    }
+
+    /// Returns `ex = e cos(omega)`.
+    #[must_use]
+    pub const fn eccentricity_x(&self) -> Ratio {
+        self.eccentricity_x
+    }
+
+    /// Returns `ey = e sin(omega)`.
+    #[must_use]
+    pub const fn eccentricity_y(&self) -> Ratio {
+        self.eccentricity_y
+    }
+
+    /// Returns `i`.
+    #[must_use]
+    pub const fn inclination(&self) -> Angle {
+        self.inclination
+    }
+
+    /// Returns `Omega`.
+    #[must_use]
+    pub const fn right_ascension_of_ascending_node(&self) -> Angle {
+        self.right_ascension_of_ascending_node
+    }
+
+    /// Returns `alpha_v = nu + omega`.
+    #[must_use]
+    pub const fn true_latitude_argument(&self) -> Angle {
+        self.true_latitude_argument
     }
 }
 
@@ -259,19 +371,6 @@ impl KeplerianState {
     #[must_use]
     pub const fn true_anomaly(&self) -> Angle {
         self.true_anomaly
-    }
-
-    /// Converts these elements using a context matching their bound identity.
-    pub fn to_cartesian(
-        self,
-        gravity: &SharedCentralGravity,
-    ) -> Result<CartesianState, StateError> {
-        cartesian_from_keplerian(gravity, self)
-    }
-
-    /// Converts to equinoctial elements without requiring gravity data.
-    pub fn to_equinoctial(self) -> Result<EquinoctialState, StateError> {
-        EquinoctialState::try_from(self)
     }
 
     fn validated(&self) -> Result<ValidatedKeplerian, StateError> {
@@ -405,24 +504,17 @@ impl EquinoctialState {
     pub const fn true_longitude(&self) -> Angle {
         self.true_longitude
     }
-
-    /// Converts these elements using a context matching their bound identity.
-    pub fn to_cartesian(
-        self,
-        gravity: &SharedCentralGravity,
-    ) -> Result<CartesianState, StateError> {
-        self.to_keplerian()?.to_cartesian(gravity)
-    }
-
-    /// Converts to Keplerian elements without requiring gravity data.
-    pub fn to_keplerian(self) -> Result<KeplerianState, StateError> {
-        KeplerianState::try_from(self)
-    }
 }
 
 impl SpacecraftStateContract for CartesianState {
     fn frame(&self) -> ReferenceFrame {
         CartesianState::frame(*self)
+    }
+}
+
+impl SpacecraftStateContract for CircularState {
+    fn frame(&self) -> ReferenceFrame {
+        CircularState::frame(self)
     }
 }
 
@@ -435,24 +527,6 @@ impl SpacecraftStateContract for KeplerianState {
 impl SpacecraftStateContract for EquinoctialState {
     fn frame(&self) -> ReferenceFrame {
         EquinoctialState::frame(self)
-    }
-}
-
-/// Source-side counterpart to [`From`].
-///
-/// This blanket implementation makes `value.to()` equivalent to
-/// `Target::from(value)` while retaining target inference.
-pub trait To<Target>: Sized {
-    /// Performs an infallible conversion.
-    fn to(self) -> Target;
-}
-
-impl<Source, Target> To<Target> for Source
-where
-    Target: From<Source>,
-{
-    fn to(self) -> Target {
-        Target::from(self)
     }
 }
 
@@ -469,6 +543,122 @@ impl TryFrom<EquinoctialState> for KeplerianState {
 
     fn try_from(source: EquinoctialState) -> Result<Self, Self::Error> {
         equinoctial_to_keplerian(source)
+    }
+}
+
+impl TryFrom<(CartesianState, SharedCentralGravity)> for KeplerianState {
+    type Error = StateError;
+
+    fn try_from(source: (CartesianState, SharedCentralGravity)) -> Result<Self, Self::Error> {
+        let (state, gravity) = source;
+        keplerian_from_cartesian(&gravity, state)
+    }
+}
+
+impl TryFrom<KeplerianState> for CartesianState {
+    type Error = StateError;
+
+    fn try_from(source: KeplerianState) -> Result<Self, Self::Error> {
+        let gravity = Arc::clone(source.central_gravity());
+        cartesian_from_keplerian(&gravity, source)
+    }
+}
+
+impl TryFrom<(CartesianState, SharedCentralGravity)> for EquinoctialState {
+    type Error = StateError;
+
+    fn try_from(source: (CartesianState, SharedCentralGravity)) -> Result<Self, Self::Error> {
+        let keplerian = KeplerianState::try_from(source)?;
+        Self::try_from(keplerian)
+    }
+}
+
+impl TryFrom<EquinoctialState> for CartesianState {
+    type Error = StateError;
+
+    fn try_from(source: EquinoctialState) -> Result<Self, Self::Error> {
+        let keplerian = KeplerianState::try_from(source)?;
+        Self::try_from(keplerian)
+    }
+}
+
+impl TryFrom<KeplerianState> for CircularState {
+    type Error = StateError;
+
+    fn try_from(source: KeplerianState) -> Result<Self, Self::Error> {
+        let eccentricity = source.eccentricity.get::<ratio>();
+        let periapsis = source.argument_of_periapsis.get::<radian>();
+        CircularState::new(
+            source.frame,
+            source.central_gravity,
+            source.semi_major_axis,
+            Ratio::new::<ratio>(eccentricity * periapsis.cos()),
+            Ratio::new::<ratio>(eccentricity * periapsis.sin()),
+            source.inclination,
+            source.right_ascension_of_ascending_node,
+            Angle::new::<radian>(source.true_anomaly.get::<radian>() + periapsis),
+        )
+    }
+}
+
+impl TryFrom<CircularState> for KeplerianState {
+    type Error = StateError;
+
+    fn try_from(source: CircularState) -> Result<Self, Self::Error> {
+        let eccentricity_x = source.eccentricity_x.get::<ratio>();
+        let eccentricity_y = source.eccentricity_y.get::<ratio>();
+        let eccentricity = eccentricity_x.hypot(eccentricity_y);
+        let periapsis = if eccentricity <= 64.0 * f64::EPSILON {
+            0.0
+        } else {
+            eccentricity_y.atan2(eccentricity_x)
+        };
+        KeplerianState::new(
+            source.frame,
+            source.central_gravity,
+            source.semi_major_axis,
+            Ratio::new::<ratio>(eccentricity),
+            source.inclination,
+            source.right_ascension_of_ascending_node,
+            Angle::new::<radian>(periapsis),
+            Angle::new::<radian>(source.true_latitude_argument.get::<radian>() - periapsis),
+        )
+    }
+}
+
+impl TryFrom<(CartesianState, SharedCentralGravity)> for CircularState {
+    type Error = StateError;
+
+    fn try_from(source: (CartesianState, SharedCentralGravity)) -> Result<Self, Self::Error> {
+        let keplerian = KeplerianState::try_from(source)?;
+        Self::try_from(keplerian)
+    }
+}
+
+impl TryFrom<CircularState> for CartesianState {
+    type Error = StateError;
+
+    fn try_from(source: CircularState) -> Result<Self, Self::Error> {
+        let keplerian = KeplerianState::try_from(source)?;
+        Self::try_from(keplerian)
+    }
+}
+
+impl TryFrom<CircularState> for EquinoctialState {
+    type Error = StateError;
+
+    fn try_from(source: CircularState) -> Result<Self, Self::Error> {
+        let keplerian = KeplerianState::try_from(source)?;
+        Self::try_from(keplerian)
+    }
+}
+
+impl TryFrom<EquinoctialState> for CircularState {
+    type Error = StateError;
+
+    fn try_from(source: EquinoctialState) -> Result<Self, Self::Error> {
+        let keplerian = KeplerianState::try_from(source)?;
+        Self::try_from(keplerian)
     }
 }
 
@@ -563,7 +753,7 @@ fn cartesian_from_keplerian(
     gravity: &SharedCentralGravity,
     source: KeplerianState,
 ) -> Result<CartesianState, StateError> {
-    validate_bound_central_gravity(gravity, source.central_gravity(), source.frame())?;
+    validate_gravity_origin(gravity, source.frame())?;
     let elements = source.validated()?;
     let e = elements.eccentricity;
     let nu = elements.true_anomaly_rad;
@@ -679,17 +869,6 @@ fn keplerian_from_cartesian(
     )
 }
 
-fn validate_bound_central_gravity(
-    gravity: &SharedCentralGravity,
-    state_gravity: &SharedCentralGravity,
-    frame: ReferenceFrame,
-) -> Result<(), StateError> {
-    if !Arc::ptr_eq(state_gravity, gravity) {
-        return Err(StateError::CentralGravityMismatch);
-    }
-    validate_gravity_origin(gravity, frame)
-}
-
 fn validate_gravity_origin(
     gravity: &SharedCentralGravity,
     frame: ReferenceFrame,
@@ -803,9 +982,6 @@ pub enum StateError {
     /// The frame axes were not affirmatively classified as inertial.
     #[error("Cartesian orbital-element conversion requires explicitly inertial axes")]
     CartesianFrameNotExplicitlyInertial,
-    /// An element state is bound to a different sourced gravity context.
-    #[error("element state and supplied central gravity are not the same shared object")]
-    CentralGravityMismatch,
     /// The Cartesian frame origin differs from the gravity context origin.
     #[error("frame origin {frame_origin} does not match central-gravity origin {gravity_origin}")]
     CentralGravityOriginMismatch {
@@ -829,6 +1005,7 @@ pub enum StateError {
 mod tests {
     use super::*;
     use frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin, InertialFrame};
+    use orskit_core::Orbit;
     use units::uom::si::velocity::meter_per_second;
     use units::GravitationalParameter;
 
@@ -880,7 +1057,7 @@ mod tests {
             VelocityVector::from_metres_per_second(0.0, 7_500.0, 0.0),
         )
         .expect("finite state");
-        let coordinates: CartesianCoordinates = cartesian.to();
+        let coordinates: CartesianCoordinates = cartesian.into();
         assert_eq!(CartesianState::try_from(coordinates), Ok(cartesian));
     }
 
@@ -900,14 +1077,13 @@ mod tests {
         .expect("elliptic state");
         let equinoctial = EquinoctialState::try_from(source.clone()).expect("context-free K to E");
         let recovered = KeplerianState::try_from(equinoctial.clone()).expect("context-free E to K");
-        let cartesian = source.to_cartesian(&gravity).expect("gravity-bound K to C");
-        let recovered_cartesian = recovered
+        let cartesian: CartesianState = source.try_into().expect("Keplerian to Cartesian");
+        let recovered_cartesian: CartesianState = recovered
             .clone()
-            .to_cartesian(&gravity)
-            .expect("context-bound recovered K to C");
-        let recovered_elements = cartesian
-            .to_keplerian(&gravity)
-            .expect("context-bound C to K");
+            .try_into()
+            .expect("recovered Keplerian to Cartesian");
+        let recovered_elements = KeplerianState::try_from((cartesian, Arc::clone(&gravity)))
+            .expect("Cartesian to Keplerian");
 
         assert!(Arc::ptr_eq(equinoctial.central_gravity(), &gravity));
         assert!(Arc::ptr_eq(recovered.central_gravity(), &gravity));
@@ -925,14 +1101,120 @@ mod tests {
     }
 
     #[test]
-    fn cartesian_conversion_rejects_context_identity_and_origin_mismatches() {
-        let source = keplerian(0.2, 0.3, 0.4, 0.5);
-        let other_identity = central_gravity(FrameOrigin::Body(frames::Body::EARTH), earth_mu());
-        assert_eq!(
-            source.to_cartesian(&other_identity),
-            Err(StateError::CentralGravityMismatch)
-        );
+    fn standard_conversions_cover_the_supported_representation_graph() {
+        let gravity = earth_gravity();
+        let source = KeplerianState::new(
+            InertialFrame::GCRF,
+            Arc::clone(&gravity),
+            Length::new::<meter>(7_000_000.0),
+            Ratio::new::<ratio>(0.1),
+            Angle::new::<radian>(0.7),
+            Angle::new::<radian>(1.1),
+            Angle::new::<radian>(0.4),
+            Angle::new::<radian>(2.0),
+        )
+        .expect("valid elliptic fixture");
 
+        let equinoctial: EquinoctialState =
+            source.clone().try_into().expect("Keplerian to equinoctial");
+        let recovered: KeplerianState = equinoctial
+            .clone()
+            .try_into()
+            .expect("equinoctial to Keplerian");
+        let circular: CircularState = source.clone().try_into().expect("Keplerian to circular");
+        let circular_keplerian: KeplerianState =
+            circular.clone().try_into().expect("circular to Keplerian");
+        let circular_equinoctial: EquinoctialState = circular
+            .clone()
+            .try_into()
+            .expect("circular to equinoctial");
+        let equinoctial_circular: CircularState = equinoctial
+            .clone()
+            .try_into()
+            .expect("equinoctial to circular");
+        let cartesian: CartesianState = source.try_into().expect("Keplerian to Cartesian");
+        let cartesian_keplerian: KeplerianState = (cartesian, Arc::clone(&gravity))
+            .try_into()
+            .expect("Cartesian to Keplerian");
+        let cartesian: CartesianState = cartesian_keplerian
+            .try_into()
+            .expect("Keplerian to Cartesian");
+        let cartesian_equinoctial: EquinoctialState = (cartesian, Arc::clone(&gravity))
+            .try_into()
+            .expect("Cartesian to equinoctial");
+        let cartesian_circular: CircularState = (cartesian, Arc::clone(&gravity))
+            .try_into()
+            .expect("Cartesian to circular");
+        let cartesian_from_equinoctial: CartesianState =
+            equinoctial.try_into().expect("equinoctial to Cartesian");
+        let cartesian_from_circular: CartesianState =
+            circular.try_into().expect("circular to Cartesian");
+        let cartesian_from_recovered: CartesianState =
+            recovered.try_into().expect("Keplerian to Cartesian");
+        let cartesian_from_circular_keplerian: CartesianState = circular_keplerian
+            .try_into()
+            .expect("Keplerian to Cartesian");
+        let mapped: Orbit<EquinoctialState> =
+            Orbit::new(Epoch::from_tai_seconds(42.0), cartesian_from_recovered)
+                .try_map_state(|state| (state, Arc::clone(&gravity)).try_into())
+                .expect("orbit state conversion");
+        let mapped_cartesian: CartesianState = mapped
+            .state()
+            .try_into()
+            .expect("mapped state to Cartesian");
+
+        assert_eq!(mapped.epoch(), Epoch::from_tai_seconds(42.0));
+        assert_vector_close(
+            cartesian_from_equinoctial.position().to_metres(),
+            mapped_cartesian.position().to_metres(),
+            1.0e-8,
+        );
+        assert_vector_close(
+            cartesian_from_equinoctial.velocity().to_metres_per_second(),
+            mapped_cartesian.velocity().to_metres_per_second(),
+            1.0e-10,
+        );
+        assert_vector_close(
+            CartesianState::try_from(cartesian_equinoctial)
+                .expect("equinoctial to Cartesian")
+                .position()
+                .to_metres(),
+            mapped_cartesian.position().to_metres(),
+            1.0e-8,
+        );
+        assert_vector_close(
+            cartesian_from_circular.position().to_metres(),
+            cartesian_from_circular_keplerian.position().to_metres(),
+            1.0e-8,
+        );
+        assert_vector_close(
+            cartesian_from_circular.position().to_metres(),
+            CartesianState::try_from(circular_equinoctial)
+                .expect("equinoctial to Cartesian")
+                .position()
+                .to_metres(),
+            1.0e-8,
+        );
+        assert_vector_close(
+            CartesianState::try_from(cartesian_circular)
+                .expect("circular to Cartesian")
+                .velocity()
+                .to_metres_per_second(),
+            cartesian_from_circular.velocity().to_metres_per_second(),
+            1.0e-10,
+        );
+        assert_vector_close(
+            CartesianState::try_from(equinoctial_circular)
+                .expect("circular to Cartesian")
+                .position()
+                .to_metres(),
+            cartesian_from_equinoctial.position().to_metres(),
+            1.0e-8,
+        );
+    }
+
+    #[test]
+    fn cartesian_conversion_rejects_wrong_gravity_origin() {
         let mars_gravity = central_gravity(FrameOrigin::Body(frames::Body::MARS), earth_mu());
         let cartesian = CartesianState::new(
             ReferenceFrame::GCRF,
@@ -941,7 +1223,7 @@ mod tests {
         )
         .expect("finite state");
         assert_eq!(
-            cartesian.to_keplerian(&mars_gravity),
+            KeplerianState::try_from((cartesian, mars_gravity)),
             Err(StateError::CentralGravityOriginMismatch {
                 gravity_origin: FrameOrigin::Body(frames::Body::MARS),
                 frame_origin: FrameOrigin::Body(frames::Body::EARTH),
@@ -989,8 +1271,7 @@ mod tests {
     fn circular_equatorial_conversion_matches_analytic_vector() {
         let radius = 7_000_000.0;
         let state = keplerian(0.0, 0.0, 0.0, 0.0);
-        let gravity = Arc::clone(state.central_gravity());
-        let cartesian = state.to_cartesian(&gravity).expect("valid conversion");
+        let cartesian: CartesianState = state.try_into().expect("valid conversion");
         let expected_speed = (earth_mu().as_cubic_metres_per_second_squared() / radius).sqrt();
 
         assert_vector_close(cartesian.position().to_metres(), [radius, 0.0, 0.0], 1.0e-8);
@@ -1003,12 +1284,36 @@ mod tests {
     }
 
     #[test]
+    fn circular_state_true_latitude_matches_analytic_vector() {
+        let radius = 7_000_000.0;
+        let circular = CircularState::new(
+            InertialFrame::GCRF,
+            earth_gravity(),
+            Length::new::<meter>(radius),
+            Ratio::new::<ratio>(0.0),
+            Ratio::new::<ratio>(0.0),
+            Angle::new::<radian>(0.0),
+            Angle::new::<radian>(0.0),
+            Angle::new::<radian>(PI / 2.0),
+        )
+        .expect("valid circular elements");
+        let cartesian: CartesianState = circular.try_into().expect("circular to Cartesian");
+        let speed = (earth_mu().as_cubic_metres_per_second_squared() / radius).sqrt();
+
+        assert_vector_close(cartesian.position().to_metres(), [0.0, radius, 0.0], 1.0e-8);
+        assert_vector_close(
+            cartesian.velocity().to_metres_per_second(),
+            [-speed, 0.0, 0.0],
+            1.0e-10,
+        );
+    }
+
+    #[test]
     fn polar_conversion_has_expected_axes() {
         let radius = 7_000_000.0;
         let speed = (earth_mu().as_cubic_metres_per_second_squared() / radius).sqrt();
         let state = keplerian(PI / 2.0, 0.0, 0.0, PI / 2.0);
-        let gravity = Arc::clone(state.central_gravity());
-        let cartesian = state.to_cartesian(&gravity).expect("valid conversion");
+        let cartesian: CartesianState = state.try_into().expect("valid conversion");
 
         assert_vector_close(cartesian.position().to_metres(), [0.0, 0.0, radius], 1.0e-8);
         assert_vector_close(
@@ -1061,7 +1366,7 @@ mod tests {
             VelocityVector::from_metres_per_second(1_000.0, 0.0, 0.0),
         )
         .expect("finite state");
-        let result = radial.to_keplerian(&earth_gravity());
+        let result = KeplerianState::try_from((radial, earth_gravity()));
         assert_eq!(result, Err(StateError::DegenerateCartesianOrbit));
     }
 
@@ -1084,11 +1389,10 @@ mod tests {
         };
 
         assert_eq!(
-            state(FrameMotion::Unspecified).to_keplerian(&earth_gravity()),
+            KeplerianState::try_from((state(FrameMotion::Unspecified), earth_gravity())),
             Err(StateError::CartesianFrameNotExplicitlyInertial)
         );
-        state(FrameMotion::Inertial)
-            .to_keplerian(&earth_gravity())
+        KeplerianState::try_from((state(FrameMotion::Inertial), earth_gravity()))
             .expect("explicit custom inertial axes are supported");
     }
 }

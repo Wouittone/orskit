@@ -1,16 +1,17 @@
 use std::f64::consts::{PI, TAU};
 use std::sync::Arc;
 
-use dynamics::Propagator;
+use dynamics::{PropagationState, Propagator};
 use gravity::SharedCentralGravity;
 use hifitime::Duration;
 use orskit_core::Orbit;
 use thiserror::Error;
-use units::uom::si::{angle::radian, length::meter, ratio::ratio};
-use units::{Angle, Length};
+use units::uom::si::length::meter;
+use units::{Length, Position, VelocityVector};
 
 use orbits::{
     cartesian::{CartesianState, StateError},
+    circular::CircularState,
     equinoctial::EquinoctialState,
     keplerian::KeplerianState,
 };
@@ -25,10 +26,10 @@ const MAX_EXACT_F64_INTEGER: u128 = 1_u128 << f64::MANTISSA_DIGITS;
 
 /// Analytical point-mass propagation for bound elliptic spacecraft states.
 ///
-/// The solution advances mean anomaly with `n = sqrt(mu / a^3)`, solves
-/// `M = E - e sin(E)` by bounded Newton iteration, and converts eccentric
-/// anomaly back to true anomaly. These relations follow the public
-/// [NASA GMAT Mathematical Specifications](https://ntrs.nasa.gov/citations/20080031744).
+/// The solution uses the universal anomaly and Stumpff functions to solve the
+/// elliptic universal Kepler equation, then applies the Lagrange `f` and `g`
+/// functions directly to Cartesian position and velocity. These relations
+/// follow the public [NASA Technical Memorandum 2004-213230](https://ntrs.nasa.gov/citations/20040084254).
 /// Hifitime supplies an exact signed nanosecond count `N`; this solver computes
 /// `dt = N / 10^9` without first rounding the complete duration to `f64`.
 /// Before range reduction, it estimates a conservative floating-point phase
@@ -39,18 +40,17 @@ const MAX_EXACT_F64_INTEGER: u128 = 1_u128 << f64::MANTISSA_DIGITS;
 /// periodic reduction. The estimate depends on `|N|`, so acceptance is
 /// symmetric for equal forward and backward durations.
 ///
-/// Equinoctial states are advanced without conversion through Keplerian
-/// inclination. With eccentric longitude `F`, mean longitude is solved from
-/// `L = F - ex sin(F) + ey cos(F)` while `a`, `ex`, `ey`, `hx`, and `hy` stay
-/// constant. This keeps every finite supported `hx`/`hy` valid near the
-/// retrograde singular limit of the intermediate Keplerian representation.
+/// Cartesian state is regular for every non-collision orbital orientation,
+/// including exactly retrograde planes. Caller-facing element states still
+/// retain their own conversion-chart limits when the propagated Cartesian
+/// result is restored.
 ///
-/// The solver implements [`Propagator<TwoBodyDynamics, KeplerianState>`],
-/// [`Propagator<TwoBodyDynamics, EquinoctialState>`], and
-/// [`Propagator<TwoBodyDynamics, CartesianState>`]; the problem owns the
-/// two-body topology and gravity provider, while this type owns only analytical
-/// solution settings. A different compatible solver can implement the same
-/// propagation contract without changing the problem type.
+/// The solver implements [`Propagator<TwoBodyDynamics, S>`] generically for
+/// every `S` whose [`PropagationState<TwoBodyDynamics>`] resolves to
+/// [`CartesianState`]. It advances the resolved Cartesian state with universal
+/// variables and restores the caller-selected representation. The problem owns
+/// the two-body topology and gravity provider, while this type owns only
+/// analytical solution settings.
 ///
 /// The input state representation is selected at the trait boundary and is
 /// preserved. This evaluator returns only an epoch-qualified orbit and makes
@@ -137,41 +137,6 @@ impl EllipticKeplerPropagator {
         self.phase_error_budget_radians
     }
 
-    fn propagate_keplerian(
-        &self,
-        initial: KeplerianState,
-        problem: &TwoBodyDynamics,
-        duration: Duration,
-    ) -> Result<KeplerianState, EllipticKeplerError> {
-        ensure_problem_gravity(initial.central_gravity(), problem.central_gravity())?;
-        let eccentricity = initial.eccentricity().get::<ratio>();
-        let initial_true_anomaly = initial.true_anomaly().get::<radian>();
-        let initial_eccentric_anomaly = true_to_eccentric(initial_true_anomaly, eccentricity);
-        let initial_mean_anomaly =
-            initial_eccentric_anomaly - eccentricity * initial_eccentric_anomaly.sin();
-        let (phase_advance, _) =
-            self.phase_advance(initial.semi_major_axis(), problem, duration)?;
-        let propagated_mean_anomaly = normalize_signed(initial_mean_anomaly + phase_advance);
-
-        let eccentric_anomaly = solve_elliptic_kepler(
-            propagated_mean_anomaly,
-            eccentricity,
-            self.tolerance_radians,
-            self.max_iterations,
-        )?;
-        let true_anomaly = eccentric_to_true(eccentric_anomaly, eccentricity);
-        Ok(KeplerianState::new(
-            initial.inertial_frame(),
-            initial.central_gravity().clone(),
-            initial.semi_major_axis(),
-            initial.eccentricity(),
-            initial.inclination(),
-            initial.right_ascension_of_ascending_node(),
-            initial.argument_of_periapsis(),
-            Angle::new::<radian>(true_anomaly),
-        )?)
-    }
-
     fn phase_advance(
         &self,
         semi_major_axis: Length,
@@ -216,131 +181,154 @@ impl EllipticKeplerPropagator {
             estimated_phase_error_radians,
         ))
     }
+}
 
-    fn propagate_equinoctial(
+impl EllipticKeplerPropagator {
+    fn advance_cartesian(
         &self,
-        initial: EquinoctialState,
+        state: CartesianState,
         problem: &TwoBodyDynamics,
         duration: Duration,
-    ) -> Result<EquinoctialState, EllipticKeplerError> {
-        ensure_problem_gravity(initial.central_gravity(), problem.central_gravity())?;
-        let ex = initial.eccentricity_x().get::<ratio>();
-        let ey = initial.eccentricity_y().get::<ratio>();
-        let eccentricity_complement = (1.0 - ex.hypot(ey).powi(2)).sqrt();
-        let (initial_true_longitude, input_reduction_error) =
-            self.normalize_input_angle(initial.true_longitude().get::<radian>())?;
-        let true_projection = ex * initial_true_longitude.cos() + ey * initial_true_longitude.sin();
-        let true_cross = ex * initial_true_longitude.sin() - ey * initial_true_longitude.cos();
-        let initial_eccentric_longitude = initial_true_longitude
-            - 2.0 * true_cross.atan2(1.0 + eccentricity_complement + true_projection);
-        let initial_mean_longitude = initial_eccentric_longitude
-            - ex * initial_eccentric_longitude.sin()
-            + ey * initial_eccentric_longitude.cos();
-        let (phase_advance, duration_phase_error) =
-            self.phase_advance(initial.semi_major_axis(), problem, duration)?;
-        let combined_phase_error = input_reduction_error + duration_phase_error;
-        if combined_phase_error > self.phase_error_budget_radians {
-            return Err(EllipticKeplerError::AccuracyBudgetExceeded {
-                estimated_phase_error_radians: combined_phase_error,
-                budget_radians: self.phase_error_budget_radians,
-            });
+    ) -> Result<CartesianState, EllipticKeplerError> {
+        let position = state.position().to_metres();
+        let velocity = state.velocity().to_metres_per_second();
+        let radius = norm(position);
+        if !radius.is_finite() || radius == 0.0 {
+            return Err(EllipticKeplerError::CartesianCollisionSingularity);
         }
-        let propagated_mean_longitude = normalize_signed(initial_mean_longitude + phase_advance);
-        let eccentric_longitude = solve_equinoctial_kepler(
-            propagated_mean_longitude,
-            ex,
-            ey,
-            self.tolerance_radians,
+
+        let mu = problem
+            .central_gravity()
+            .parameter()
+            .as_cubic_metres_per_second_squared();
+        let reciprocal_semi_major_axis = 2.0 / radius - dot(velocity, velocity) / mu;
+        if !reciprocal_semi_major_axis.is_finite() || reciprocal_semi_major_axis <= 0.0 {
+            return Err(EllipticKeplerError::NonEllipticCartesianOrbit);
+        }
+
+        let semi_major_axis = 1.0 / reciprocal_semi_major_axis;
+        let (mean_anomaly, _) =
+            self.phase_advance(Length::new::<meter>(semi_major_axis), problem, duration)?;
+        let mean_motion = (mu / semi_major_axis.powi(3)).sqrt();
+        let reduced_duration = mean_anomaly / mean_motion;
+        let sqrt_mu = mu.sqrt();
+        let chi = solve_universal_kepler(
+            sqrt_mu * reciprocal_semi_major_axis * reduced_duration,
+            reciprocal_semi_major_axis,
+            radius,
+            dot(position, velocity) / sqrt_mu,
+            sqrt_mu * reduced_duration,
+            self.tolerance_radians / reciprocal_semi_major_axis.sqrt(),
             self.max_iterations,
         )?;
-        let eccentric_projection = ex * eccentric_longitude.cos() + ey * eccentric_longitude.sin();
-        let eccentric_cross = ex * eccentric_longitude.sin() - ey * eccentric_longitude.cos();
-        let true_longitude = eccentric_longitude
-            + 2.0 * eccentric_cross.atan2(1.0 + eccentricity_complement - eccentric_projection);
-
-        Ok(EquinoctialState::new(
-            initial.inertial_frame(),
-            initial.central_gravity().clone(),
-            initial.semi_major_axis(),
-            initial.eccentricity_x(),
-            initial.eccentricity_y(),
-            initial.inclination_x(),
-            initial.inclination_y(),
-            Angle::new::<radian>(normalize_signed(true_longitude)),
+        let (stumpff_c, stumpff_s) = stumpff(reciprocal_semi_major_axis * chi * chi);
+        let f = 1.0 - chi * chi * stumpff_c / radius;
+        let g = reduced_duration - chi.powi(3) * stumpff_s / sqrt_mu;
+        let propagated_position = add(scale(position, f), scale(velocity, g));
+        let propagated_radius = norm(propagated_position);
+        if !propagated_radius.is_finite() || propagated_radius == 0.0 {
+            return Err(EllipticKeplerError::CartesianCollisionSingularity);
+        }
+        let f_dot = sqrt_mu * (reciprocal_semi_major_axis * chi.powi(3) * stumpff_s - chi)
+            / (propagated_radius * radius);
+        let g_dot = 1.0 - chi * chi * stumpff_c / propagated_radius;
+        let propagated_velocity = add(scale(position, f_dot), scale(velocity, g_dot));
+        Ok(CartesianState::new(
+            state.frame(),
+            Position::from_metres(
+                propagated_position[0],
+                propagated_position[1],
+                propagated_position[2],
+            ),
+            VelocityVector::from_metres_per_second(
+                propagated_velocity[0],
+                propagated_velocity[1],
+                propagated_velocity[2],
+            ),
         )?)
     }
+}
 
-    fn normalize_input_angle(&self, angle_radians: f64) -> Result<(f64, f64), EllipticKeplerError> {
-        let estimated_phase_error_radians = range_reduction_error_bound_radians(angle_radians);
-        if estimated_phase_error_radians > self.phase_error_budget_radians {
-            return Err(EllipticKeplerError::AccuracyBudgetExceeded {
-                estimated_phase_error_radians,
-                budget_radians: self.phase_error_budget_radians,
-            });
-        }
-        Ok((
-            normalize_signed(angle_radians),
-            estimated_phase_error_radians,
-        ))
+impl PropagationState<TwoBodyDynamics> for CartesianState {
+    type Resolved = Self;
+    type Error = EllipticKeplerError;
+
+    fn resolve(self, problem: &TwoBodyDynamics) -> Result<Self::Resolved, Self::Error> {
+        ensure_cartesian_problem_compatible(&self, problem)?;
+        validate_elliptic_cartesian(&self, problem)?;
+        Ok(self)
+    }
+
+    fn restore(resolved: Self::Resolved, _problem: &TwoBodyDynamics) -> Result<Self, Self::Error> {
+        Ok(resolved)
     }
 }
 
-impl Propagator<TwoBodyDynamics, KeplerianState> for EllipticKeplerPropagator {
+impl PropagationState<TwoBodyDynamics> for KeplerianState {
+    type Resolved = CartesianState;
     type Error = EllipticKeplerError;
 
-    fn propagate(
-        &self,
-        initial: Orbit<KeplerianState>,
-        problem: &TwoBodyDynamics,
-        target: hifitime::Epoch,
-    ) -> Result<Orbit<KeplerianState>, Self::Error> {
-        ensure_problem_gravity(initial.state().central_gravity(), problem.central_gravity())?;
-        let duration = target - initial.epoch();
-        if duration.total_nanoseconds() == 0 {
-            return Ok(initial);
-        }
-        let state = self.propagate_keplerian(initial.into_state(), problem, duration)?;
-        Ok(Orbit::new(target, state))
+    fn resolve(self, problem: &TwoBodyDynamics) -> Result<Self::Resolved, Self::Error> {
+        ensure_problem_gravity(self.central_gravity(), problem.central_gravity())?;
+        Ok(self.try_into()?)
+    }
+
+    fn restore(resolved: Self::Resolved, problem: &TwoBodyDynamics) -> Result<Self, Self::Error> {
+        Ok(Self::try_from((
+            resolved,
+            problem.central_gravity().clone(),
+        ))?)
     }
 }
 
-impl Propagator<TwoBodyDynamics, EquinoctialState> for EllipticKeplerPropagator {
+impl PropagationState<TwoBodyDynamics> for CircularState {
+    type Resolved = CartesianState;
     type Error = EllipticKeplerError;
 
-    fn propagate(
-        &self,
-        initial: Orbit<EquinoctialState>,
-        problem: &TwoBodyDynamics,
-        target: hifitime::Epoch,
-    ) -> Result<Orbit<EquinoctialState>, Self::Error> {
-        ensure_problem_gravity(initial.state().central_gravity(), problem.central_gravity())?;
-        let duration = target - initial.epoch();
-        if duration.total_nanoseconds() == 0 {
-            return Ok(initial);
-        }
-        let state = self.propagate_equinoctial(initial.into_state(), problem, duration)?;
-        Ok(Orbit::new(target, state))
+    fn resolve(self, problem: &TwoBodyDynamics) -> Result<Self::Resolved, Self::Error> {
+        ensure_problem_gravity(self.central_gravity(), problem.central_gravity())?;
+        Ok(self.try_into()?)
+    }
+
+    fn restore(resolved: Self::Resolved, problem: &TwoBodyDynamics) -> Result<Self, Self::Error> {
+        let keplerian = KeplerianState::try_from((resolved, problem.central_gravity().clone()))?;
+        Ok(Self::try_from(keplerian)?)
     }
 }
 
-impl Propagator<TwoBodyDynamics, CartesianState> for EllipticKeplerPropagator {
+impl PropagationState<TwoBodyDynamics> for EquinoctialState {
+    type Resolved = CartesianState;
     type Error = EllipticKeplerError;
 
-    fn propagate(
+    fn resolve(self, problem: &TwoBodyDynamics) -> Result<Self::Resolved, Self::Error> {
+        ensure_problem_gravity(self.central_gravity(), problem.central_gravity())?;
+        Ok(self.try_into()?)
+    }
+
+    fn restore(resolved: Self::Resolved, problem: &TwoBodyDynamics) -> Result<Self, Self::Error> {
+        Ok(Self::try_from((
+            resolved,
+            problem.central_gravity().clone(),
+        ))?)
+    }
+}
+
+impl<S> Propagator<TwoBodyDynamics, S> for EllipticKeplerPropagator
+where
+    S: PropagationState<TwoBodyDynamics, Resolved = CartesianState>,
+    EllipticKeplerError: From<S::Error>,
+{
+    type Error = EllipticKeplerError;
+
+    fn propagate_resolved(
         &self,
         initial: Orbit<CartesianState>,
         problem: &TwoBodyDynamics,
         target: hifitime::Epoch,
     ) -> Result<Orbit<CartesianState>, Self::Error> {
-        ensure_cartesian_problem_compatible(&initial.state(), problem)?;
-        let duration = target - initial.epoch();
-        if duration.total_nanoseconds() == 0 {
-            return Ok(initial);
-        }
-        let state = initial.into_state();
-        let keplerian = state.to_keplerian(problem.central_gravity())?;
-        let propagated = self.propagate_keplerian(keplerian, problem, duration)?;
-        let state = propagated.to_cartesian(problem.central_gravity())?;
+        let epoch = initial.epoch();
+        let duration = target - epoch;
+        let state = self.advance_cartesian(initial.into_state(), problem, duration)?;
         Ok(Orbit::new(target, state))
     }
 }
@@ -348,17 +336,106 @@ impl Propagator<TwoBodyDynamics, CartesianState> for EllipticKeplerPropagator {
 fn ensure_cartesian_problem_compatible(
     state: &CartesianState,
     problem: &TwoBodyDynamics,
-) -> Result<(), EllipticKeplerError> {
+) -> Result<(), StateError> {
     let frame_origin = state.frame().origin();
     let gravity_origin = problem.central_gravity().origin();
     if frame_origin != gravity_origin {
         return Err(StateError::CentralGravityOriginMismatch {
             gravity_origin,
             frame_origin,
-        }
-        .into());
+        });
     }
     Ok(())
+}
+
+fn validate_elliptic_cartesian(
+    state: &CartesianState,
+    problem: &TwoBodyDynamics,
+) -> Result<(), EllipticKeplerError> {
+    frames::InertialFrame::try_from(state.frame())
+        .map_err(|_| StateError::CartesianFrameNotExplicitlyInertial)?;
+    let radius = norm(state.position().to_metres());
+    if !radius.is_finite() || radius == 0.0 {
+        return Err(EllipticKeplerError::CartesianCollisionSingularity);
+    }
+    let velocity_squared = dot(
+        state.velocity().to_metres_per_second(),
+        state.velocity().to_metres_per_second(),
+    );
+    let mu = problem
+        .central_gravity()
+        .parameter()
+        .as_cubic_metres_per_second_squared();
+    let reciprocal_semi_major_axis = 2.0 / radius - velocity_squared / mu;
+    if !reciprocal_semi_major_axis.is_finite() || reciprocal_semi_major_axis <= 0.0 {
+        return Err(EllipticKeplerError::NonEllipticCartesianOrbit);
+    }
+    Ok(())
+}
+
+fn solve_universal_kepler(
+    mut chi: f64,
+    reciprocal_semi_major_axis: f64,
+    radius: f64,
+    radial_velocity_factor: f64,
+    scaled_duration: f64,
+    tolerance: f64,
+    max_iterations: usize,
+) -> Result<f64, EllipticKeplerError> {
+    for _ in 0..max_iterations {
+        let z = reciprocal_semi_major_axis * chi * chi;
+        let (stumpff_c, stumpff_s) = stumpff(z);
+        let residual = radial_velocity_factor * chi * chi * stumpff_c
+            + (1.0 - reciprocal_semi_major_axis * radius) * chi.powi(3) * stumpff_s
+            + radius * chi
+            - scaled_duration;
+        let derivative = radial_velocity_factor * chi * (1.0 - z * stumpff_s)
+            + (1.0 - reciprocal_semi_major_axis * radius) * chi * chi * stumpff_c
+            + radius;
+        if !residual.is_finite() || !derivative.is_finite() || derivative == 0.0 {
+            return Err(EllipticKeplerError::UniversalKeplerNonFinite);
+        }
+        let update = residual / derivative;
+        chi -= update;
+        if update.abs() <= tolerance {
+            return Ok(chi);
+        }
+    }
+    Err(EllipticKeplerError::DidNotConverge {
+        iterations: max_iterations,
+    })
+}
+
+fn stumpff(z: f64) -> (f64, f64) {
+    if z.abs() < 1.0e-8 {
+        let z_squared = z * z;
+        (
+            0.5 - z / 24.0 + z_squared / 720.0 - z_squared * z / 40_320.0,
+            1.0 / 6.0 - z / 120.0 + z_squared / 5_040.0 - z_squared * z / 362_880.0,
+        )
+    } else {
+        let root_z = z.sqrt();
+        (
+            (1.0 - root_z.cos()) / z,
+            (root_z - root_z.sin()) / (root_z * z),
+        )
+    }
+}
+
+fn dot(left: [f64; 3], right: [f64; 3]) -> f64 {
+    left[0].mul_add(right[0], left[1].mul_add(right[1], left[2] * right[2]))
+}
+
+fn norm(vector: [f64; 3]) -> f64 {
+    dot(vector, vector).sqrt()
+}
+
+fn scale(vector: [f64; 3], factor: f64) -> [f64; 3] {
+    vector.map(|component| component * factor)
+}
+
+fn add(left: [f64; 3], right: [f64; 3]) -> [f64; 3] {
+    std::array::from_fn(|index| left[index] + right[index])
 }
 
 fn ensure_problem_gravity(
@@ -453,88 +530,6 @@ fn positive_ulp(value: f64) -> f64 {
     }
 }
 
-fn true_to_eccentric(true_anomaly: f64, eccentricity: f64) -> f64 {
-    let scale = (1.0 - eccentricity * eccentricity).sqrt();
-    (scale * true_anomaly.sin()).atan2(eccentricity + true_anomaly.cos())
-}
-
-fn eccentric_to_true(eccentric_anomaly: f64, eccentricity: f64) -> f64 {
-    let scale = (1.0 - eccentricity * eccentricity).sqrt();
-    (scale * eccentric_anomaly.sin()).atan2(eccentric_anomaly.cos() - eccentricity)
-}
-
-fn solve_elliptic_kepler(
-    mean_anomaly: f64,
-    eccentricity: f64,
-    tolerance: f64,
-    max_iterations: usize,
-) -> Result<f64, EllipticKeplerError> {
-    let mut eccentric_anomaly = if eccentricity < 0.8 {
-        mean_anomaly
-    } else {
-        PI.copysign(mean_anomaly)
-    };
-
-    for _ in 0..max_iterations {
-        let residual = eccentric_anomaly - eccentricity * eccentric_anomaly.sin() - mean_anomaly;
-        let derivative = 1.0 - eccentricity * eccentric_anomaly.cos();
-        let correction = residual / derivative;
-        eccentric_anomaly -= correction;
-        if correction.abs() <= tolerance {
-            let final_residual =
-                eccentric_anomaly - eccentricity * eccentric_anomaly.sin() - mean_anomaly;
-            if final_residual.abs() <= tolerance {
-                return Ok(eccentric_anomaly);
-            }
-        }
-    }
-
-    Err(EllipticKeplerError::DidNotConverge {
-        iterations: max_iterations,
-    })
-}
-
-fn solve_equinoctial_kepler(
-    mean_longitude: f64,
-    eccentricity_x: f64,
-    eccentricity_y: f64,
-    tolerance: f64,
-    max_iterations: usize,
-) -> Result<f64, EllipticKeplerError> {
-    let eccentricity = eccentricity_x.hypot(eccentricity_y);
-    let longitude_of_periapsis = eccentricity_y.atan2(eccentricity_x);
-    let mean_anomaly = normalize_signed(mean_longitude - longitude_of_periapsis);
-    let target_mean_longitude = mean_anomaly + longitude_of_periapsis;
-    let mut eccentric_longitude = if eccentricity < 0.8 {
-        target_mean_longitude
-    } else {
-        PI.copysign(mean_anomaly) + longitude_of_periapsis
-    };
-
-    for _ in 0..max_iterations {
-        let residual = eccentric_longitude - eccentricity_x * eccentric_longitude.sin()
-            + eccentricity_y * eccentric_longitude.cos()
-            - target_mean_longitude;
-        let derivative = 1.0
-            - eccentricity_x * eccentric_longitude.cos()
-            - eccentricity_y * eccentric_longitude.sin();
-        let correction = residual / derivative;
-        eccentric_longitude -= correction;
-        if correction.abs() <= tolerance {
-            let final_residual = eccentric_longitude - eccentricity_x * eccentric_longitude.sin()
-                + eccentricity_y * eccentric_longitude.cos()
-                - target_mean_longitude;
-            if final_residual.abs() <= tolerance {
-                return Ok(normalize_signed(eccentric_longitude));
-            }
-        }
-    }
-
-    Err(EllipticKeplerError::DidNotConverge {
-        iterations: max_iterations,
-    })
-}
-
 fn normalize_signed(angle: f64) -> f64 {
     if (-PI..=PI).contains(&angle) {
         angle
@@ -588,6 +583,15 @@ pub enum EllipticKeplerError {
     /// explicit two-body problem, even if their numeric parameters match.
     #[error("orbital elements and two-body problem use different central-gravity providers")]
     CentralGravityMismatch,
+    /// The Cartesian state is at the point-mass collision singularity.
+    #[error("Cartesian two-body propagation is singular at zero radius")]
+    CartesianCollisionSingularity,
+    /// Cartesian state energy does not describe a bound elliptic orbit.
+    #[error("Cartesian state must describe a bound elliptic orbit")]
+    NonEllipticCartesianOrbit,
+    /// Universal-variable Kepler evaluation became non-finite.
+    #[error("universal-variable Kepler evaluation became non-finite")]
+    UniversalKeplerNonFinite,
     /// The propagated orbital state failed validation.
     #[error(transparent)]
     InvalidState(#[from] StateError),
@@ -604,7 +608,8 @@ mod tests {
         cartesian::CartesianState, equinoctial::EquinoctialState, keplerian::KeplerianState,
     };
     use orskit_core::{Orbit, SpacecraftState as SpacecraftStateContract};
-    use units::{GravitationalParameter, Length, Ratio};
+    use units::uom::si::{angle::radian, length::meter, ratio::ratio};
+    use units::{Angle, GravitationalParameter, Length, Position, Ratio, VelocityVector};
 
     use crate::PointMassGravityModel;
 
@@ -644,6 +649,7 @@ mod tests {
     #[derive(Debug, Clone, PartialEq)]
     enum SpacecraftState {
         Cartesian(CartesianState),
+        Circular(CircularState),
         Keplerian(KeplerianState),
         Equinoctial(EquinoctialState),
     }
@@ -652,6 +658,7 @@ mod tests {
         fn frame(&self) -> frames::ReferenceFrame {
             match self {
                 Self::Cartesian(state) => state.frame(),
+                Self::Circular(state) => state.frame(),
                 Self::Keplerian(state) => state.frame(),
                 Self::Equinoctial(state) => state.frame(),
             }
@@ -668,9 +675,41 @@ mod tests {
             Self::Keplerian(value)
         }
     }
+    impl From<CircularState> for SpacecraftState {
+        fn from(value: CircularState) -> Self {
+            Self::Circular(value)
+        }
+    }
     impl From<EquinoctialState> for SpacecraftState {
         fn from(value: EquinoctialState) -> Self {
             Self::Equinoctial(value)
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct CartesianWrapper(CartesianState);
+
+    impl SpacecraftStateContract for CartesianWrapper {
+        fn frame(&self) -> frames::ReferenceFrame {
+            self.0.frame()
+        }
+    }
+
+    impl PropagationState<TwoBodyDynamics> for CartesianWrapper {
+        type Resolved = CartesianState;
+        type Error = EllipticKeplerError;
+
+        fn resolve(self, problem: &TwoBodyDynamics) -> Result<Self::Resolved, Self::Error> {
+            ensure_cartesian_problem_compatible(&self.0, problem)?;
+            validate_elliptic_cartesian(&self.0, problem)?;
+            Ok(self.0)
+        }
+
+        fn restore(
+            resolved: Self::Resolved,
+            _problem: &TwoBodyDynamics,
+        ) -> Result<Self, Self::Error> {
+            Ok(Self(resolved))
         }
     }
 
@@ -736,6 +775,17 @@ mod tests {
                         )
                     })
                 }
+                SpacecraftState::Circular(state) => {
+                    <Self as Propagator<TwoBodyDynamics, CircularState>>::propagate(
+                        self,
+                        Orbit::new(epoch, state),
+                        problem,
+                        target,
+                    )
+                    .map(|orbit| {
+                        Orbit::new(orbit.epoch(), SpacecraftState::Circular(orbit.into_state()))
+                    })
+                }
                 SpacecraftState::Equinoctial(state) => {
                     <Self as Propagator<TwoBodyDynamics, EquinoctialState>>::propagate(
                         self,
@@ -791,16 +841,34 @@ mod tests {
         )
     }
 
-    fn cartesian(state: SpacecraftState, central_gravity: &SharedCentralGravity) -> CartesianState {
+    fn cartesian(state: SpacecraftState) -> CartesianState {
         match state {
             SpacecraftState::Cartesian(state) => state,
-            SpacecraftState::Keplerian(state) => {
-                state.to_cartesian(central_gravity).expect("conversion")
-            }
-            SpacecraftState::Equinoctial(state) => {
-                state.to_cartesian(central_gravity).expect("conversion")
-            }
+            SpacecraftState::Circular(state) => state.try_into().expect("conversion"),
+            SpacecraftState::Keplerian(state) => state.try_into().expect("conversion"),
+            SpacecraftState::Equinoctial(state) => state.try_into().expect("conversion"),
         }
+    }
+
+    #[test]
+    fn generic_propagator_accepts_an_application_state_resolving_to_cartesian() {
+        let central_gravity = earth_gravity(earth_mu());
+        let problem = problem(&central_gravity);
+        let state: CartesianState = orbit(&central_gravity, 0.1, 2.0)
+            .try_into()
+            .expect("fixture conversion");
+
+        let propagated = EllipticKeplerPropagator::new()
+            .propagate(
+                Orbit::new(Epoch::from_tai_seconds(1_000.0), CartesianWrapper(state)),
+                &problem,
+                Epoch::from_tai_seconds(1_900.0),
+            )
+            .expect("generic application state propagates");
+
+        assert_eq!(propagated.epoch(), Epoch::from_tai_seconds(1_900.0));
+        assert!(propagated.state().0.position().is_finite());
+        assert!(propagated.state().0.velocity().is_finite());
     }
 
     fn assert_vector_close(actual: [f64; 3], expected: [f64; 3], tolerance: f64) {
@@ -815,7 +883,7 @@ mod tests {
     fn propagate_all_representations(
         mu: GravitationalParameter,
         duration: Duration,
-    ) -> [CartesianState; 3] {
+    ) -> [CartesianState; 4] {
         let central_gravity = earth_gravity(mu);
         let problem = problem(&central_gravity);
         let propagator = EllipticKeplerPropagator::new();
@@ -826,21 +894,26 @@ mod tests {
         };
         let equinoctial = Orbit::new(
             keplerian.epoch(),
-            state.clone().to_equinoctial().expect("conversion").into(),
-        );
-        let cartesian_orbit = Orbit::new(
-            keplerian.epoch(),
-            state
-                .to_cartesian(&central_gravity)
+            EquinoctialState::try_from(state.clone())
                 .expect("conversion")
                 .into(),
         );
+        let circular = Orbit::new(
+            keplerian.epoch(),
+            CircularState::try_from(state.clone())
+                .expect("conversion")
+                .into(),
+        );
+        let cartesian_orbit = Orbit::new(
+            keplerian.epoch(),
+            CartesianState::try_from(state).expect("conversion").into(),
+        );
 
-        [keplerian, equinoctial, cartesian_orbit].map(|initial| {
+        [keplerian, circular, equinoctial, cartesian_orbit].map(|initial| {
             let propagated = propagator
                 .propagate_for_test(initial, &problem, duration)
                 .expect("propagation converges");
-            cartesian(propagated.state(), &central_gravity)
+            cartesian(propagated.state())
         })
     }
 
@@ -878,8 +951,8 @@ mod tests {
                 Duration::from_seconds(half_period),
             )
             .expect("circular propagation converges");
-        let propagated_cartesian = cartesian(propagated.state(), &central_gravity);
-        let initial_cartesian = cartesian(initial.state(), &central_gravity);
+        let propagated_cartesian = cartesian(propagated.state());
+        let initial_cartesian = cartesian(initial.state());
 
         assert_vector_close(
             propagated_cartesian.position().to_metres(),
@@ -911,16 +984,18 @@ mod tests {
             _ => panic!("propagator must preserve state variant"),
         };
 
-        assert_eq!(after.semi_major_axis(), before.semi_major_axis());
-        assert_eq!(after.eccentricity(), before.eccentricity());
-        assert_eq!(after.inclination(), before.inclination());
-        assert_eq!(
-            after.right_ascension_of_ascending_node(),
-            before.right_ascension_of_ascending_node()
+        assert!(
+            (after.semi_major_axis().get::<meter>() - before.semi_major_axis().get::<meter>())
+                .abs()
+                <= 1.0e-6
         );
-        assert_eq!(
-            after.argument_of_periapsis(),
-            before.argument_of_periapsis()
+        assert!(
+            (after.eccentricity().get::<ratio>() - before.eccentricity().get::<ratio>()).abs()
+                <= 1.0e-14
+        );
+        assert!(
+            (after.inclination().get::<radian>() - before.inclination().get::<radian>()).abs()
+                <= 1.0e-14
         );
         assert_eq!(
             propagated.epoch(),
@@ -940,8 +1015,8 @@ mod tests {
         let recovered = propagator
             .propagate_for_test(forward, &problem, Duration::from_seconds(-3_600.0))
             .expect("backward propagation converges");
-        let initial_cartesian = cartesian(initial.state(), &central_gravity);
-        let recovered_cartesian = cartesian(recovered.state(), &central_gravity);
+        let initial_cartesian = cartesian(initial.state());
+        let recovered_cartesian = cartesian(recovered.state());
 
         assert_vector_close(
             recovered_cartesian.position().to_metres(),
@@ -985,22 +1060,25 @@ mod tests {
         };
         let equinoctial = Orbit::new(
             keplerian.epoch(),
-            elements
-                .clone()
-                .to_equinoctial()
+            EquinoctialState::try_from(elements.clone())
+                .expect("fixture conversion")
+                .into(),
+        );
+        let circular = Orbit::new(
+            keplerian.epoch(),
+            CircularState::try_from(elements.clone())
                 .expect("fixture conversion")
                 .into(),
         );
         let cartesian = Orbit::new(
             keplerian.epoch(),
-            elements
-                .to_cartesian(&central_gravity)
+            CartesianState::try_from(elements)
                 .expect("fixture conversion")
                 .into(),
         );
         let propagator = EllipticKeplerPropagator::new();
 
-        for initial in [keplerian, equinoctial, cartesian] {
+        for initial in [keplerian, circular, equinoctial, cartesian] {
             let propagated = propagator
                 .propagate_for_test(
                     initial.clone(),
@@ -1098,121 +1176,59 @@ mod tests {
     }
 
     #[test]
-    fn direct_equinoctial_step_preserves_large_finite_inclination_components() {
+    fn cartesian_universal_propagation_supports_an_exactly_retrograde_plane() {
         let central_gravity = earth_gravity(earth_mu());
         let problem = problem(&central_gravity);
-        let state = EquinoctialState::new(
+        let retrograde = KeplerianState::new(
             InertialFrame::GCRF,
             central_gravity,
             Length::new::<meter>(7_200_000.0),
             Ratio::new::<ratio>(0.1),
-            Ratio::new::<ratio>(0.05),
-            Ratio::new::<ratio>(1.0e16),
-            Ratio::new::<ratio>(0.0),
+            Angle::new::<radian>(PI),
+            Angle::new::<radian>(0.7),
+            Angle::new::<radian>(0.4),
             Angle::new::<radian>(2.0),
         )
-        .expect("large finite hx is a valid equinoctial state");
-        let initial_longitude = state.true_longitude();
+        .expect("retrograde Keplerian state");
+        let state: CartesianState = retrograde.try_into().expect("Cartesian conversion");
         let propagated = EllipticKeplerPropagator::new()
-            .propagate_for_test(
-                Orbit::new(
-                    Epoch::from_tai_seconds(1_000.0),
-                    SpacecraftState::from(state),
-                ),
+            .propagate(
+                Orbit::new(Epoch::from_tai_seconds(1_000.0), state),
                 &problem,
-                Duration::from_total_nanoseconds(60 * NANOSECONDS_PER_SECOND as i128),
+                Epoch::from_tai_seconds(1_060.0),
             )
-            .expect("direct equinoctial propagation avoids retrograde conversion");
-        let propagated = match propagated.state() {
-            SpacecraftState::Equinoctial(state) => state,
-            _ => panic!("propagator must preserve the equinoctial variant"),
-        };
-
-        assert!(Arc::ptr_eq(
-            propagated.central_gravity(),
-            problem.central_gravity()
-        ));
-        assert_eq!(propagated.semi_major_axis().get::<meter>(), 7_200_000.0);
-        assert_eq!(propagated.eccentricity_x().get::<ratio>(), 0.1);
-        assert_eq!(propagated.eccentricity_y().get::<ratio>(), 0.05);
-        assert_eq!(propagated.inclination_x().get::<ratio>(), 1.0e16);
-        assert_eq!(propagated.inclination_y().get::<ratio>(), 0.0);
-        assert_ne!(propagated.true_longitude(), initial_longitude);
+            .expect("universal Cartesian propagation");
+        assert!(propagated.state().position().is_finite());
+        assert!(propagated.state().velocity().is_finite());
     }
 
     #[test]
-    fn large_input_longitude_is_rejected_when_reduction_exceeds_budget() {
+    fn universal_cartesian_kernel_rejects_collision_and_non_elliptic_states() {
         let central_gravity = earth_gravity(earth_mu());
         let problem = problem(&central_gravity);
-        let state = EquinoctialState::new(
-            InertialFrame::GCRF,
-            central_gravity,
-            Length::new::<meter>(7_200_000.0),
-            Ratio::new::<ratio>(0.0),
-            Ratio::new::<ratio>(0.0),
-            Ratio::new::<ratio>(0.0),
-            Ratio::new::<ratio>(0.0),
-            Angle::new::<radian>((1_u64 << 54) as f64),
+        let epoch = Epoch::from_tai_seconds(1_000.0);
+        let target = Epoch::from_tai_seconds(1_060.0);
+        let collision = CartesianState::new(
+            frames::ReferenceFrame::GCRF,
+            Position::from_metres(0.0, 0.0, 0.0),
+            VelocityVector::from_metres_per_second(0.0, 1.0, 0.0),
         )
-        .expect("finite longitude is representable by the state type");
+        .expect("finite Cartesian collision state");
+        let escape = CartesianState::new(
+            frames::ReferenceFrame::GCRF,
+            Position::from_metres(7_000_000.0, 0.0, 0.0),
+            VelocityVector::from_metres_per_second(0.0, 12_000.0, 0.0),
+        )
+        .expect("finite Cartesian escape state");
+        let propagator = EllipticKeplerPropagator::new();
 
         assert!(matches!(
-            EllipticKeplerPropagator::new().propagate_for_test(
-                Orbit::new(
-                    Epoch::from_tai_seconds(1_000.0),
-                    SpacecraftState::from(state)
-                ),
-                &problem,
-                Duration::from_seconds(1_000.0),
-            ),
-            Err(EllipticKeplerError::AccuracyBudgetExceeded { .. })
+            propagator.propagate(Orbit::new(epoch, collision), &problem, target),
+            Err(EllipticKeplerError::CartesianCollisionSingularity)
         ));
-    }
-
-    #[test]
-    fn input_and_duration_phase_errors_share_one_budget() {
-        let central_gravity = earth_gravity(earth_mu());
-        let problem = problem(&central_gravity);
-        let duration = Duration::from_seconds(100_000_000.0);
-        let longitude = 1_000_000.0;
-        let loose = EllipticKeplerPropagator::new()
-            .with_phase_error_budget_radians(1.0)
-            .expect("loose finite budget");
-        let (_, input_error) = loose
-            .normalize_input_angle(longitude)
-            .expect("loose input reduction");
-        let (_, duration_error) = loose
-            .phase_advance(Length::new::<meter>(7_200_000.0), &problem, duration)
-            .expect("loose duration phase");
-        let combined = input_error + duration_error;
-        let budget = (combined + input_error.max(duration_error)) / 2.0;
-        assert!(input_error < budget && duration_error < budget && combined > budget);
-
-        let state = EquinoctialState::new(
-            InertialFrame::GCRF,
-            central_gravity,
-            Length::new::<meter>(7_200_000.0),
-            Ratio::new::<ratio>(0.0),
-            Ratio::new::<ratio>(0.0),
-            Ratio::new::<ratio>(0.0),
-            Ratio::new::<ratio>(0.0),
-            Angle::new::<radian>(longitude),
-        )
-        .expect("finite equinoctial state");
-        let propagator = EllipticKeplerPropagator::new()
-            .with_phase_error_budget_radians(budget)
-            .expect("derived positive budget");
-
         assert!(matches!(
-            propagator.propagate_for_test(
-                Orbit::new(Epoch::from_tai_seconds(1_000.0), SpacecraftState::from(state)),
-                &problem,
-                duration,
-            ),
-            Err(EllipticKeplerError::AccuracyBudgetExceeded {
-                estimated_phase_error_radians,
-                budget_radians,
-            }) if estimated_phase_error_radians > budget_radians
+            propagator.propagate(Orbit::new(epoch, escape), &problem, target),
+            Err(EllipticKeplerError::NonEllipticCartesianOrbit)
         ));
     }
 
@@ -1268,9 +1284,7 @@ mod tests {
     fn cartesian_origin_must_match_the_explicit_problem() {
         let earth_gravity = earth_gravity(earth_mu());
         let earth_elements = orbit(&earth_gravity, 0.1, 2.0);
-        let cartesian_state = earth_elements
-            .to_cartesian(&earth_gravity)
-            .expect("fixture conversion");
+        let cartesian_state = CartesianState::try_from(earth_elements).expect("fixture conversion");
         let initial = Orbit::new(
             Epoch::from_tai_seconds(1_000.0),
             SpacecraftState::from(cartesian_state),

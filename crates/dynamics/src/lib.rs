@@ -10,7 +10,7 @@ use std::{fmt, sync::Arc};
 
 mod propagator;
 
-pub use propagator::Propagator;
+pub use propagator::{PropagationState, Propagator};
 
 /// Spacecraft-state components required to evaluate a force model.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]

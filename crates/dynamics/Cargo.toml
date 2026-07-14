@@ -17,3 +17,6 @@ bodies = { path = "../bodies" }
 orskit_core = { package = "core", path = "../core" }
 units = { path = "../units" }
 thiserror.workspace = true
+
+[dev-dependencies]
+frames = { path = "../frames" }

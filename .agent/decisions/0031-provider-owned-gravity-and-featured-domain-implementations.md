@@ -24,7 +24,7 @@ and implementation selections.
    the toolkit.
 3. `orbits` owns feature-gated state implementations. The current
    `cartesian` feature exports `orbits::cartesian::CartesianState`,
-   `orbits::keplerian::KeplerianState`, and
+   `orbits::circular::CircularState`, `orbits::keplerian::KeplerianState`, and
    `orbits::equinoctial::EquinoctialState`. No public convenience enum erases
    that selection.
 4. `dynamics` remains contract-only. Each physical topology and solver is an

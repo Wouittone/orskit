@@ -47,4 +47,78 @@ impl<S: SpacecraftState> Orbit<S> {
     pub fn into_state(self) -> S {
         self.state
     }
+
+    /// Maps this orbit into another state representation while preserving its
+    /// epoch.
+    ///
+    /// This operation only changes the stored state value. Any scientific
+    /// conversion context, such as a gravity provider, belongs to the mapping
+    /// closure so the core contract never selects data implicitly.
+    #[must_use]
+    pub fn map_state<T: SpacecraftState>(self, map: impl FnOnce(S) -> T) -> Orbit<T> {
+        Orbit::new(self.epoch, map(self.state))
+    }
+
+    /// Fallibly maps this orbit into another state representation while
+    /// preserving its epoch.
+    ///
+    /// The mapper's error is returned unchanged. This permits concrete state
+    /// crates to retain their typed conversion and singularity errors without
+    /// making this implementation-neutral crate depend on them.
+    pub fn try_map_state<T: SpacecraftState, E>(
+        self,
+        map: impl FnOnce(S) -> Result<T, E>,
+    ) -> Result<Orbit<T>, E> {
+        Ok(Orbit::new(self.epoch, map(self.state)?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct TestState(ReferenceFrame);
+
+    impl SpacecraftState for TestState {
+        fn frame(&self) -> ReferenceFrame {
+            self.0
+        }
+    }
+
+    #[test]
+    fn state_mapping_preserves_epoch() {
+        let epoch = Epoch::from_tai_seconds(42.0);
+        let orbit = Orbit::new(epoch, TestState(ReferenceFrame::GCRF));
+
+        let mapped = orbit.map_state(|state| TestState(state.frame()));
+
+        assert_eq!(mapped.epoch(), epoch);
+        assert_eq!(mapped.state(), TestState(ReferenceFrame::GCRF));
+    }
+
+    #[test]
+    fn fallible_state_mapping_preserves_epoch() {
+        let epoch = Epoch::from_tai_seconds(42.0);
+        let orbit = Orbit::new(epoch, TestState(ReferenceFrame::GCRF));
+
+        let mapped = orbit
+            .try_map_state(|state| Ok::<_, &'static str>(TestState(state.frame())))
+            .expect("conversion succeeds");
+
+        assert_eq!(mapped.epoch(), epoch);
+        assert_eq!(mapped.state(), TestState(ReferenceFrame::GCRF));
+    }
+
+    #[test]
+    fn fallible_state_mapping_returns_the_original_error() {
+        let orbit = Orbit::new(
+            Epoch::from_tai_seconds(42.0),
+            TestState(ReferenceFrame::GCRF),
+        );
+
+        let result = orbit.try_map_state(|_| Err::<TestState, _>("conversion failed"));
+
+        assert_eq!(result, Err("conversion failed"));
+    }
 }

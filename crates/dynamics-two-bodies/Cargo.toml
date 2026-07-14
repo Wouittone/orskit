@@ -18,6 +18,7 @@ point-mass = ["gravity/point-mass"]
 [dependencies]
 orskit_core = { package = "core", path = "../core" }
 dynamics = { path = "../dynamics" }
+frames = { path = "../frames" }
 gravity = { path = "../gravity" }
 hifitime.workspace = true
 orbits = { path = "../orbits", features = ["cartesian"] }
@@ -26,7 +27,6 @@ units = { path = "../units" }
 
 [dev-dependencies]
 bodies = { path = "../bodies" }
-frames = { path = "../frames" }
 
 [[example]]
 name = "two_body_benchmark"

@@ -15,7 +15,7 @@ MIT or Apache-2.0 license.
 > **Status: pre-alpha.** The repository currently contains an early workspace
 > scaffold with typed units, celestial-body and frame identities, open
 > frame-qualified spacecraft-state and generic epoch-qualified-orbit contracts,
-> feature-gated Cartesian/Keplerian/equinoctial implementations, time-independent spacecraft definitions,
+> feature-gated Cartesian/circular/Keplerian/equinoctial implementations, time-independent spacecraft definitions,
 > and epoch-specific views
 > with attitude and angular velocity,
 > streaming CCSDS OEM KVN ingestion, composable dynamics descriptions, a
@@ -64,7 +64,7 @@ roadmap. Start with [`.agent/README.md`](.agent/README.md).
 | `crates/bodies` | Planet, moon, dwarf-planet, custom-body, and explicit body-system identities |
 | `crates/frames` | Reference-frame identities plus caller-owned, parent-relative fixed frame definitions |
 | `crates/core` | Open state and generic orbit contracts plus spacecraft identity/geometry and complete physical views |
-| `crates/orbits` | Feature-gated state representations; `cartesian` provides Cartesian, elliptic Keplerian, and equinoctial states |
+| `crates/orbits` | Feature-gated state representations; `cartesian` provides Cartesian, elliptic circular, Keplerian, and equinoctial states |
 | `crates/gravity` | Gravity-provider contract; the `point-mass` feature provides an immutable point-mass provider |
 | `crates/dynamics` | Open force-model composition, `ComposedDynamics`, and generic propagation contracts |
 | `crates/dynamics-two-bodies` | One concrete dynamics implementation: point-mass two-body dynamics and analytical elliptic Kepler propagation |

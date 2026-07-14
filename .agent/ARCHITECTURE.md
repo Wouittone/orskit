@@ -64,9 +64,12 @@ missing abstraction or an incorrectly placed type.
   to force-model configuration and explicit future data providers. Dynamics
   composes heterogeneous model trait objects without matching model types.
 - **Propagation:** `Propagator<Problem, State>` separates a solution method from the
-  physical problem it advances. The current analytical implementation accepts
-  `TwoBodyDynamics`, advances epoch-qualified `Orbit<State>` values, and
-  preserves the selected state representation. A
+  physical problem it advances. `PropagationState<Problem>` first resolves the
+  caller-selected state into the representation the solver advances;
+  `Propagator::propagate_resolved` solves that representation, and the default
+  `propagate` restores the caller-selected state. The current analytical
+  implementation accepts `TwoBodyDynamics`, advances epoch-qualified
+  `Orbit<State>` values, and preserves the selected state representation. A
   translational propagator does not imply that attitude or other
   epoch-dependent spacecraft properties were advanced. Analytical, numerical,
   semi-analytical, and TLE
@@ -192,8 +195,8 @@ vertical slices.
 The initial split includes `units` for typed quantities, `bodies` for celestial
 and body-system identities, `frames` for body-backed frame identity,
 implementation-neutral `core` contracts, the feature-gated `orbits` crate for
-Cartesian, elliptic Keplerian, and elliptic equinoctial six-element
-representations, and the `gravity` crate for independently selected gravity
+Cartesian, elliptic circular, elliptic Keplerian, and elliptic equinoctial
+six-element representations, and the `gravity` crate for independently selected gravity
 providers. Its `point-mass` feature is optional; no scientific provenance
 record is imposed on application-owned providers.
 `lox-frames` is scientifically promising but still alpha; ANISE is mature but
@@ -203,12 +206,16 @@ than leaking either API into spacecraft state.
 
 `dynamics` describes named spacecraft-state requirements, open
 conservative/non-conservative force-model contracts, `ComposedDynamics`, and
-the generic `Propagator<Problem, State>` boundary. Concrete `TwoBodyDynamics`,
-its point-mass model, and `EllipticKeplerPropagator` live in
+the generic `PropagationState<Problem>`/`Propagator<Problem, State>` boundary.
+Concrete `TwoBodyDynamics`, its point-mass model, and `EllipticKeplerPropagator` live in
 `dynamics-two-bodies`, one implementation crate among future dynamics
 implementations. It depends explicitly on the `orbits` Cartesian feature. The
-solver accepts a target epoch, derives its internal duration, and advances an
-epoch-qualified `Orbit<S>` while returning the same selected representation.
+solver accepts a target epoch, derives its internal duration, resolves an
+epoch-qualified `Orbit<S>` into Cartesian state, advances it with universal
+variables, then restores and returns the same selected representation.
+Cartesian state is the shared non-singular resolved representation except at
+physical zero-radius collision; caller-selected element charts retain their
+own conversion singularities.
 Complete spacecraft views are composed separately from properties known to be
 valid at the propagated epoch.
 General force evaluation and numerical propagation remain deferred; their design must

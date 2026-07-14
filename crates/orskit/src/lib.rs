@@ -34,7 +34,7 @@ pub mod prelude {
     #[cfg(feature = "bodies")]
     pub use crate::bodies::{Body, BodySystem};
     #[cfg(feature = "dynamics")]
-    pub use crate::dynamics::{ComposedDynamics, Propagator};
+    pub use crate::dynamics::{ComposedDynamics, PropagationState, Propagator};
     #[cfg(feature = "two-bodies")]
     pub use crate::dynamics_two_bodies::{EllipticKeplerPropagator, TwoBodyDynamics};
     #[cfg(feature = "point-mass-gravity")]
@@ -43,6 +43,7 @@ pub mod prelude {
     pub use crate::measurements::{ParticipantId, RangeMeasurement, SignalPath};
     #[cfg(feature = "cartesian")]
     pub use crate::orbits::{
-        cartesian::CartesianState, equinoctial::EquinoctialState, keplerian::KeplerianState,
+        cartesian::CartesianState, circular::CircularState, equinoctial::EquinoctialState,
+        keplerian::KeplerianState,
     };
 }
