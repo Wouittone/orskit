@@ -11,8 +11,48 @@ description = "Measurement and observation utilities for orskit"
 [lib]
 name = "measurements"
 
+[features]
+default = [
+    "range",
+    "range-rate",
+    "azimuth-elevation",
+    "doppler",
+    "angular-ra-dec",
+    "bistatic-range",
+    "bistatic-range-rate",
+    "turnaround-range",
+    "tdoa",
+    "fdoa",
+    "phase",
+    "clock-correction",
+    "troposphere-correction",
+    "ionosphere-correction",
+    "relativity-correction",
+    "instrument-correction",
+]
+# Built-in observable families.  Disable default features and select only the
+# implementations an application uses; the composition traits remain available.
+range = []
+range-rate = []
+azimuth-elevation = []
+doppler = []
+angular-ra-dec = []
+bistatic-range = []
+bistatic-range-rate = []
+turnaround-range = []
+tdoa = []
+fdoa = []
+phase = []
+# Built-in correction-provenance markers.
+clock-correction = []
+troposphere-correction = []
+ionosphere-correction = []
+relativity-correction = []
+instrument-correction = []
+
 [dependencies]
 hifitime.workspace = true
+nalgebra.workspace = true
 frames = { path = "../frames" }
 units = { path = "../units" }
 thiserror.workspace = true

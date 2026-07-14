@@ -17,15 +17,33 @@ dynamics = ["dep:dynamics"]
 point-mass-gravity = ["dep:gravity", "gravity/point-mass"]
 two-bodies = ["cartesian", "dynamics", "point-mass-gravity", "dep:dynamics_two_bodies", "dynamics_two_bodies/point-mass"]
 measurements = ["dep:measurements"]
+quaternion-attitude = ["orskit_core/quaternion-attitude"]
+standard-shapes = ["orskit_core/standard-shapes"]
+measurement-range = ["measurements", "measurements/range"]
+measurement-range-rate = ["measurements", "measurements/range-rate"]
+measurement-azimuth-elevation = ["measurements", "measurements/azimuth-elevation"]
+measurement-doppler = ["measurements", "measurements/doppler"]
+measurement-angular-ra-dec = ["measurements", "measurements/angular-ra-dec"]
+measurement-bistatic-range = ["measurements", "measurements/bistatic-range"]
+measurement-bistatic-range-rate = ["measurements", "measurements/bistatic-range-rate"]
+measurement-turnaround-range = ["measurements", "measurements/turnaround-range"]
+measurement-tdoa = ["measurements", "measurements/tdoa"]
+measurement-fdoa = ["measurements", "measurements/fdoa"]
+measurement-phase = ["measurements", "measurements/phase"]
+measurement-clock-correction = ["measurements", "measurements/clock-correction"]
+measurement-troposphere-correction = ["measurements", "measurements/troposphere-correction"]
+measurement-ionosphere-correction = ["measurements", "measurements/ionosphere-correction"]
+measurement-relativity-correction = ["measurements", "measurements/relativity-correction"]
+measurement-instrument-correction = ["measurements", "measurements/instrument-correction"]
 
 [dependencies]
 bodies = { path = "../bodies", optional = true }
 ccsds = { path = "../ccsds", optional = true }
-orskit_core = { package = "core", path = "../core" }
+orskit_core = { package = "core", path = "../core", default-features = false }
 dynamics = { path = "../dynamics", optional = true }
 dynamics_two_bodies = { package = "dynamics-two-bodies", path = "../dynamics-two-bodies", optional = true }
 gravity = { path = "../gravity", optional = true }
 frames = { path = "../frames" }
-measurements = { path = "../measurements", optional = true }
+measurements = { path = "../measurements", optional = true, default-features = false }
 orbits = { path = "../orbits", optional = true }
 units = { path = "../units" }
