@@ -1,6 +1,6 @@
 # ADR-0025: separate propagation method from physical problem
 
-- Status: Accepted
+- Status: Superseded by ADR-0030
 - Date: 2026-07-13
 - Affected parity rows: dynamics composition; two-body propagation; future
   numerical propagation
