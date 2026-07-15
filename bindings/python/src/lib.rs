@@ -2,6 +2,7 @@
 
 use core_crate::{
     AttitudeState, CartesianState, Epoch, FramedAngularVelocity, InertiaTensor, Orientation,
+    OrientationQuaternion,
 };
 use frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin, ReferenceFrame};
 use units::uom::si::{
@@ -69,16 +70,16 @@ impl SpacecraftStateWrapper {
             FrameOrigin::Custom(body_id),
             FrameOrientation::custom(body_id, FrameMotion::NonInertial),
         );
-        let orientation = Orientation::try_from((
-            body_frame,
-            frame,
-            [
+        let orientation = Orientation::try_from(OrientationQuaternion {
+            source_frame: body_frame,
+            target_frame: frame,
+            components: [
                 Ratio::new::<ratio>(orientation_wxyz.0),
                 Ratio::new::<ratio>(orientation_wxyz.1),
                 Ratio::new::<ratio>(orientation_wxyz.2),
                 Ratio::new::<ratio>(orientation_wxyz.3),
             ],
-        ))
+        })
         .map_err(|error| PyValueError::new_err(error.to_string()))?;
         let attitude = AttitudeState::new(
             orientation,

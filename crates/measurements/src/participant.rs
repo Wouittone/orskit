@@ -14,7 +14,7 @@ use thiserror::Error;
 /// ```
 /// use measurements::ParticipantId;
 ///
-/// let station = ParticipantId::new("DSS-14")?;
+/// let station = ParticipantId::try_from("DSS-14".to_owned())?;
 /// assert_eq!(station.as_str(), "DSS-14");
 /// # Ok::<(), measurements::ParticipantIdError>(())
 /// ```
@@ -22,9 +22,18 @@ use thiserror::Error;
 pub struct ParticipantId(Arc<str>);
 
 impl ParticipantId {
-    /// Constructs a non-empty participant identity.
-    pub fn new(value: impl Into<String>) -> Result<Self, ParticipantIdError> {
-        let value = value.into();
+    /// Returns the application-defined identity text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for ParticipantId {
+    type Error = ParticipantIdError;
+
+    /// Validates and stores a non-empty participant identity.
+    fn try_from(value: String) -> Result<Self, Self::Error> {
         if value.trim().is_empty() {
             return Err(ParticipantIdError::Empty);
         }
@@ -35,12 +44,6 @@ impl ParticipantId {
             return Err(ParticipantIdError::ControlCharacter);
         }
         Ok(Self(Arc::from(value)))
-    }
-
-    /// Returns the application-defined identity text.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
     }
 }
 
@@ -54,7 +57,7 @@ impl FromStr for ParticipantId {
     type Err = ParticipantIdError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Self::new(value)
+        Self::try_from(value.to_owned())
     }
 }
 
@@ -69,8 +72,8 @@ impl FromStr for ParticipantId {
 /// ```
 /// use measurements::{ParticipantId, SignalPath};
 ///
-/// let station = ParticipantId::new("DSS-14")?;
-/// let spacecraft = ParticipantId::new("SC-01")?;
+/// let station = ParticipantId::try_from("DSS-14".to_owned())?;
+/// let spacecraft = ParticipantId::try_from("SC-01".to_owned())?;
 /// let path = SignalPath::new(vec![station.clone(), spacecraft, station])?;
 /// assert_eq!(path.participant_count(), 3);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -149,18 +152,21 @@ mod tests {
     use super::*;
 
     fn id(value: &str) -> ParticipantId {
-        ParticipantId::new(value).expect("test participant identity is valid")
+        value.parse().expect("test participant identity is valid")
     }
 
     #[test]
     fn participant_identity_rejects_ambiguous_text() {
-        assert_eq!(ParticipantId::new("   "), Err(ParticipantIdError::Empty));
         assert_eq!(
-            ParticipantId::new(" DSS-14"),
+            ParticipantId::try_from("   ".to_owned()),
+            Err(ParticipantIdError::Empty)
+        );
+        assert_eq!(
+            ParticipantId::try_from(" DSS-14".to_owned()),
             Err(ParticipantIdError::SurroundingWhitespace)
         );
         assert_eq!(
-            ParticipantId::new("DSS-14\nSC-01"),
+            ParticipantId::try_from("DSS-14\nSC-01".to_owned()),
             Err(ParticipantIdError::ControlCharacter)
         );
     }

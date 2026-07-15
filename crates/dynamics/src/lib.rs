@@ -87,9 +87,9 @@ pub struct ComposedDynamics {
 impl ComposedDynamics {
     /// Creates an empty, named dynamics description.
     #[must_use]
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new(name: String) -> Self {
         Self {
-            name: name.into(),
+            name,
             conservative_force_models: Vec::new(),
             non_conservative_force_models: Vec::new(),
         }
@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn heterogeneous_models_compose_in_declaration_order() {
-        let dynamics = ComposedDynamics::new("test system")
+        let dynamics = ComposedDynamics::new("test system".to_owned())
             .with_conservative(Arc::new(Conservative(TestForce("gravity"))));
         assert_eq!(dynamics.name(), "test system");
         assert_eq!(dynamics.conservative_force_models().len(), 1);

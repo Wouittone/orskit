@@ -11,7 +11,7 @@ use orskit_core::{Orbit, OrbitParts, SpacecraftState};
 /// [`Self::restore`] before returning to the caller. This makes the resolution
 /// boundary explicit and reusable across analytical, numerical, and future
 /// propagation implementations without imposing a closed state enum.
-pub trait PropagationState<Problem: ?Sized>: SpacecraftState {
+pub trait PropagationState<Problem: ?Sized>: SpacecraftState + Sized {
     /// State representation directly advanced by this propagator/problem pair.
     type Resolved: SpacecraftState;
     /// Typed error raised while resolving or restoring a representation.

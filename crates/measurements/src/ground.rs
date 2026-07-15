@@ -515,7 +515,7 @@ mod tests {
     use crate::{MeasurementUncertaintyInput, ParticipantId, SignalPath};
 
     fn id(value: &str) -> ParticipantId {
-        ParticipantId::new(value).expect("participant")
+        value.parse().expect("participant")
     }
 
     fn path() -> SignalPath {

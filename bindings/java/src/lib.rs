@@ -4,6 +4,7 @@ use std::ptr;
 
 use core_crate::{
     AttitudeState, CartesianState, FramedAngularVelocity, InertiaTensor, Orientation,
+    OrientationQuaternion,
 };
 use frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin, ReferenceFrame};
 use units::uom::si::{moment_of_inertia::kilogram_square_meter, ratio::ratio};
@@ -64,16 +65,16 @@ pub extern "C" fn spacecraft_state_new(
         FrameOrigin::Custom(body_id),
         FrameOrientation::custom(body_id, FrameMotion::NonInertial),
     );
-    let Ok(orientation) = Orientation::try_from((
-        body_frame,
-        frame,
-        [
+    let Ok(orientation) = Orientation::try_from(OrientationQuaternion {
+        source_frame: body_frame,
+        target_frame: frame,
+        components: [
             Ratio::new::<ratio>(orientation_w),
             Ratio::new::<ratio>(orientation_x),
             Ratio::new::<ratio>(orientation_y),
             Ratio::new::<ratio>(orientation_z),
         ],
-    )) else {
+    }) else {
         return ptr::null_mut();
     };
     let Ok(angular_velocity) = FramedAngularVelocity::new(

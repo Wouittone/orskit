@@ -545,6 +545,10 @@ impl RangeMeasurement {
             value,
         )
     }
+
+    pub(crate) fn into_value(self, value: Measured<Length>) -> Result<Self, MeasurementError> {
+        Self::new(self.path, self.epoch, self.frame, self.convention, value)
+    }
 }
 
 #[cfg(feature = "range")]
@@ -600,8 +604,8 @@ impl RangeRateMeasurement {
         self.value
     }
 
-    pub(crate) fn with_value(&self, value: Measured<Velocity>) -> Result<Self, MeasurementError> {
-        Ok(Self::new(self.path.clone(), self.epoch, self.frame, value))
+    pub(crate) fn into_value(self, value: Measured<Velocity>) -> Result<Self, MeasurementError> {
+        Ok(Self::new(self.path, self.epoch, self.frame, value))
     }
 }
 
@@ -687,17 +691,11 @@ impl AzimuthElevationMeasurement {
         &self.values
     }
 
-    pub(crate) fn with_values(
-        &self,
+    pub(crate) fn into_values(
+        self,
         values: MeasurementValues<Angle, 2>,
     ) -> Result<Self, MeasurementError> {
-        Self::new(
-            self.path.clone(),
-            self.epoch,
-            self.frame,
-            self.convention,
-            values,
-        )
+        Self::new(self.path, self.epoch, self.frame, self.convention, values)
     }
 }
 
@@ -754,8 +752,8 @@ impl DopplerMeasurement {
         self.value
     }
 
-    pub(crate) fn with_value(&self, value: Measured<Frequency>) -> Result<Self, MeasurementError> {
-        Ok(Self::new(self.path.clone(), self.epoch, self.frame, value))
+    pub(crate) fn into_value(self, value: Measured<Frequency>) -> Result<Self, MeasurementError> {
+        Ok(Self::new(self.path, self.epoch, self.frame, value))
     }
 }
 
@@ -869,8 +867,8 @@ mod tests {
 
     fn path() -> SignalPath {
         SignalPath::new(vec![
-            ParticipantId::new("DSS-14").expect("station ID"),
-            ParticipantId::new("SC-01").expect("spacecraft ID"),
+            ParticipantId::try_from("DSS-14".to_owned()).expect("station ID"),
+            ParticipantId::try_from("SC-01".to_owned()).expect("spacecraft ID"),
         ])
         .expect("signal path")
     }

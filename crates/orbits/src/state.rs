@@ -52,6 +52,16 @@ pub struct CartesianState {
     velocity: VelocityVector,
 }
 
+/// Cartesian state together with the explicit gravity context required to
+/// derive element-based representations.
+#[derive(Debug)]
+pub struct CartesianStateWithGravity {
+    /// Cartesian state to convert.
+    pub state: CartesianState,
+    /// Sourced central-gravity provider used for the conversion.
+    pub central_gravity: SharedCentralGravity,
+}
+
 impl CartesianState {
     /// Constructs a finite Cartesian state.
     pub fn new(
@@ -540,12 +550,11 @@ impl TryFrom<EquinoctialState> for KeplerianState {
     }
 }
 
-impl TryFrom<(CartesianState, SharedCentralGravity)> for KeplerianState {
+impl TryFrom<CartesianStateWithGravity> for KeplerianState {
     type Error = StateError;
 
-    fn try_from(source: (CartesianState, SharedCentralGravity)) -> Result<Self, Self::Error> {
-        let (state, gravity) = source;
-        keplerian_from_cartesian(&gravity, state)
+    fn try_from(source: CartesianStateWithGravity) -> Result<Self, Self::Error> {
+        keplerian_from_cartesian(&source.central_gravity, source.state)
     }
 }
 
@@ -565,10 +574,10 @@ impl TryFrom<&KeplerianState> for CartesianState {
     }
 }
 
-impl TryFrom<(CartesianState, SharedCentralGravity)> for EquinoctialState {
+impl TryFrom<CartesianStateWithGravity> for EquinoctialState {
     type Error = StateError;
 
-    fn try_from(source: (CartesianState, SharedCentralGravity)) -> Result<Self, Self::Error> {
+    fn try_from(source: CartesianStateWithGravity) -> Result<Self, Self::Error> {
         let keplerian = KeplerianState::try_from(source)?;
         Self::try_from(keplerian)
     }
@@ -627,10 +636,10 @@ impl TryFrom<CircularState> for KeplerianState {
     }
 }
 
-impl TryFrom<(CartesianState, SharedCentralGravity)> for CircularState {
+impl TryFrom<CartesianStateWithGravity> for CircularState {
     type Error = StateError;
 
-    fn try_from(source: (CartesianState, SharedCentralGravity)) -> Result<Self, Self::Error> {
+    fn try_from(source: CartesianStateWithGravity) -> Result<Self, Self::Error> {
         let keplerian = KeplerianState::try_from(source)?;
         Self::try_from(keplerian)
     }
@@ -1083,8 +1092,11 @@ mod tests {
             .clone()
             .try_into()
             .expect("recovered Keplerian to Cartesian");
-        let recovered_elements = KeplerianState::try_from((cartesian, Arc::clone(&gravity)))
-            .expect("Cartesian to Keplerian");
+        let recovered_elements = KeplerianState::try_from(CartesianStateWithGravity {
+            state: cartesian,
+            central_gravity: Arc::clone(&gravity),
+        })
+        .expect("Cartesian to Keplerian");
 
         assert!(Arc::ptr_eq(equinoctial.central_gravity(), &gravity));
         assert!(Arc::ptr_eq(recovered.central_gravity(), &gravity));
@@ -1134,18 +1146,27 @@ mod tests {
             .try_into()
             .expect("equinoctial to circular");
         let cartesian: CartesianState = source.try_into().expect("Keplerian to Cartesian");
-        let cartesian_keplerian: KeplerianState = (cartesian, Arc::clone(&gravity))
-            .try_into()
-            .expect("Cartesian to Keplerian");
+        let cartesian_keplerian: KeplerianState = CartesianStateWithGravity {
+            state: cartesian,
+            central_gravity: Arc::clone(&gravity),
+        }
+        .try_into()
+        .expect("Cartesian to Keplerian");
         let cartesian: CartesianState = cartesian_keplerian
             .try_into()
             .expect("Keplerian to Cartesian");
-        let cartesian_equinoctial: EquinoctialState = (cartesian, Arc::clone(&gravity))
-            .try_into()
-            .expect("Cartesian to equinoctial");
-        let cartesian_circular: CircularState = (cartesian, Arc::clone(&gravity))
-            .try_into()
-            .expect("Cartesian to circular");
+        let cartesian_equinoctial: EquinoctialState = CartesianStateWithGravity {
+            state: cartesian,
+            central_gravity: Arc::clone(&gravity),
+        }
+        .try_into()
+        .expect("Cartesian to equinoctial");
+        let cartesian_circular: CircularState = CartesianStateWithGravity {
+            state: cartesian,
+            central_gravity: Arc::clone(&gravity),
+        }
+        .try_into()
+        .expect("Cartesian to circular");
         let cartesian_from_equinoctial: CartesianState =
             equinoctial.try_into().expect("equinoctial to Cartesian");
         let cartesian_from_circular: CartesianState =
@@ -1157,7 +1178,13 @@ mod tests {
             .expect("Keplerian to Cartesian");
         let mapped: Orbit<EquinoctialState> =
             Orbit::new(Epoch::from_tai_seconds(42.0), cartesian_from_recovered)
-                .try_map_state(|state| (state, Arc::clone(&gravity)).try_into())
+                .try_map_state(|state| {
+                    CartesianStateWithGravity {
+                        state,
+                        central_gravity: Arc::clone(&gravity),
+                    }
+                    .try_into()
+                })
                 .expect("orbit state conversion");
         let OrbitParts { epoch, state } = mapped.into();
         let mapped_cartesian: CartesianState = state.try_into().expect("mapped state to Cartesian");
@@ -1222,7 +1249,10 @@ mod tests {
         )
         .expect("finite state");
         assert_eq!(
-            KeplerianState::try_from((cartesian, mars_gravity)),
+            KeplerianState::try_from(CartesianStateWithGravity {
+                state: cartesian,
+                central_gravity: mars_gravity,
+            }),
             Err(StateError::CentralGravityOriginMismatch {
                 gravity_origin: FrameOrigin::Body(frames::Body::MARS),
                 frame_origin: FrameOrigin::Body(frames::Body::EARTH),
@@ -1365,7 +1395,10 @@ mod tests {
             VelocityVector::from_metres_per_second(1_000.0, 0.0, 0.0),
         )
         .expect("finite state");
-        let result = KeplerianState::try_from((radial, earth_gravity()));
+        let result = KeplerianState::try_from(CartesianStateWithGravity {
+            state: radial,
+            central_gravity: earth_gravity(),
+        });
         assert_eq!(result, Err(StateError::DegenerateCartesianOrbit));
     }
 
@@ -1388,10 +1421,16 @@ mod tests {
         };
 
         assert_eq!(
-            KeplerianState::try_from((state(FrameMotion::Unspecified), earth_gravity())),
+            KeplerianState::try_from(CartesianStateWithGravity {
+                state: state(FrameMotion::Unspecified),
+                central_gravity: earth_gravity(),
+            }),
             Err(StateError::CartesianFrameNotExplicitlyInertial)
         );
-        KeplerianState::try_from((state(FrameMotion::Inertial), earth_gravity()))
-            .expect("explicit custom inertial axes are supported");
+        KeplerianState::try_from(CartesianStateWithGravity {
+            state: state(FrameMotion::Inertial),
+            central_gravity: earth_gravity(),
+        })
+        .expect("explicit custom inertial axes are supported");
     }
 }

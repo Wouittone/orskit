@@ -43,18 +43,21 @@ vector/matrix algorithm API.
 
 ## Validation
 
-- Unit cases: not applicable; no runtime behavior changes.
+- Unit cases: conversion, correction-chain, OEM, and propagation configuration
+  tests cover the migrated public contracts.
 - Invariants/properties: audit the public surface for hidden cloning,
   allocation, low-level representation leakage, raw domain scalars, and
   duplicate trait contracts.
 - Independent reference vectors: not applicable.
 - Differential/scenario tests: not applicable.
 - Tolerances and justification: not applicable.
-- Benchmarks: not applicable; this task makes no performance claim.
+- Benchmarks: not applicable; this task removes clone-based correction flow and
+  per-event OEM allocations without making a benchmark claim.
 
 ## Completion checklist
 
 - [x] Repository-level API layering policy documented
 - [x] Public-surface audit completed and reported
-- [ ] Code remediation: deliberately deferred until the reported findings are
-  prioritized
+- [x] Code remediation: public conversion/configuration inputs are named and
+  typed, correction chains transfer ownership, and intentional allocation
+  boundaries are explicit

@@ -6,11 +6,11 @@ use gravity::SharedCentralGravity;
 use hifitime::Duration;
 use orskit_core::{Orbit, OrbitParts};
 use thiserror::Error;
-use units::uom::si::length::meter;
-use units::{Length, Position, VelocityVector};
+use units::uom::si::{angle::radian, length::meter};
+use units::{Angle, Length, Position, VelocityVector};
 
 use orbits::{
-    cartesian::{CartesianState, StateError},
+    cartesian::{CartesianState, CartesianStateWithGravity, StateError},
     circular::CircularState,
     equinoctial::EquinoctialState,
     keplerian::KeplerianState,
@@ -82,11 +82,9 @@ impl EllipticKeplerPropagator {
         }
     }
 
-    /// Sets the anomaly-solver tolerance in radians.
-    pub fn with_tolerance_radians(
-        mut self,
-        tolerance_radians: f64,
-    ) -> Result<Self, EllipticKeplerError> {
+    /// Sets the anomaly-solver tolerance.
+    pub fn with_tolerance(mut self, tolerance: Angle) -> Result<Self, EllipticKeplerError> {
+        let tolerance_radians = tolerance.get::<radian>();
         if !tolerance_radians.is_finite() || tolerance_radians <= 0.0 {
             return Err(EllipticKeplerError::InvalidTolerance);
         }
@@ -106,7 +104,7 @@ impl EllipticKeplerPropagator {
         Ok(self)
     }
 
-    /// Sets the maximum estimated floating phase error in radians.
+    /// Sets the maximum estimated floating phase error.
     ///
     /// This budget covers mean-motion evaluation, duration conversion, phase
     /// multiplication, and periodic range reduction. It does not replace the
@@ -114,16 +112,18 @@ impl EllipticKeplerPropagator {
     ///
     /// ```
     /// use dynamics_two_bodies::EllipticKeplerPropagator;
+    /// use units::{uom::si::angle::radian, Angle};
     ///
     /// let propagator = EllipticKeplerPropagator::new()
-    ///     .with_phase_error_budget_radians(1.0e-8)?;
-    /// assert_eq!(propagator.phase_error_budget_radians(), 1.0e-8);
+    ///     .with_phase_error_budget(Angle::new::<radian>(1.0e-8))?;
+    /// assert_eq!(propagator.phase_error_budget(), Angle::new::<radian>(1.0e-8));
     /// # Ok::<(), dynamics_two_bodies::EllipticKeplerError>(())
     /// ```
-    pub fn with_phase_error_budget_radians(
+    pub fn with_phase_error_budget(
         mut self,
-        phase_error_budget_radians: f64,
+        phase_error_budget: Angle,
     ) -> Result<Self, EllipticKeplerError> {
+        let phase_error_budget_radians = phase_error_budget.get::<radian>();
         if !phase_error_budget_radians.is_finite() || phase_error_budget_radians <= 0.0 {
             return Err(EllipticKeplerError::InvalidPhaseErrorBudget);
         }
@@ -131,10 +131,10 @@ impl EllipticKeplerPropagator {
         Ok(self)
     }
 
-    /// Returns the configured floating phase-error budget in radians.
+    /// Returns the configured floating phase-error budget.
     #[must_use]
-    pub const fn phase_error_budget_radians(&self) -> f64 {
-        self.phase_error_budget_radians
+    pub fn phase_error_budget(&self) -> Angle {
+        Angle::new::<radian>(self.phase_error_budget_radians)
     }
 
     fn phase_advance(
@@ -166,8 +166,8 @@ impl EllipticKeplerPropagator {
         );
         if estimated_phase_error_radians > self.phase_error_budget_radians {
             return Err(EllipticKeplerError::AccuracyBudgetExceeded {
-                estimated_phase_error_radians,
-                budget_radians: self.phase_error_budget_radians,
+                estimated_phase_error: Angle::new::<radian>(estimated_phase_error_radians),
+                budget: Angle::new::<radian>(self.phase_error_budget_radians),
             });
         }
 
@@ -284,10 +284,10 @@ impl PropagationState<TwoBodyDynamics> for KeplerianState {
     }
 
     fn restore(resolved: Self::Resolved, problem: &TwoBodyDynamics) -> Result<Self, Self::Error> {
-        Ok(Self::try_from((
-            resolved,
-            Arc::clone(problem.central_gravity()),
-        ))?)
+        Ok(Self::try_from(CartesianStateWithGravity {
+            state: resolved,
+            central_gravity: Arc::clone(problem.central_gravity()),
+        })?)
     }
 }
 
@@ -305,8 +305,10 @@ impl PropagationState<TwoBodyDynamics> for CircularState {
     }
 
     fn restore(resolved: Self::Resolved, problem: &TwoBodyDynamics) -> Result<Self, Self::Error> {
-        let keplerian =
-            KeplerianState::try_from((resolved, Arc::clone(problem.central_gravity())))?;
+        let keplerian = KeplerianState::try_from(CartesianStateWithGravity {
+            state: resolved,
+            central_gravity: Arc::clone(problem.central_gravity()),
+        })?;
         Ok(Self::try_from(keplerian)?)
     }
 }
@@ -325,10 +327,10 @@ impl PropagationState<TwoBodyDynamics> for EquinoctialState {
     }
 
     fn restore(resolved: Self::Resolved, problem: &TwoBodyDynamics) -> Result<Self, Self::Error> {
-        Ok(Self::try_from((
-            resolved,
-            Arc::clone(problem.central_gravity()),
-        ))?)
+        Ok(Self::try_from(CartesianStateWithGravity {
+            state: resolved,
+            central_gravity: Arc::clone(problem.central_gravity()),
+        })?)
     }
 }
 
@@ -579,15 +581,13 @@ pub enum EllipticKeplerError {
     #[error("phase-error budget must be positive and finite")]
     InvalidPhaseErrorBudget,
     /// The estimated floating phase error exceeds the declared budget.
-    #[error(
-        "estimated phase error {estimated_phase_error_radians:e} rad exceeds budget {budget_radians:e} rad"
-    )]
+    #[error("estimated phase error {estimated_phase_error:?} exceeds budget {budget:?}")]
     AccuracyBudgetExceeded {
         /// Conservative bound for mean-motion evaluation, duration conversion,
         /// multiplication, and periodic range reduction.
-        estimated_phase_error_radians: f64,
+        estimated_phase_error: Angle,
         /// Maximum phase error accepted by the configured solver.
-        budget_radians: f64,
+        budget: Angle,
     },
     /// At least one anomaly-solver iteration is required.
     #[error("maximum anomaly iterations must be greater than zero")]
@@ -1169,21 +1169,21 @@ mod tests {
             Duration::from_total_nanoseconds(nanoseconds),
         ) {
             Err(EllipticKeplerError::AccuracyBudgetExceeded {
-                estimated_phase_error_radians,
-                budget_radians,
-            }) => (estimated_phase_error_radians, budget_radians),
+                estimated_phase_error,
+                budget,
+            }) => (estimated_phase_error, budget),
             result => panic!("expected accuracy-budget rejection, got {result:?}"),
         };
 
         let forward = rejected_bound(LONG_DURATION_NANOSECONDS);
         let backward = rejected_bound(-LONG_DURATION_NANOSECONDS);
         assert_eq!(forward, backward);
-        assert!(forward.0 > forward.1);
+        assert!(forward.0.get::<radian>() > forward.1.get::<radian>());
 
         let relaxed = EllipticKeplerPropagator::new()
-            .with_phase_error_budget_radians(1.0e-5)
+            .with_phase_error_budget(Angle::new::<radian>(1.0e-5))
             .expect("positive finite budget");
-        assert_eq!(relaxed.phase_error_budget_radians(), 1.0e-5);
+        assert_eq!(relaxed.phase_error_budget(), Angle::new::<radian>(1.0e-5));
         relaxed
             .propagate_for_test(
                 initial,
@@ -1254,7 +1254,7 @@ mod tests {
     fn invalid_solver_configuration_and_iteration_limit_are_reported() {
         let propagator = EllipticKeplerPropagator::new();
         assert!(matches!(
-            propagator.clone().with_tolerance_radians(0.0),
+            propagator.clone().with_tolerance(Angle::new::<radian>(0.0)),
             Err(EllipticKeplerError::InvalidTolerance)
         ));
         assert!(matches!(
@@ -1262,11 +1262,15 @@ mod tests {
             Err(EllipticKeplerError::ZeroIterations)
         ));
         assert!(matches!(
-            propagator.clone().with_phase_error_budget_radians(0.0),
+            propagator
+                .clone()
+                .with_phase_error_budget(Angle::new::<radian>(0.0)),
             Err(EllipticKeplerError::InvalidPhaseErrorBudget)
         ));
         assert!(matches!(
-            propagator.clone().with_phase_error_budget_radians(f64::NAN),
+            propagator
+                .clone()
+                .with_phase_error_budget(Angle::new::<radian>(f64::NAN)),
             Err(EllipticKeplerError::InvalidPhaseErrorBudget)
         ));
         let one_iteration = propagator

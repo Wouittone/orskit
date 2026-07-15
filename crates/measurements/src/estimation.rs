@@ -238,8 +238,8 @@ impl<P: ParticipantStateProvider, T: KinematicFrameTransformProvider> Participan
             return Err(
                 TransformingParticipantStateProviderError::UnexpectedSourceFrame {
                     participant: participant.clone(),
-                    expected: Box::new(self.source_frame),
-                    actual: Box::new(source.frame()),
+                    expected: self.source_frame,
+                    actual: source.frame(),
                 },
             );
         }
@@ -251,8 +251,8 @@ impl<P: ParticipantStateProvider, T: KinematicFrameTransformProvider> Participan
             return Err(
                 TransformingParticipantStateProviderError::UnexpectedTargetFrame {
                     participant: participant.clone(),
-                    expected: Box::new(frame),
-                    actual: Box::new(transformed.frame()),
+                    expected: frame,
+                    actual: transformed.frame(),
                 },
             );
         }
@@ -276,9 +276,9 @@ pub enum TransformingParticipantStateProviderError<P: StdError + 'static, T: Std
         /// Participant whose source state was returned.
         participant: ParticipantId,
         /// Frame requested from the source provider.
-        expected: Box<ReferenceFrame>,
+        expected: ReferenceFrame,
         /// Frame attached to the returned source state.
-        actual: Box<ReferenceFrame>,
+        actual: ReferenceFrame,
     },
     /// The transform provider returned kinematics in a different target frame.
     #[error("participant {participant} transform supplied {actual:?}, expected target frame {expected:?}")]
@@ -286,9 +286,9 @@ pub enum TransformingParticipantStateProviderError<P: StdError + 'static, T: Std
         /// Participant whose transformed state was returned.
         participant: ParticipantId,
         /// Requested transformed frame.
-        expected: Box<ReferenceFrame>,
+        expected: ReferenceFrame,
         /// Frame attached to the transformed kinematics.
-        actual: Box<ReferenceFrame>,
+        actual: ReferenceFrame,
     },
 }
 
@@ -787,10 +787,7 @@ pub trait MeasurementEstimator<M: Measurement> {
         propagation_solver: &S,
         correction_models: &CorrectionModelChain<M, C>,
         conditions: &C,
-    ) -> Result<MeasurementPrediction<M>, MeasurementModelEstimationError<Self::Error>>
-    where
-        M: Clone,
-    {
+    ) -> Result<MeasurementPrediction<M>, MeasurementModelEstimationError<Self::Error>> {
         let timeline = propagation_solver
             .solve_timing(measurement, correction_models, conditions)
             .map_err(MeasurementModelEstimationError::Propagation)?;
@@ -803,7 +800,7 @@ pub trait MeasurementEstimator<M: Measurement> {
             ObservationEpochStage::Estimator,
         )?;
         let corrected = correction_models
-            .apply(&predicted, &timeline, conditions)
+            .apply(predicted, &timeline, conditions)
             .map_err(MeasurementModelEstimationError::Correction)?;
         verify_observation_epoch(
             &corrected,
@@ -1833,7 +1830,7 @@ mod tests {
     use units::uom::si::length::meter;
 
     fn id(value: &str) -> ParticipantId {
-        ParticipantId::new(value).expect("participant ID")
+        value.parse().expect("participant ID")
     }
 
     #[test]
@@ -2034,16 +2031,16 @@ mod tests {
 
             fn apply_model(
                 &self,
-                measurement: &RangeMeasurement,
+                measurement: RangeMeasurement,
                 _timeline: &SignalEventTimeline,
                 _conditions: &(),
             ) -> Result<RangeMeasurement, CorrectionModelError> {
-                Ok(measurement.clone())
+                Ok(measurement)
             }
         }
 
         let mut delayed_corrections = CorrectionModelChain::new();
-        delayed_corrections.push(DoubleVacuumSlowness);
+        delayed_corrections.push(Box::new(DoubleVacuumSlowness));
         let delayed = VacuumLightTimeSolver::new(LinearProvider {
             emitter: id("SC-01"),
             receiver: id("DSS-14"),
@@ -2161,11 +2158,11 @@ mod tests {
 
             fn apply_model(
                 &self,
-                measurement: &RangeMeasurement,
+                measurement: RangeMeasurement,
                 _timeline: &SignalEventTimeline,
                 _conditions: &(),
             ) -> Result<RangeMeasurement, CorrectionModelError> {
-                Ok(measurement.clone())
+                Ok(measurement)
             }
         }
 
@@ -2281,8 +2278,8 @@ mod tests {
 
             let delay = Time::new::<second>(2.5);
             let mut propagation_corrections = CorrectionModelChain::new();
-            propagation_corrections.push(PropagationDelay(SignalPropagationGradient::new(
-                delay / Length::new::<meter>(1.0),
+            propagation_corrections.push(Box::new(PropagationDelay(
+                SignalPropagationGradient::new(delay / Length::new::<meter>(1.0)),
             )));
             let delayed_propagation_solver = ConstantGradientPropagation {
                 state: propagation_solver.state,

@@ -26,14 +26,25 @@ pub struct Orientation {
 }
 
 /// Explicit frames and scalar/i/j/k quaternion components for an [`Orientation`].
-pub type OrientationQuaternionInput = (ReferenceFrame, ReferenceFrame, [Ratio; 4]);
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrientationQuaternion {
+    /// Frame whose components the rotation consumes.
+    pub source_frame: ReferenceFrame,
+    /// Frame whose components the rotation produces.
+    pub target_frame: ReferenceFrame,
+    /// Normalized scalar/i/j/k quaternion components.
+    pub components: [Ratio; 4],
+}
 
-impl TryFrom<OrientationQuaternionInput> for Orientation {
+impl TryFrom<OrientationQuaternion> for Orientation {
     type Error = OrientationError;
 
-    fn try_from(
-        (source_frame, target_frame, components): OrientationQuaternionInput,
-    ) -> Result<Self, Self::Error> {
+    fn try_from(source: OrientationQuaternion) -> Result<Self, Self::Error> {
+        let OrientationQuaternion {
+            source_frame,
+            target_frame,
+            components,
+        } = source;
         let values = components.map(|component| component.get::<ratio>());
         if !values.into_iter().all(f64::is_finite) {
             return Err(OrientationError::NonFinite);
@@ -375,10 +386,9 @@ pub struct SpacecraftBodyFrame {
 impl SpacecraftBodyFrame {
     /// Binds application-defined body axes to one non-empty spacecraft ID.
     pub fn new(
-        spacecraft_id: impl Into<String>,
+        spacecraft_id: String,
         reference_frame: ReferenceFrame,
     ) -> Result<Self, SpacecraftError> {
-        let spacecraft_id = spacecraft_id.into();
         if spacecraft_id.trim().is_empty() {
             return Err(SpacecraftError::EmptyId);
         }
@@ -737,7 +747,7 @@ mod tests {
     }
 
     fn owned_body_frame(spacecraft_id: &str, id: u64) -> SpacecraftBodyFrame {
-        SpacecraftBodyFrame::new(spacecraft_id, body_frame(id))
+        SpacecraftBodyFrame::new(spacecraft_id.to_owned(), body_frame(id))
             .expect("spacecraft-owned body frame")
     }
 
@@ -798,7 +808,7 @@ mod tests {
         };
         assert_eq!(sphere.radius(), Length::new::<meter>(1.5));
         assert_eq!(
-            SpacecraftBodyFrame::new("  ", body),
+            SpacecraftBodyFrame::new("  ".to_owned(), body),
             Err(SpacecraftError::EmptyId)
         );
         assert_eq!(
@@ -887,15 +897,15 @@ mod tests {
         let other_owned_body = owned_body_frame("SC-002", 2);
         let spacecraft = Spacecraft::new(owned_body.clone(), SpacecraftShape::Point);
         let valid_attitude = attitude(&owned_body);
-        let same_axes_other_owner =
-            SpacecraftBodyFrame::new("SC-002", body).expect("same axes, different owner");
+        let same_axes_other_owner = SpacecraftBodyFrame::new("SC-002".to_owned(), body)
+            .expect("same axes, different owner");
         assert_eq!(
-            SpacecraftBodyFrame::new("BAD", ReferenceFrame::ITRF2020),
+            SpacecraftBodyFrame::new("BAD".to_owned(), ReferenceFrame::ITRF2020),
             Err(SpacecraftError::BodyFrameNotSpacecraftOwned)
         );
         assert_eq!(
             SpacecraftBodyFrame::new(
-                "BAD",
+                "BAD".to_owned(),
                 ReferenceFrame::new(
                     FrameOrigin::Custom(CustomFrameId::new(1)),
                     FrameOrientation::custom(CustomFrameId::new(2), FrameMotion::NonInertial,),
@@ -1005,7 +1015,11 @@ mod tests {
         let body = body_frame(1);
         let owned_body = owned_body_frame("SC-001", 1);
         assert_eq!(
-            Orientation::try_from((body, ReferenceFrame::GCRF, [Ratio::new::<ratio>(0.0); 4],)),
+            Orientation::try_from(OrientationQuaternion {
+                source_frame: body,
+                target_frame: ReferenceFrame::GCRF,
+                components: [Ratio::new::<ratio>(0.0); 4],
+            }),
             Err(OrientationError::ZeroNorm)
         );
         assert_eq!(

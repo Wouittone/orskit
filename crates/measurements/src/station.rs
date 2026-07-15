@@ -28,7 +28,7 @@ use crate::ParticipantId;
 ///         Position::from_metres(4_201_000.0, 172_000.0, 4_780_000.0),
 ///     )?;
 /// let station = GroundStation::new(
-///     ParticipantId::new("TLS-01")?,
+///     ParticipantId::try_from("TLS-01".to_owned())?,
 ///     frame,
 /// );
 /// assert_eq!(station.parent_frame(), ReferenceFrame::ITRF2020);
@@ -83,7 +83,7 @@ mod tests {
     use frames::{Body, FrameCatalog, FrameNamespace, FrameOrigin};
 
     fn id(value: &str) -> ParticipantId {
-        ParticipantId::new(value).expect("valid test participant")
+        value.parse().expect("valid test participant")
     }
 
     #[test]

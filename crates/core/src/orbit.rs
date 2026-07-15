@@ -8,7 +8,7 @@ use hifitime::Epoch;
 /// State implementations live in dedicated crates or in applications. The
 /// contract deliberately says nothing about coordinates, force models, or
 /// conversion algorithms: those are selected through composition.
-pub trait SpacecraftState: fmt::Debug + Clone + Send + Sync {
+pub trait SpacecraftState: fmt::Debug + Send + Sync {
     /// Returns the frame in which this state representation is expressed.
     fn frame(&self) -> ReferenceFrame;
 }

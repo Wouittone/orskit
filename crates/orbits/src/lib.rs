@@ -17,7 +17,9 @@ pub mod cartesian {
     pub use crate::kinematics::{
         CartesianCoordinates, FramedAcceleration, FramedPosition, FramedVelocity, KinematicError,
     };
-    pub use crate::state::{CartesianState, CoordinateSample, StateError};
+    pub use crate::state::{
+        CartesianState, CartesianStateWithGravity, CoordinateSample, StateError,
+    };
 }
 
 /// Elliptic circular state representation.

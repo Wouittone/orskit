@@ -291,7 +291,7 @@ impl<K: CorrectionKind, Q: MeasurementQuantity> AdditiveCorrection<K, Q> {
 /// correction models for one observable family.
 pub trait MeasurementCorrection<M>: fmt::Debug + Send + Sync {
     /// Applies this correction while retaining the observation metadata.
-    fn apply(&self, measurement: &M) -> Result<M, CorrectionError>;
+    fn apply(&self, measurement: M) -> Result<M, CorrectionError>;
 }
 
 /// An epoch- and conditions-aware correction model for one observable type.
@@ -320,7 +320,7 @@ pub trait MeasurementCorrectionModel<M, C: ?Sized>: fmt::Debug + Send + Sync {
     /// allowing an ordered chain to hold heterogeneous model implementations.
     fn apply_model(
         &self,
-        measurement: &M,
+        measurement: M,
         timeline: &SignalEventTimeline,
         conditions: &C,
     ) -> Result<M, CorrectionModelError>;
@@ -332,7 +332,7 @@ pub type CorrectionModelError = Box<dyn StdError + Send + Sync + 'static>;
 impl<M, C: ?Sized, T: MeasurementCorrection<M>> MeasurementCorrectionModel<M, C> for T {
     fn apply_model(
         &self,
-        measurement: &M,
+        measurement: M,
         _timeline: &SignalEventTimeline,
         _conditions: &C,
     ) -> Result<M, CorrectionModelError> {
@@ -364,8 +364,8 @@ impl<M, C: ?Sized> CorrectionModelChain<M, C> {
     }
 
     /// Appends a model, preserving the declared application order.
-    pub fn push(&mut self, model: impl MeasurementCorrectionModel<M, C> + 'static) {
-        self.models.push(Box::new(model));
+    pub fn push(&mut self, model: Box<dyn MeasurementCorrectionModel<M, C>>) {
+        self.models.push(model);
     }
 
     /// Returns the number of models in the chain.
@@ -399,19 +399,17 @@ impl<M, C: ?Sized> CorrectionModelChain<M, C> {
     }
 }
 
-impl<M: Clone, C: ?Sized> CorrectionModelChain<M, C> {
+impl<M, C: ?Sized> CorrectionModelChain<M, C> {
     /// Applies every model in order using the solved event timeline and condition state.
     pub fn apply(
         &self,
-        measurement: &M,
+        measurement: M,
         timeline: &SignalEventTimeline,
         conditions: &C,
     ) -> Result<M, CorrectionModelError> {
-        self.models
-            .iter()
-            .try_fold(measurement.clone(), |value, model| {
-                model.apply_model(&value, timeline, conditions)
-            })
+        self.models.iter().try_fold(measurement, |value, model| {
+            model.apply_model(value, timeline, conditions)
+        })
     }
 }
 
@@ -431,8 +429,8 @@ impl<M> CorrectionChain<M> {
     }
 
     /// Appends one correction, preserving application order.
-    pub fn push(&mut self, correction: impl MeasurementCorrection<M> + 'static) {
-        self.corrections.push(Box::new(correction));
+    pub fn push(&mut self, correction: Box<dyn MeasurementCorrection<M>>) {
+        self.corrections.push(correction);
     }
 
     /// Returns the number of composed corrections.
@@ -448,14 +446,12 @@ impl<M> CorrectionChain<M> {
     }
 }
 
-impl<M: Clone> CorrectionChain<M> {
+impl<M> CorrectionChain<M> {
     /// Applies every correction in insertion order.
-    pub fn apply(&self, measurement: &M) -> Result<M, CorrectionError> {
+    pub fn apply(&self, measurement: M) -> Result<M, CorrectionError> {
         self.corrections
             .iter()
-            .try_fold(measurement.clone(), |value, correction| {
-                correction.apply(&value)
-            })
+            .try_fold(measurement, |value, correction| correction.apply(value))
     }
 }
 
@@ -465,9 +461,9 @@ macro_rules! scalar_correction {
         impl<K: CorrectionKind> MeasurementCorrection<$measurement>
             for AdditiveCorrection<K, $quantity>
         {
-            fn apply(&self, measurement: &$measurement) -> Result<$measurement, CorrectionError> {
+            fn apply(&self, measurement: $measurement) -> Result<$measurement, CorrectionError> {
                 let value = measurement.value().corrected(self.value)?;
-                measurement.with_value(value).map_err(Into::into)
+                measurement.into_value(value).map_err(Into::into)
             }
         }
     };
@@ -509,10 +505,10 @@ impl<K: CorrectionKind> MeasurementCorrection<AzimuthElevationMeasurement>
 {
     fn apply(
         &self,
-        measurement: &AzimuthElevationMeasurement,
+        measurement: AzimuthElevationMeasurement,
     ) -> Result<AzimuthElevationMeasurement, CorrectionError> {
         let values = (*measurement.values()).corrected(self.values)?;
-        measurement.with_values(values).map_err(Into::into)
+        measurement.into_values(values).map_err(Into::into)
     }
 }
 
@@ -553,8 +549,8 @@ mod tests {
     };
 
     fn path() -> SignalPath {
-        let station = ParticipantId::new("DSS-14").expect("station ID");
-        let spacecraft = ParticipantId::new("SC-01").expect("spacecraft ID");
+        let station = ParticipantId::try_from("DSS-14".to_owned()).expect("station ID");
+        let spacecraft = ParticipantId::try_from("SC-01".to_owned()).expect("spacecraft ID");
         SignalPath::new(vec![station, spacecraft]).expect("signal path")
     }
 
@@ -597,12 +593,18 @@ mod tests {
         )
         .expect("range");
         let mut corrections = CorrectionChain::new();
-        corrections.push(AdditiveCorrection::new(Troposphere, length(2.0, Some(4.0))));
+        corrections.push(Box::new(AdditiveCorrection::new(
+            Troposphere,
+            length(2.0, Some(4.0)),
+        )));
 
-        let corrected = corrections.apply(&range).expect("corrected range");
-        assert_eq!(corrected.path(), range.path());
-        assert_eq!(corrected.epoch(), range.epoch());
-        assert_eq!(corrected.frame(), range.frame());
+        let expected_path = range.path().clone();
+        let expected_epoch = range.epoch();
+        let expected_frame = range.frame();
+        let corrected = corrections.apply(range).expect("corrected range");
+        assert_eq!(corrected.path(), &expected_path);
+        assert_eq!(corrected.epoch(), expected_epoch);
+        assert_eq!(corrected.frame(), expected_frame);
         assert_eq!(corrected.value().value(), Length::new::<meter>(102.0));
         assert_eq!(
             corrected.value().standard_error(),
@@ -625,7 +627,7 @@ mod tests {
             Measured::new([Length::new::<meter>(2.0)], None).expect("correction"),
         );
 
-        let corrected = correction.apply(&range).expect("corrected range");
+        let corrected = correction.apply(range).expect("corrected range");
         assert_eq!(corrected.value().error(), None);
     }
 
@@ -695,7 +697,7 @@ mod tests {
             angles(0.1, 0.0, Some([[3.0, 0.0], [0.0, 3.0]])),
         );
 
-        let corrected = correction.apply(&measurement).expect("corrected angles");
+        let corrected = correction.apply(measurement).expect("corrected angles");
         let error = corrected.values().error().expect("known covariance");
         let lower = error
             .lower_triangular_matrix()
@@ -719,7 +721,7 @@ mod tests {
         let correction = AzimuthElevationCorrection::new(Instrument, angles(0.5, 0.0, None));
 
         assert_eq!(
-            correction.apply(&angle_measurement),
+            correction.apply(angle_measurement),
             Err(CorrectionError::InvalidMeasurement(
                 MeasurementError::AzimuthOutOfRange
             ))
@@ -745,7 +747,7 @@ mod tests {
 
         assert_eq!(
             correction
-                .apply(&range)
+                .apply(range)
                 .expect("corrected range")
                 .value()
                 .value(),
@@ -771,7 +773,7 @@ mod tests {
         impl MeasurementCorrectionModel<RangeMeasurement, Conditions> for Model {
             fn apply_model(
                 &self,
-                measurement: &RangeMeasurement,
+                measurement: RangeMeasurement,
                 timeline: &SignalEventTimeline,
                 conditions: &Conditions,
             ) -> Result<RangeMeasurement, CorrectionModelError> {
@@ -787,7 +789,7 @@ mod tests {
                     .corrected(correction)
                     .map_err(|error| Box::new(error) as CorrectionModelError)?;
                 measurement
-                    .with_value(value)
+                    .into_value(value)
                     .map_err(|error| Box::new(error) as CorrectionModelError)
             }
         }
@@ -807,13 +809,13 @@ mod tests {
             media_bias: Length::new::<meter>(3.0),
         };
         let mut models = CorrectionModelChain::new();
-        models.push(Model::Clock);
-        models.push(Model::Media);
+        models.push(Box::new(Model::Clock));
+        models.push(Box::new(Model::Media));
 
         let timeline = SignalEventTimeline::instantaneous(&range);
         assert_eq!(
             models
-                .apply(&range, &timeline, &conditions)
+                .apply(range, &timeline, &conditions)
                 .expect("modelled range")
                 .value()
                 .value(),
@@ -841,11 +843,11 @@ mod tests {
 
             fn apply_model(
                 &self,
-                measurement: &RangeMeasurement,
+                measurement: RangeMeasurement,
                 _timeline: &SignalEventTimeline,
                 _conditions: &(),
             ) -> Result<RangeMeasurement, CorrectionModelError> {
-                Ok(measurement.clone())
+                Ok(measurement)
             }
         }
 
@@ -861,7 +863,7 @@ mod tests {
         let delay =
             SignalPropagationGradient::new(Time::new::<second>(2.5) / Length::new::<meter>(1.0));
         let mut models = CorrectionModelChain::new();
-        models.push(PropagationDelay(delay));
+        models.push(Box::new(PropagationDelay(delay)));
 
         let state = SignalPropagationState::new(
             actual_epoch,
