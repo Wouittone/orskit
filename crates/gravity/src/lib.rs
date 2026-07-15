@@ -68,8 +68,7 @@ mod tests {
     fn point_mass_retains_the_explicit_selection() {
         let provider = PointMass::new(
             FrameOrigin::Body(Body::EARTH),
-            GravitationalParameter::from_cubic_metres_per_second_squared(42.0)
-                .expect("positive parameter"),
+            GravitationalParameter::try_from(42.0).expect("positive parameter"),
         );
         assert_eq!(provider.origin(), FrameOrigin::Body(Body::EARTH));
         assert_eq!(

@@ -134,8 +134,7 @@ mod tests {
             FrameOrigin::Body(Body::EARTH)
         }
         fn parameter(&self) -> GravitationalParameter {
-            GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)
-                .expect("positive parameter")
+            GravitationalParameter::try_from(3.986_004_418e14).expect("positive parameter")
         }
     }
 

@@ -328,7 +328,7 @@ where
     ) -> Result<Orbit<CartesianState>, Self::Error> {
         let epoch = initial.epoch();
         let duration = target - epoch;
-        let state = self.advance_cartesian(initial.into_state(), problem, duration)?;
+        let state = self.advance_cartesian(initial.state(), problem, duration)?;
         Ok(Orbit::new(target, state))
     }
 }
@@ -630,12 +630,12 @@ mod tests {
     }
 
     fn earth_mu() -> GravitationalParameter {
-        GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)
+        GravitationalParameter::try_from(3.986_004_418e14)
             .expect("Earth gravitational parameter is positive")
     }
 
     fn lox_earth_mu() -> GravitationalParameter {
-        GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_355_070_227e14)
+        GravitationalParameter::try_from(3.986_004_355_070_227e14)
             .expect("Lox Earth gravitational parameter is positive")
     }
 
@@ -746,46 +746,37 @@ mod tests {
             target: Epoch,
         ) -> Result<Orbit<SpacecraftState>, EllipticKeplerError> {
             let epoch = initial.epoch();
-            match initial.into_state() {
-                SpacecraftState::Cartesian(state) => {
-                    <Self as Propagator<TwoBodyDynamics, CartesianState>>::propagate(
-                        self,
-                        Orbit::new(epoch, state),
-                        problem,
-                        target,
-                    )
-                    .map(|orbit| {
-                        Orbit::new(
-                            orbit.epoch(),
-                            SpacecraftState::Cartesian(orbit.into_state()),
-                        )
-                    })
-                }
-                SpacecraftState::Keplerian(state) => {
-                    <Self as Propagator<TwoBodyDynamics, KeplerianState>>::propagate(
-                        self,
-                        Orbit::new(epoch, state),
-                        problem,
-                        target,
-                    )
-                    .map(|orbit| {
-                        Orbit::new(
-                            orbit.epoch(),
-                            SpacecraftState::Keplerian(orbit.into_state()),
-                        )
-                    })
-                }
-                SpacecraftState::Circular(state) => {
-                    <Self as Propagator<TwoBodyDynamics, CircularState>>::propagate(
-                        self,
-                        Orbit::new(epoch, state),
-                        problem,
-                        target,
-                    )
-                    .map(|orbit| {
-                        Orbit::new(orbit.epoch(), SpacecraftState::Circular(orbit.into_state()))
-                    })
-                }
+            match initial.state() {
+                SpacecraftState::Cartesian(state) => <Self as Propagator<
+                    TwoBodyDynamics,
+                    CartesianState,
+                >>::propagate(
+                    self,
+                    Orbit::new(epoch, state),
+                    problem,
+                    target,
+                )
+                .map(|orbit| Orbit::new(orbit.epoch(), SpacecraftState::Cartesian(orbit.state()))),
+                SpacecraftState::Keplerian(state) => <Self as Propagator<
+                    TwoBodyDynamics,
+                    KeplerianState,
+                >>::propagate(
+                    self,
+                    Orbit::new(epoch, state),
+                    problem,
+                    target,
+                )
+                .map(|orbit| Orbit::new(orbit.epoch(), SpacecraftState::Keplerian(orbit.state()))),
+                SpacecraftState::Circular(state) => <Self as Propagator<
+                    TwoBodyDynamics,
+                    CircularState,
+                >>::propagate(
+                    self,
+                    Orbit::new(epoch, state),
+                    problem,
+                    target,
+                )
+                .map(|orbit| Orbit::new(orbit.epoch(), SpacecraftState::Circular(orbit.state()))),
                 SpacecraftState::Equinoctial(state) => {
                     <Self as Propagator<TwoBodyDynamics, EquinoctialState>>::propagate(
                         self,
@@ -794,10 +785,7 @@ mod tests {
                         target,
                     )
                     .map(|orbit| {
-                        Orbit::new(
-                            orbit.epoch(),
-                            SpacecraftState::Equinoctial(orbit.into_state()),
-                        )
+                        Orbit::new(orbit.epoch(), SpacecraftState::Equinoctial(orbit.state()))
                     })
                 }
             }

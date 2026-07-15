@@ -42,12 +42,6 @@ impl<S: SpacecraftState> Orbit<S> {
         self.state.clone()
     }
 
-    /// Consumes this orbit and returns the native state representation.
-    #[must_use]
-    pub fn into_state(self) -> S {
-        self.state
-    }
-
     /// Maps this orbit into another state representation while preserving its
     /// epoch.
     ///

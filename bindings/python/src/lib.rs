@@ -69,14 +69,16 @@ impl SpacecraftStateWrapper {
             FrameOrigin::Custom(body_id),
             FrameOrientation::custom(body_id, FrameMotion::NonInertial),
         );
-        let orientation = Orientation::from_quaternion(
+        let orientation = Orientation::try_from((
             body_frame,
             frame,
-            Ratio::new::<ratio>(orientation_wxyz.0),
-            Ratio::new::<ratio>(orientation_wxyz.1),
-            Ratio::new::<ratio>(orientation_wxyz.2),
-            Ratio::new::<ratio>(orientation_wxyz.3),
-        )
+            [
+                Ratio::new::<ratio>(orientation_wxyz.0),
+                Ratio::new::<ratio>(orientation_wxyz.1),
+                Ratio::new::<ratio>(orientation_wxyz.2),
+                Ratio::new::<ratio>(orientation_wxyz.3),
+            ],
+        ))
         .map_err(|error| PyValueError::new_err(error.to_string()))?;
         let attitude = AttitudeState::new(
             orientation,

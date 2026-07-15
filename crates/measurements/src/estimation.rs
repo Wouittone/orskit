@@ -12,7 +12,7 @@
 use std::num::NonZeroUsize;
 use std::{collections::BTreeMap, error::Error as StdError, fmt};
 
-use frames::{FrameKinematics, KinematicFrameTransformProvider, ReferenceFrame};
+use frames::{KinematicFrameTransformProvider, ReferenceFrame};
 #[cfg(feature = "light-time")]
 use hifitime::Duration;
 use hifitime::Epoch;
@@ -134,82 +134,13 @@ use crate::{MeasurementValueError, SignalPath};
 use crate::{RangeConvention, RangeMeasurement};
 
 /// Position and velocity of a participant in one explicitly declared frame.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ParticipantKinematics {
-    position: Position,
-    velocity: VelocityVector,
-    frame: ReferenceFrame,
-}
-
-impl ParticipantKinematics {
-    /// Creates finite participant kinematics in `frame`.
-    pub fn new(
-        position: Position,
-        velocity: VelocityVector,
-        frame: ReferenceFrame,
-    ) -> Result<Self, ParticipantKinematicsError> {
-        if !position.is_finite() {
-            return Err(ParticipantKinematicsError::NonFinitePosition);
-        }
-        if !velocity.is_finite() {
-            return Err(ParticipantKinematicsError::NonFiniteVelocity);
-        }
-        Ok(Self {
-            position,
-            velocity,
-            frame,
-        })
-    }
-
-    /// Returns the frame-qualified position.
-    #[must_use]
-    pub const fn position(self) -> Position {
-        self.position
-    }
-
-    /// Returns the frame-qualified velocity.
-    #[must_use]
-    pub const fn velocity(self) -> VelocityVector {
-        self.velocity
-    }
-
-    /// Returns the common expression frame.
-    #[must_use]
-    pub const fn frame(self) -> ReferenceFrame {
-        self.frame
-    }
-
-    /// Converts this value to the frame crate's transform-boundary type.
-    #[must_use]
-    pub fn into_frame_kinematics(self) -> FrameKinematics {
-        // Both components were validated when this value was constructed.
-        FrameKinematics::new(self.position, self.velocity, self.frame)
-            .expect("validated participant kinematics remain finite")
-    }
-
-    /// Converts validated frame-transform output into participant kinematics.
-    pub fn from_frame_kinematics(
-        kinematics: FrameKinematics,
-    ) -> Result<Self, ParticipantKinematicsError> {
-        Self::new(
-            kinematics.position(),
-            kinematics.velocity(),
-            kinematics.frame(),
-        )
-    }
-}
-
-/// Invalid participant kinematics.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-#[non_exhaustive]
-pub enum ParticipantKinematicsError {
-    /// A position component is NaN or infinite.
-    #[error("participant position components must be finite")]
-    NonFinitePosition,
-    /// A velocity component is NaN or infinite.
-    #[error("participant velocity components must be finite")]
-    NonFiniteVelocity,
-}
+///
+/// Participant state and frame-transform kinematics are the same value. This
+/// alias keeps the measurements vocabulary without introducing a duplicate
+/// conversion boundary.
+pub use frames::FrameKinematics as ParticipantKinematics;
+/// Invalid [`ParticipantKinematics`] input.
+pub use frames::FrameKinematicsError as ParticipantKinematicsError;
 
 /// Resolves ground-station and spacecraft identities to state at an epoch.
 ///
@@ -314,7 +245,7 @@ impl<P: ParticipantStateProvider, T: KinematicFrameTransformProvider> Participan
         }
         let transformed = self
             .transforms
-            .transform(epoch, source.into_frame_kinematics(), frame)
+            .transform(epoch, source, frame)
             .map_err(TransformingParticipantStateProviderError::Transform)?;
         if transformed.frame() != frame {
             return Err(
@@ -325,9 +256,7 @@ impl<P: ParticipantStateProvider, T: KinematicFrameTransformProvider> Participan
                 },
             );
         }
-        ParticipantKinematics::from_frame_kinematics(transformed)
-            .map(Some)
-            .map_err(TransformingParticipantStateProviderError::InvalidOutput)
+        Ok(Some(transformed))
     }
 }
 
@@ -361,9 +290,6 @@ pub enum TransformingParticipantStateProviderError<P: StdError + 'static, T: Std
         /// Frame attached to the transformed kinematics.
         actual: Box<ReferenceFrame>,
     },
-    /// The transform output was not finite.
-    #[error("kinematic frame transform returned invalid output")]
-    InvalidOutput(#[source] ParticipantKinematicsError),
 }
 
 /// Fixed station states resolved from one or more [`GroundStation`] values.
@@ -417,11 +343,14 @@ impl ParticipantStateProvider for GroundStationProvider {
                 actual: Box::new(frame),
             });
         }
-        Ok(Some(ParticipantKinematics {
-            position: station.position_in_parent(),
-            velocity: VelocityVector::from_metres_per_second(0.0, 0.0, 0.0),
-            frame,
-        }))
+        Ok(Some(
+            ParticipantKinematics::new(
+                station.position_in_parent(),
+                VelocityVector::from_metres_per_second(0.0, 0.0, 0.0),
+                frame,
+            )
+            .expect("a validated station frame has finite origin coordinates"),
+        ))
     }
 }
 
@@ -912,12 +841,6 @@ impl<M> MeasurementPrediction<M> {
     #[must_use]
     pub const fn measurement(&self) -> &M {
         &self.measurement
-    }
-
-    /// Returns the predicted, value-corrected measurement and discards its event timeline.
-    #[must_use]
-    pub fn into_measurement(self) -> M {
-        self.measurement
     }
 }
 

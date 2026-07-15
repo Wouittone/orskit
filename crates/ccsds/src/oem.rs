@@ -678,12 +678,6 @@ impl OemSample {
     pub const fn coordinate_sample(&self) -> &CoordinateSample<CartesianCoordinates> {
         &self.sample
     }
-
-    /// Consumes this provenance wrapper and returns the coordinate sample.
-    #[must_use]
-    pub fn into_coordinate_sample(self) -> CoordinateSample<CartesianCoordinates> {
-        self.sample
-    }
 }
 
 /// Borrowed record from a collected OEM segment, in original source order.

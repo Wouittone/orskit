@@ -64,14 +64,16 @@ pub extern "C" fn spacecraft_state_new(
         FrameOrigin::Custom(body_id),
         FrameOrientation::custom(body_id, FrameMotion::NonInertial),
     );
-    let Ok(orientation) = Orientation::from_quaternion(
+    let Ok(orientation) = Orientation::try_from((
         body_frame,
         frame,
-        Ratio::new::<ratio>(orientation_w),
-        Ratio::new::<ratio>(orientation_x),
-        Ratio::new::<ratio>(orientation_y),
-        Ratio::new::<ratio>(orientation_z),
-    ) else {
+        [
+            Ratio::new::<ratio>(orientation_w),
+            Ratio::new::<ratio>(orientation_x),
+            Ratio::new::<ratio>(orientation_y),
+            Ratio::new::<ratio>(orientation_z),
+        ],
+    )) else {
         return ptr::null_mut();
     };
     let Ok(angular_velocity) = FramedAngularVelocity::new(

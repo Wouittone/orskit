@@ -42,12 +42,6 @@ impl<C> CoordinateSample<C> {
     pub const fn coordinates(&self) -> &C {
         &self.coordinates
     }
-
-    /// Consumes the sample and returns its coordinates.
-    #[must_use]
-    pub fn into_coordinates(self) -> C {
-        self.coordinates
-    }
 }
 
 /// Cartesian orbital state `(x, y, z, vx, vy, vz)` in one reference frame.
@@ -1010,7 +1004,7 @@ mod tests {
     use units::GravitationalParameter;
 
     fn earth_mu() -> GravitationalParameter {
-        GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)
+        GravitationalParameter::try_from(3.986_004_418e14)
             .expect("Earth gravitational parameter is positive")
     }
 

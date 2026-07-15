@@ -26,7 +26,7 @@ fn main() {
     let initial = initial_orbit();
     let gravity: SharedCentralGravity = Arc::new(PointMass::new(
         FrameOrigin::Body(Body::EARTH),
-        GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)
+        GravitationalParameter::try_from(3.986_004_418e14)
             .expect("positive gravitational parameter"),
     ));
     let problem = TwoBodyDynamics::new(PointMassGravityModel::new(gravity));

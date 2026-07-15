@@ -73,7 +73,7 @@ where
         target: Epoch,
     ) -> Result<Orbit<State>, Self::Error> {
         let epoch = initial.epoch();
-        let state = initial.into_state();
+        let state = initial.state();
         let resolved = state.clone().resolve(problem).map_err(Self::Error::from)?;
 
         if target == epoch {
@@ -81,7 +81,7 @@ where
         }
 
         let propagated = self.propagate_resolved(Orbit::new(epoch, resolved), problem, target)?;
-        let state = State::restore(propagated.into_state(), problem).map_err(Self::Error::from)?;
+        let state = State::restore(propagated.state(), problem).map_err(Self::Error::from)?;
         Ok(Orbit::new(target, state))
     }
 }
@@ -147,7 +147,7 @@ mod tests {
         ) -> Result<Orbit<ResolvedState>, Self::Error> {
             Ok(Orbit::new(
                 target,
-                ResolvedState(initial.into_state().0 + problem.propagation_offset),
+                ResolvedState(initial.state().0 + problem.propagation_offset),
             ))
         }
     }
