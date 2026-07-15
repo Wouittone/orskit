@@ -10,6 +10,7 @@
 //! multi-value observations), or explicitly unknown error.
 
 pub mod correction;
+pub mod estimation;
 #[cfg(any(
     feature = "angular-ra-dec",
     feature = "bistatic-range",
@@ -37,7 +38,24 @@ pub use correction::Relativity;
 #[cfg(feature = "troposphere-correction")]
 pub use correction::Troposphere;
 pub use correction::{
-    AdditiveCorrection, CorrectionChain, CorrectionError, CorrectionKind, MeasurementCorrection,
+    AdditiveCorrection, CorrectionChain, CorrectionError, CorrectionKind, CorrectionModelChain,
+    CorrectionModelError, MeasurementCorrection, MeasurementCorrectionModel, SignalEventTimeline,
+    SignalEventTimelineError, SignalPropagationGradient, SignalPropagationSlowness,
+    SignalPropagationState, SignalPropagationStateError,
+};
+#[cfg(any(
+    feature = "geometric-doppler",
+    feature = "geometric-fdoa",
+    feature = "geometric-phase"
+))]
+pub use estimation::CarrierGeometricEstimator;
+pub use estimation::{
+    CompositeParticipantStateProvider, CompositeParticipantStateProviderError,
+    GeometricEstimationError, GeometricEstimator, GroundStationProvider,
+    GroundStationProviderError, MeasurementEstimator, MeasurementModelEstimationError,
+    MeasurementPrediction, ObservationEpochStage, ParticipantKinematics,
+    ParticipantKinematicsError, ParticipantStateProvider, SignalPropagationError,
+    SignalPropagationSolver,
 };
 #[cfg(any(
     feature = "angular-ra-dec",

@@ -100,7 +100,26 @@ missing abstraction or an incorrectly placed type.
   only application-selected implementations. Ground-observation data types
   include azimuth/elevation, right ascension/declination, range/range-rate,
   Doppler, bistatic and turn-around range, TDOA, FDOA, and carrier phase;
-  physical prediction and estimation remain separate contracts.
+  `MeasurementEstimator<M>` composes predictions for one concrete measurement
+  type with a caller-selected `ParticipantStateProvider`; fixed
+  `GroundStationProvider` values and generic composite providers link one or
+  many stations with application-owned spacecraft ephemerides. The optional,
+  per-observable instantaneous-geometric implementations retain the requested
+  epoch and frame, require the provider to make frame resolution explicit, and
+  mark predicted uncertainty unknown. A single `CorrectionModelChain<M, C>`
+  has an optional local, frame-qualified spacetime propagation-gradient field
+  and value-domain effects. `SignalPropagationSolver<M, C>` evaluates and
+  integrates the correction field over each signal leg to derive a
+  `SignalEventTimeline` while preserving the measurement's reported epoch;
+  corrections never set epochs directly. This makes
+  physical media or relativistic propagation delay correction behavior rather
+  than clock bias or a second model family. The default instantaneous estimator
+  uses the reported epoch; a multi-leg light-time estimator may use every event
+  epoch. Value-domain corrections must preserve the reported epoch.
+  Force models remain within the state provider and its propagator rather than
+  creating a measurements-to-dynamics dependency. Concrete light-time solvers,
+  transforms, displacement, weather, and physical correction models remain
+  separate feature-gated implementations.
   `GroundStation` owns a parent-relative fixed frame; geodetic conversion,
   displacement, topocentric-frame construction,
   clocks, weather inputs, light-time solving, and physical correction-model

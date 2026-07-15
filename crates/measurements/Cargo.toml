@@ -29,6 +29,17 @@ default = [
     "ionosphere-correction",
     "relativity-correction",
     "instrument-correction",
+    "geometric-range",
+    "geometric-range-rate",
+    "geometric-azimuth-elevation",
+    "geometric-doppler",
+    "geometric-angular-ra-dec",
+    "geometric-bistatic-range",
+    "geometric-bistatic-range-rate",
+    "geometric-turnaround-range",
+    "geometric-tdoa",
+    "geometric-fdoa",
+    "geometric-phase",
 ]
 # Built-in observable families.  Disable default features and select only the
 # implementations an application uses; the composition traits remain available.
@@ -49,6 +60,21 @@ troposphere-correction = []
 ionosphere-correction = []
 relativity-correction = []
 instrument-correction = []
+# The implementation-neutral estimation contracts are always available. These
+# feature-gated instantaneous geometric implementations can be selected per
+# observable family.
+estimation = []
+geometric-range = ["estimation", "range"]
+geometric-range-rate = ["estimation", "range-rate"]
+geometric-azimuth-elevation = ["estimation", "azimuth-elevation"]
+geometric-doppler = ["estimation", "doppler", "dep:utils"]
+geometric-angular-ra-dec = ["estimation", "angular-ra-dec"]
+geometric-bistatic-range = ["estimation", "bistatic-range"]
+geometric-bistatic-range-rate = ["estimation", "bistatic-range-rate"]
+geometric-turnaround-range = ["estimation", "turnaround-range"]
+geometric-tdoa = ["estimation", "tdoa", "dep:utils"]
+geometric-fdoa = ["estimation", "fdoa", "dep:utils"]
+geometric-phase = ["estimation", "phase", "dep:utils"]
 
 [dependencies]
 hifitime.workspace = true
@@ -56,3 +82,4 @@ nalgebra.workspace = true
 frames = { path = "../frames" }
 units = { path = "../units" }
 thiserror.workspace = true
+utils = { path = "../utils", optional = true }

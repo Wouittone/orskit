@@ -10,7 +10,16 @@ use thiserror::Error;
 use frames::ReferenceFrame;
 use hifitime::Epoch;
 
-use crate::{Measurement, MeasurementError, MeasurementKind, ParticipantId, SignalPath};
+#[cfg(any(
+    feature = "bistatic-range",
+    feature = "bistatic-range-rate",
+    feature = "turnaround-range",
+    feature = "tdoa",
+    feature = "fdoa",
+    feature = "phase"
+))]
+use crate::ParticipantId;
+use crate::{Measurement, MeasurementError, MeasurementKind, SignalPath};
 
 #[cfg(feature = "angular-ra-dec")]
 use units::uom::si::angle::radian;

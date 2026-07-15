@@ -35,6 +35,18 @@ measurement-troposphere-correction = ["measurements", "measurements/troposphere-
 measurement-ionosphere-correction = ["measurements", "measurements/ionosphere-correction"]
 measurement-relativity-correction = ["measurements", "measurements/relativity-correction"]
 measurement-instrument-correction = ["measurements", "measurements/instrument-correction"]
+measurement-estimation = ["measurements", "measurements/estimation"]
+measurement-geometric-range = ["measurement-estimation", "measurements/geometric-range"]
+measurement-geometric-range-rate = ["measurement-estimation", "measurements/geometric-range-rate"]
+measurement-geometric-azimuth-elevation = ["measurement-estimation", "measurements/geometric-azimuth-elevation"]
+measurement-geometric-doppler = ["measurement-estimation", "measurements/geometric-doppler"]
+measurement-geometric-angular-ra-dec = ["measurement-estimation", "measurements/geometric-angular-ra-dec"]
+measurement-geometric-bistatic-range = ["measurement-estimation", "measurements/geometric-bistatic-range"]
+measurement-geometric-bistatic-range-rate = ["measurement-estimation", "measurements/geometric-bistatic-range-rate"]
+measurement-geometric-turnaround-range = ["measurement-estimation", "measurements/geometric-turnaround-range"]
+measurement-geometric-tdoa = ["measurement-estimation", "measurements/geometric-tdoa"]
+measurement-geometric-fdoa = ["measurement-estimation", "measurements/geometric-fdoa"]
+measurement-geometric-phase = ["measurement-estimation", "measurements/geometric-phase"]
 
 [dependencies]
 bodies = { path = "../bodies", optional = true }

@@ -42,6 +42,11 @@ pub mod prelude {
     pub use crate::gravity::PointMass;
     #[cfg(feature = "measurement-range")]
     pub use crate::measurements::RangeMeasurement;
+    #[cfg(feature = "measurement-estimation")]
+    pub use crate::measurements::{
+        CorrectionModelChain, MeasurementEstimator, ParticipantStateProvider,
+        SignalPropagationSolver,
+    };
     #[cfg(feature = "measurements")]
     pub use crate::measurements::{Measurement, ParticipantId, SignalPath};
     #[cfg(feature = "cartesian")]
