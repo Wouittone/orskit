@@ -44,6 +44,10 @@ boundaries matter more than preserving the current scaffold.
   minimum needed to preserve compilation; do not add binding features.
 - Do not trade correctness for speed without a measured error budget. Do not
   claim a performance improvement without a reproducible benchmark.
+- Keep one small, high-level public domain API. Implement vector/matrix kernels
+  behind it, do not expose them as a parallel user-facing API, and do not add
+  convenience methods that duplicate a standard trait contract or hide a clone
+  or allocation.
 - Do not introduce hidden network access, mutable process-global scientific
   data, or silently downloaded ephemeris/Earth-orientation data.
 - Prefer focused dependencies. Every dependency must have a compatible license,
@@ -61,6 +65,9 @@ boundaries matter more than preserving the current scaffold.
   singularities, and numerical tolerances near the implementation.
 - Keep public APIs Rust-native. Similar capability to Orekit does not require a
   class-for-class Java API clone.
+- Prefer standard traits for conversions and borrowed access. A public method
+  must earn its place by expressing domain behavior that a trait, constructor,
+  or existing capability cannot express.
 
 ## Definition of done
 

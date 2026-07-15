@@ -25,22 +25,27 @@ pub struct Orientation {
     to_frame: ReferenceFrame,
 }
 
-impl Orientation {
-    /// Constructs an orientation from scalar/i/j/k quaternion components.
-    pub fn from_quaternion(
-        from_frame: ReferenceFrame,
-        to_frame: ReferenceFrame,
-        scalar: Ratio,
-        i: Ratio,
-        j: Ratio,
-        k: Ratio,
-    ) -> Result<Self, OrientationError> {
-        let values = [
-            scalar.get::<ratio>(),
-            i.get::<ratio>(),
-            j.get::<ratio>(),
-            k.get::<ratio>(),
-        ];
+/// Explicit frames and scalar/i/j/k quaternion components for an [`Orientation`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrientationQuaternion {
+    /// Frame whose components the rotation consumes.
+    pub source_frame: ReferenceFrame,
+    /// Frame whose components the rotation produces.
+    pub target_frame: ReferenceFrame,
+    /// Normalized scalar/i/j/k quaternion components.
+    pub components: [Ratio; 4],
+}
+
+impl TryFrom<OrientationQuaternion> for Orientation {
+    type Error = OrientationError;
+
+    fn try_from(source: OrientationQuaternion) -> Result<Self, Self::Error> {
+        let OrientationQuaternion {
+            source_frame,
+            target_frame,
+            components,
+        } = source;
+        let values = components.map(|component| component.get::<ratio>());
         if !values.into_iter().all(f64::is_finite) {
             return Err(OrientationError::NonFinite);
         }
@@ -52,11 +57,13 @@ impl Orientation {
 
         Ok(Self {
             rotation: UnitQuaternion::new_normalize(quaternion),
-            from_frame,
-            to_frame,
+            from_frame: source_frame,
+            to_frame: target_frame,
         })
     }
+}
 
+impl Orientation {
     /// Identity rotation between two explicitly identified frames.
     #[must_use]
     pub fn identity(from_frame: ReferenceFrame, to_frame: ReferenceFrame) -> Self {
@@ -69,13 +76,13 @@ impl Orientation {
 
     /// Returns the frame whose components this rotation consumes.
     #[must_use]
-    pub const fn from_frame(&self) -> ReferenceFrame {
+    pub const fn source_frame(&self) -> ReferenceFrame {
         self.from_frame
     }
 
     /// Returns the frame whose components this rotation produces.
     #[must_use]
-    pub const fn to_frame(&self) -> ReferenceFrame {
+    pub const fn target_frame(&self) -> ReferenceFrame {
         self.to_frame
     }
 
@@ -202,10 +209,10 @@ impl QuaternionAttitude {
         orientation: Orientation,
         angular_velocity: BodyAngularVelocity,
     ) -> Result<Self, AttitudeError> {
-        if orientation.from_frame() != angular_velocity.body_frame() {
+        if orientation.source_frame() != angular_velocity.body_frame() {
             return Err(AttitudeError::AngularVelocityBodyFrameMismatch);
         }
-        if orientation.to_frame() != angular_velocity.relative_to() {
+        if orientation.target_frame() != angular_velocity.relative_to() {
             return Err(AttitudeError::AngularVelocityReferenceFrameMismatch);
         }
         Ok(Self {
@@ -379,10 +386,9 @@ pub struct SpacecraftBodyFrame {
 impl SpacecraftBodyFrame {
     /// Binds application-defined body axes to one non-empty spacecraft ID.
     pub fn new(
-        spacecraft_id: impl Into<String>,
+        spacecraft_id: String,
         reference_frame: ReferenceFrame,
     ) -> Result<Self, SpacecraftError> {
-        let spacecraft_id = spacecraft_id.into();
         if spacecraft_id.trim().is_empty() {
             return Err(SpacecraftError::EmptyId);
         }
@@ -580,14 +586,14 @@ where
             return Err(SpacecraftViewError::NotPositiveMass);
         }
         if attitude.angular_velocity().body_frame_capability() != spacecraft.body_frame_capability()
-            || attitude.orientation().from_frame() != spacecraft.body_frame()
+            || attitude.orientation().source_frame() != spacecraft.body_frame()
         {
             return Err(SpacecraftViewError::AttitudeBodyFrameMismatch);
         }
         if inertia.frame_capability() != spacecraft.body_frame_capability() {
             return Err(SpacecraftViewError::InertiaFrameMismatch);
         }
-        if attitude.orientation().to_frame() != orbit.state().frame() {
+        if attitude.orientation().target_frame() != orbit.as_ref().frame() {
             return Err(SpacecraftViewError::AttitudeReferenceFrameMismatch);
         }
         Ok(Self {
@@ -611,22 +617,16 @@ where
         self.orbit.epoch()
     }
 
-    /// Returns the epoch-qualified orbit in this complete view.
+    /// Borrows the epoch-qualified orbit in this complete view.
     #[must_use]
-    pub fn orbit(&self) -> Orbit<S> {
-        self.orbit.clone()
+    pub const fn orbit(&self) -> &Orbit<S> {
+        &self.orbit
     }
 
     /// Returns spacecraft mass at the view epoch.
     #[must_use]
     pub const fn mass(&self) -> Mass {
         self.mass
-    }
-
-    /// Returns the orbital state at the view epoch.
-    #[must_use]
-    pub fn state(&self) -> S {
-        self.orbit.state()
     }
 
     /// Returns the inertia tensor at the view epoch.
@@ -747,7 +747,7 @@ mod tests {
     }
 
     fn owned_body_frame(spacecraft_id: &str, id: u64) -> SpacecraftBodyFrame {
-        SpacecraftBodyFrame::new(spacecraft_id, body_frame(id))
+        SpacecraftBodyFrame::new(spacecraft_id.to_owned(), body_frame(id))
             .expect("spacecraft-owned body frame")
     }
 
@@ -808,7 +808,7 @@ mod tests {
         };
         assert_eq!(sphere.radius(), Length::new::<meter>(1.5));
         assert_eq!(
-            SpacecraftBodyFrame::new("  ", body),
+            SpacecraftBodyFrame::new("  ".to_owned(), body),
             Err(SpacecraftError::EmptyId)
         );
         assert_eq!(
@@ -844,12 +844,12 @@ mod tests {
         assert_eq!(view.epoch(), Epoch::from_tai_seconds(42.0));
         assert_eq!(
             view.orbit(),
-            Orbit::new(Epoch::from_tai_seconds(42.0), state())
+            &Orbit::new(Epoch::from_tai_seconds(42.0), state())
         );
         assert_eq!(view.mass(), Mass::new::<kilogram>(500.0));
-        assert_eq!(view.state().frame(), ReferenceFrame::GCRF);
+        assert_eq!(view.orbit().as_ref().frame(), ReferenceFrame::GCRF);
         assert_eq!(view.inertia().frame(), body);
-        assert_eq!(view.attitude().orientation().from_frame(), body);
+        assert_eq!(view.attitude().orientation().source_frame(), body);
     }
 
     #[test]
@@ -885,7 +885,7 @@ mod tests {
 
         assert_eq!(view.spacecraft().shape(), &PanelMesh);
         assert_eq!(
-            view.attitude().orientation().from_frame(),
+            view.attitude().orientation().source_frame(),
             owned_body.reference_frame()
         );
     }
@@ -897,15 +897,15 @@ mod tests {
         let other_owned_body = owned_body_frame("SC-002", 2);
         let spacecraft = Spacecraft::new(owned_body.clone(), SpacecraftShape::Point);
         let valid_attitude = attitude(&owned_body);
-        let same_axes_other_owner =
-            SpacecraftBodyFrame::new("SC-002", body).expect("same axes, different owner");
+        let same_axes_other_owner = SpacecraftBodyFrame::new("SC-002".to_owned(), body)
+            .expect("same axes, different owner");
         assert_eq!(
-            SpacecraftBodyFrame::new("BAD", ReferenceFrame::ITRF2020),
+            SpacecraftBodyFrame::new("BAD".to_owned(), ReferenceFrame::ITRF2020),
             Err(SpacecraftError::BodyFrameNotSpacecraftOwned)
         );
         assert_eq!(
             SpacecraftBodyFrame::new(
-                "BAD",
+                "BAD".to_owned(),
                 ReferenceFrame::new(
                     FrameOrigin::Custom(CustomFrameId::new(1)),
                     FrameOrientation::custom(CustomFrameId::new(2), FrameMotion::NonInertial,),
@@ -1015,14 +1015,11 @@ mod tests {
         let body = body_frame(1);
         let owned_body = owned_body_frame("SC-001", 1);
         assert_eq!(
-            Orientation::from_quaternion(
-                body,
-                ReferenceFrame::GCRF,
-                Ratio::new::<ratio>(0.0),
-                Ratio::new::<ratio>(0.0),
-                Ratio::new::<ratio>(0.0),
-                Ratio::new::<ratio>(0.0),
-            ),
+            Orientation::try_from(OrientationQuaternion {
+                source_frame: body,
+                target_frame: ReferenceFrame::GCRF,
+                components: [Ratio::new::<ratio>(0.0); 4],
+            }),
             Err(OrientationError::ZeroNorm)
         );
         assert_eq!(

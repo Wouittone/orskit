@@ -26,7 +26,7 @@ fn main() {
     let initial = initial_orbit();
     let gravity: SharedCentralGravity = Arc::new(PointMass::new(
         FrameOrigin::Body(Body::EARTH),
-        GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)
+        GravitationalParameter::try_from(3.986_004_418e14)
             .expect("positive gravitational parameter"),
     ));
     let problem = TwoBodyDynamics::new(PointMassGravityModel::new(gravity));
@@ -69,7 +69,7 @@ fn run_queries(
                 initial.epoch() + Duration::from_seconds(black_box(elapsed_seconds)),
             )
             .expect("benchmark query must remain in the supported elliptic regime");
-        let cartesian = state.state();
+        let cartesian = state.as_ref();
         let position = cartesian.position().to_metres();
         let velocity = cartesian.velocity().to_metres_per_second();
         checksum += position[0] * 1.0e-6 + position[2] * 2.0e-6 + velocity[1] * 1.0e-3;

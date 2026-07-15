@@ -8,7 +8,7 @@ use hifitime::Epoch;
 /// State implementations live in dedicated crates or in applications. The
 /// contract deliberately says nothing about coordinates, force models, or
 /// conversion algorithms: those are selected through composition.
-pub trait SpacecraftState: fmt::Debug + Clone + Send + Sync {
+pub trait SpacecraftState: fmt::Debug + Send + Sync {
     /// Returns the frame in which this state representation is expressed.
     fn frame(&self) -> ReferenceFrame;
 }
@@ -23,6 +23,33 @@ pub struct Orbit<S: SpacecraftState> {
     state: S,
 }
 
+/// Owned orbit components obtained by consuming an [`Orbit`].
+///
+/// This is the standard-conversion target for workflows that need to move the
+/// selected state representation without cloning it.
+#[derive(Debug, PartialEq)]
+pub struct OrbitParts<S: SpacecraftState> {
+    /// Epoch at which `state` is valid.
+    pub epoch: Epoch,
+    /// Native selected state representation.
+    pub state: S,
+}
+
+impl<S: SpacecraftState> From<Orbit<S>> for OrbitParts<S> {
+    fn from(orbit: Orbit<S>) -> Self {
+        Self {
+            epoch: orbit.epoch,
+            state: orbit.state,
+        }
+    }
+}
+
+impl<S: SpacecraftState> AsRef<S> for Orbit<S> {
+    fn as_ref(&self) -> &S {
+        &self.state
+    }
+}
+
 impl<S: SpacecraftState> Orbit<S> {
     /// Associates a state representation with its epoch.
     #[must_use]
@@ -34,18 +61,6 @@ impl<S: SpacecraftState> Orbit<S> {
     #[must_use]
     pub const fn epoch(&self) -> Epoch {
         self.epoch
-    }
-
-    /// Returns the native state representation.
-    #[must_use]
-    pub fn state(&self) -> S {
-        self.state.clone()
-    }
-
-    /// Consumes this orbit and returns the native state representation.
-    #[must_use]
-    pub fn into_state(self) -> S {
-        self.state
     }
 
     /// Maps this orbit into another state representation while preserving its
@@ -94,7 +109,7 @@ mod tests {
         let mapped = orbit.map_state(|state| TestState(state.frame()));
 
         assert_eq!(mapped.epoch(), epoch);
-        assert_eq!(mapped.state(), TestState(ReferenceFrame::GCRF));
+        assert_eq!(mapped.as_ref(), &TestState(ReferenceFrame::GCRF));
     }
 
     #[test]
@@ -107,7 +122,7 @@ mod tests {
             .expect("conversion succeeds");
 
         assert_eq!(mapped.epoch(), epoch);
-        assert_eq!(mapped.state(), TestState(ReferenceFrame::GCRF));
+        assert_eq!(mapped.as_ref(), &TestState(ReferenceFrame::GCRF));
     }
 
     #[test]

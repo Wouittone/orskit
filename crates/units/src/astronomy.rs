@@ -23,13 +23,17 @@ pub enum QuantityError {
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct GravitationalParameter(f64);
 
-impl GravitationalParameter {
-    /// Constructs a positive finite gravitational parameter from `m^3/s^2`.
-    pub fn from_cubic_metres_per_second_squared(value: f64) -> Result<Self, QuantityError> {
+impl TryFrom<f64> for GravitationalParameter {
+    type Error = QuantityError;
+
+    /// Interprets a positive finite SI value as `m^3/s^2`.
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
         validate_positive_finite(value, "gravitational parameter")?;
         Ok(Self(value))
     }
+}
 
+impl GravitationalParameter {
     /// Returns this parameter in `m^3/s^2`.
     #[must_use]
     pub const fn as_cubic_metres_per_second_squared(self) -> f64 {
@@ -44,15 +48,17 @@ impl GravitationalParameter {
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct GravitationalConstant(f64);
 
-impl GravitationalConstant {
-    /// Constructs a positive finite constant from `m^3/(kg*s^2)`.
-    pub fn from_cubic_metres_per_kilogram_second_squared(
-        value: f64,
-    ) -> Result<Self, QuantityError> {
+impl TryFrom<f64> for GravitationalConstant {
+    type Error = QuantityError;
+
+    /// Interprets a positive finite SI value as `m^3/(kg*s^2)`.
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
         validate_positive_finite(value, "gravitational constant")?;
         Ok(Self(value))
     }
+}
 
+impl GravitationalConstant {
     /// Returns this constant in `m^3/(kg*s^2)`.
     #[must_use]
     pub const fn as_cubic_metres_per_kilogram_second_squared(self) -> f64 {
@@ -77,11 +83,11 @@ mod tests {
     #[test]
     fn custom_quantities_reject_non_physical_values() {
         assert!(matches!(
-            GravitationalParameter::from_cubic_metres_per_second_squared(f64::NAN),
+            GravitationalParameter::try_from(f64::NAN),
             Err(QuantityError::NonFinite { .. })
         ));
         assert!(matches!(
-            GravitationalConstant::from_cubic_metres_per_kilogram_second_squared(0.0),
+            GravitationalConstant::try_from(0.0),
             Err(QuantityError::NotPositive { .. })
         ));
     }

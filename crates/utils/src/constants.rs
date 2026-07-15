@@ -8,7 +8,7 @@ use units::{GravitationalConstant, GravitationalParameter, Length, Velocity};
 /// Source: [NGA World Geodetic System 1984](https://earth-info.nga.mil/?action=wgs84&dir=wgs84).
 #[must_use]
 pub fn wgs84_earth_gravitational_parameter() -> GravitationalParameter {
-    GravitationalParameter::from_cubic_metres_per_second_squared(3.986_004_418e14)
+    GravitationalParameter::try_from(3.986_004_418e14)
         .expect("the conventional Earth gravitational parameter is positive and finite")
 }
 
@@ -41,7 +41,7 @@ pub fn astronomical_unit() -> Length {
 /// Source: [NIST 2018 CODATA values](https://physics.nist.gov/cuu/Constants/archive2018.html).
 #[must_use]
 pub fn gravitational_constant() -> GravitationalConstant {
-    GravitationalConstant::from_cubic_metres_per_kilogram_second_squared(6.674_30e-11)
+    GravitationalConstant::try_from(6.674_30e-11)
         .expect("the CODATA gravitational constant is positive and finite")
 }
 

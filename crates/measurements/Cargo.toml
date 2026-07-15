@@ -40,6 +40,7 @@ default = [
     "geometric-tdoa",
     "geometric-fdoa",
     "geometric-phase",
+    "light-time",
 ]
 # Built-in observable families.  Disable default features and select only the
 # implementations an application uses; the composition traits remain available.
@@ -75,6 +76,9 @@ geometric-turnaround-range = ["estimation", "turnaround-range"]
 geometric-tdoa = ["estimation", "tdoa", "dep:utils"]
 geometric-fdoa = ["estimation", "fdoa", "dep:utils"]
 geometric-phase = ["estimation", "phase", "dep:utils"]
+# Iterative vacuum light-time timing for an arbitrary signal path. Frame
+# conversion remains caller-provided through `frames` contracts.
+light-time = ["estimation", "dep:utils"]
 
 [dependencies]
 hifitime.workspace = true

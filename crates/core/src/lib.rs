@@ -14,11 +14,11 @@ mod spacecraft;
 
 pub use frames;
 pub use hifitime::Epoch;
-pub use orbit::{Orbit, SpacecraftState};
+pub use orbit::{Orbit, OrbitParts, SpacecraftState};
 pub use spacecraft::{
     Attitude, AttitudeError, BodyAngularVelocity, InertiaError, InertiaTensor, Orientation,
-    OrientationError, ShapeError, Spacecraft, SpacecraftBodyFrame, SpacecraftError,
-    SpacecraftGeometry, SpacecraftView, SpacecraftViewError,
+    OrientationError, OrientationQuaternion, ShapeError, Spacecraft, SpacecraftBodyFrame,
+    SpacecraftError, SpacecraftGeometry, SpacecraftView, SpacecraftViewError,
 };
 #[cfg(feature = "quaternion-attitude")]
 pub use spacecraft::{AttitudeState, QuaternionAttitude};

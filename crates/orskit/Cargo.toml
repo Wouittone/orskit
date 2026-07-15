@@ -36,6 +36,7 @@ measurement-ionosphere-correction = ["measurements", "measurements/ionosphere-co
 measurement-relativity-correction = ["measurements", "measurements/relativity-correction"]
 measurement-instrument-correction = ["measurements", "measurements/instrument-correction"]
 measurement-estimation = ["measurements", "measurements/estimation"]
+measurement-light-time = ["measurement-estimation", "measurements/light-time"]
 measurement-geometric-range = ["measurement-estimation", "measurements/geometric-range"]
 measurement-geometric-range-rate = ["measurement-estimation", "measurements/geometric-range-rate"]
 measurement-geometric-azimuth-elevation = ["measurement-estimation", "measurements/geometric-azimuth-elevation"]

@@ -42,6 +42,8 @@ orskit is designed around a few hard requirements:
 - numerical claims are backed by traceable references and error budgets;
 - the scientific implementation remains independent and permissively licensed;
 - safe Rust owns domain behavior while FFI layers remain thin;
+- users interact through one small, high-level domain API; vector/matrix
+  kernels remain implementation details rather than a second public API;
 - optimizations are judged on accuracy and reproducible measurements; and
 - scientific datasets are versioned and caller-controlled, never silently
   downloaded by an algorithm.

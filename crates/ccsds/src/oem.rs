@@ -506,12 +506,16 @@ pub struct DeclaredCovarianceAxes {
 }
 
 impl DeclaredCovarianceAxes {
-    /// Preserves an application-defined OEM covariance-axes identifier.
+    /// Returns the preserved application-defined OEM covariance-axes identifier.
     #[must_use]
-    pub fn new(identifier: impl Into<String>) -> Self {
-        Self {
-            identifier: identifier.into(),
-        }
+    pub fn identifier(&self) -> &str {
+        &self.identifier
+    }
+}
+
+impl From<String> for DeclaredCovarianceAxes {
+    fn from(identifier: String) -> Self {
+        Self { identifier }
     }
 }
 
@@ -528,14 +532,6 @@ pub struct OemCovarianceFrame {
 }
 
 impl OemCovarianceFrame {
-    /// Constructs a covariance-axes declaration from an application-owned implementation.
-    #[must_use]
-    pub fn new(axes: impl OemCovarianceAxes) -> Self {
-        Self {
-            axes: Arc::new(axes),
-        }
-    }
-
     /// Returns the underlying covariance-axes contract.
     #[must_use]
     pub fn axes(&self) -> &dyn OemCovarianceAxes {
@@ -552,6 +548,12 @@ impl OemCovarianceFrame {
     #[must_use]
     pub fn reference_frame(&self) -> Option<ReferenceFrame> {
         self.axes.reference_frame()
+    }
+}
+
+impl From<Arc<dyn OemCovarianceAxes>> for OemCovarianceFrame {
+    fn from(axes: Arc<dyn OemCovarianceAxes>) -> Self {
+        Self { axes }
     }
 }
 
@@ -678,12 +680,6 @@ impl OemSample {
     pub const fn coordinate_sample(&self) -> &CoordinateSample<CartesianCoordinates> {
         &self.sample
     }
-
-    /// Consumes this provenance wrapper and returns the coordinate sample.
-    #[must_use]
-    pub fn into_coordinate_sample(self) -> CoordinateSample<CartesianCoordinates> {
-        self.sample
-    }
 }
 
 /// Borrowed record from a collected OEM segment, in original source order.
@@ -793,6 +789,10 @@ impl Oem {
 /// Event emitted by a streaming OEM reader.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
+// Streaming events retain their values directly so parsing and collection do not allocate per
+// coordinate or covariance record. The larger enum is deliberate and confined to this low-level
+// decoding boundary.
+#[allow(clippy::large_enum_variant)]
 pub enum OemEvent {
     /// The validated message header.
     Header(OemHeader),
@@ -801,9 +801,9 @@ pub enum OemEvent {
     /// One data-section comment at its original source position.
     Comment(OemComment),
     /// One typed, timed Cartesian ephemeris point with source provenance.
-    Coordinates(Box<OemSample>),
+    Coordinates(OemSample),
     /// One Cartesian covariance matrix.
-    Covariance(Box<OemCartesianCovariance>),
+    Covariance(OemCartesianCovariance),
     /// The end of the identified segment.
     SegmentEnd(OemSegmentId),
 }
@@ -1401,7 +1401,7 @@ pub fn parse_oem_kvn_parallel_with_limits(
                     let sample = parsed[index].take().ok_or(OemError::InvalidEventOrder {
                         message: "parallel state layout was consumed more than once",
                     })??;
-                    OemEvent::Coordinates(Box::new(sample))
+                    OemEvent::Coordinates(sample)
                 }
             };
             validate_event_chronology(event, &mut chronology)
@@ -1459,7 +1459,7 @@ fn collect_document(
                     });
                 }
                 let index = segment.coordinates.len();
-                segment.coordinates.push(*coordinates);
+                segment.coordinates.push(coordinates);
                 segment
                     .record_order
                     .push(OemRecordIndex::Coordinates(index));
@@ -1474,7 +1474,7 @@ fn collect_document(
                     });
                 }
                 let index = segment.covariances.len();
-                segment.covariances.push(*covariance);
+                segment.covariances.push(covariance);
                 segment.record_order.push(OemRecordIndex::Covariance(index));
             }
             OemEvent::SegmentEnd(id) => {
@@ -1557,7 +1557,7 @@ fn decode_output(
 ) -> Result<OemEvent, OemError> {
     let event = match output {
         DecoderOutput::Event(event) => *event,
-        DecoderOutput::State(raw) => OemEvent::Coordinates(Box::new(parse_raw_state(&raw)?)),
+        DecoderOutput::State(raw) => OemEvent::Coordinates(parse_raw_state(&raw)?),
     };
     validate_event_chronology(event, chronology)
 }
@@ -1826,7 +1826,7 @@ impl Decoder {
                         })?
                         .finish()?;
                     self.phase = Phase::Data;
-                    let event = OemEvent::Covariance(Box::new(covariance));
+                    let event = OemEvent::Covariance(covariance);
                     return Ok(Some(DecoderOutput::Event(Box::new(event))));
                 }
                 if let Some((key, value)) = line.split_once('=') {
@@ -1849,9 +1849,7 @@ impl Decoder {
                         self.covariance =
                             Some(CovarianceBuilder::new(context.clone(), self.line, epoch));
                         return Ok(previous.map(|covariance| {
-                            DecoderOutput::Event(Box::new(OemEvent::Covariance(Box::new(
-                                covariance,
-                            ))))
+                            DecoderOutput::Event(Box::new(OemEvent::Covariance(covariance)))
                         }));
                     }
                     if key == "COV_REF_FRAME" {
@@ -2028,13 +2026,16 @@ impl CovarianceBuilder {
 
 fn parse_covariance_frame(value: &str, metadata: &OemMetadata) -> OemCovarianceFrame {
     if value.eq_ignore_ascii_case("RTN") {
-        return OemCovarianceFrame::new(RtnCovarianceAxes);
+        return OemCovarianceFrame::from(Arc::new(RtnCovarianceAxes) as Arc<dyn OemCovarianceAxes>);
     }
     match value.parse::<FrameOrientation>() {
-        Ok(orientation) => OemCovarianceFrame::new(ReferenceCovarianceAxes::new(
+        Ok(orientation) => OemCovarianceFrame::from(Arc::new(ReferenceCovarianceAxes::new(
             ReferenceFrame::new(metadata.frame().origin(), orientation),
-        )),
-        Err(_) => OemCovarianceFrame::new(DeclaredCovarianceAxes::new(value)),
+        )) as Arc<dyn OemCovarianceAxes>),
+        Err(_) => {
+            OemCovarianceFrame::from(Arc::new(DeclaredCovarianceAxes::from(value.to_owned()))
+                as Arc<dyn OemCovarianceAxes>)
+        }
     }
 }
 
@@ -2712,8 +2713,8 @@ META_STOP\n\
             FrameOrigin::Custom(id),
             FrameOrientation::custom(id, FrameMotion::NonInertial),
         );
-        let owned_body =
-            SpacecraftBodyFrame::new("TEST-SC", body).expect("spacecraft-owned body axes");
+        let owned_body = SpacecraftBodyFrame::new("TEST-SC".to_owned(), body)
+            .expect("spacecraft-owned body axes");
         let orientation = Orientation::identity(body, coordinates.coordinates().position().frame());
         let attitude = AttitudeState::new(
             orientation,
@@ -2890,7 +2891,10 @@ META_STOP\n\
         }
 
         assert_eq!(
-            OemCovarianceFrame::new(StationTopocentricAxes).identifier(),
+            OemCovarianceFrame::from(
+                Arc::new(StationTopocentricAxes) as Arc<dyn OemCovarianceAxes>
+            )
+            .identifier(),
             "TOPOCENTRIC"
         );
     }

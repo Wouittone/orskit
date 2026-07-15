@@ -8,16 +8,19 @@
 //! supports caller-owned hierarchies such as an Earth-fixed ground site without
 //! pretending that general frame transforms or geodesy already exist.
 //! Orientations explicitly declare whether their axes are inertial,
-//! non-inertial, or unspecified. Transform algorithms will be added behind
-//! provider traits once their data and accuracy contracts are defined.
+//! non-inertial, or unspecified. Kinematic transform providers make their
+//! epoch and data dependencies explicit; this crate deliberately does not
+//! supply an Earth-orientation or ephemeris-backed implementation.
 
 use std::collections::{HashMap, HashSet};
+use std::error::Error as StdError;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{fmt, str::FromStr};
 
 pub use bodies::{Body, BodySystem, CustomBodyId};
+use hifitime::Epoch;
 use thiserror::Error;
-use units::Position;
+use units::{Position, VelocityVector};
 
 /// Typed identifier reserved for application-defined frame components.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -271,6 +274,130 @@ impl ReferenceFrame {
     pub const fn is_inertial(self) -> bool {
         self.orientation.is_inertial()
     }
+}
+
+/// Finite position and velocity expressed in one declared reference frame.
+///
+/// This is the data boundary for a [`KinematicFrameTransformProvider`]. It
+/// carries no implicit origin, orientation, epoch, or Earth-orientation data;
+/// callers supply the epoch to each transform evaluation explicitly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FrameKinematics {
+    position: Position,
+    velocity: VelocityVector,
+    frame: ReferenceFrame,
+}
+
+impl FrameKinematics {
+    /// Creates finite kinematics expressed in `frame`.
+    pub fn new(
+        position: Position,
+        velocity: VelocityVector,
+        frame: ReferenceFrame,
+    ) -> Result<Self, FrameKinematicsError> {
+        if !position.is_finite() {
+            return Err(FrameKinematicsError::NonFinitePosition);
+        }
+        if !velocity.is_finite() {
+            return Err(FrameKinematicsError::NonFiniteVelocity);
+        }
+        Ok(Self {
+            position,
+            velocity,
+            frame,
+        })
+    }
+
+    /// Returns the expressed position.
+    #[must_use]
+    pub const fn position(self) -> Position {
+        self.position
+    }
+
+    /// Returns the expressed velocity.
+    #[must_use]
+    pub const fn velocity(self) -> VelocityVector {
+        self.velocity
+    }
+
+    /// Returns the expression frame.
+    #[must_use]
+    pub const fn frame(self) -> ReferenceFrame {
+        self.frame
+    }
+}
+
+/// Invalid kinematic transform input or output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum FrameKinematicsError {
+    /// A position component is NaN or infinite.
+    #[error("frame kinematics position components must be finite")]
+    NonFinitePosition,
+    /// A velocity component is NaN or infinite.
+    #[error("frame kinematics velocity components must be finite")]
+    NonFiniteVelocity,
+}
+
+/// Resolves kinematics between explicitly declared reference frames.
+///
+/// Implementations own all required Earth-orientation, ephemeris, rotation,
+/// translation, and velocity-transform data. They must return kinematics in
+/// `target`; consumers verify that result rather than trusting a provider's
+/// declaration.
+pub trait KinematicFrameTransformProvider: fmt::Debug + Send + Sync {
+    /// Provider-specific failure, for example missing Earth-orientation data.
+    type Error: StdError + Send + Sync + 'static;
+
+    /// Transforms `kinematics` at `epoch` into `target`.
+    fn transform(
+        &self,
+        epoch: Epoch,
+        kinematics: FrameKinematics,
+        target: ReferenceFrame,
+    ) -> Result<FrameKinematics, Self::Error>;
+}
+
+/// Transform provider that accepts only an identity transform.
+///
+/// This is useful when an API requires an explicit transform boundary but a
+/// workflow has already selected one common frame. It never treats distinct
+/// frame identities as equivalent.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct IdentityKinematicFrameTransform;
+
+impl KinematicFrameTransformProvider for IdentityKinematicFrameTransform {
+    type Error = IdentityKinematicFrameTransformError;
+
+    fn transform(
+        &self,
+        _epoch: Epoch,
+        kinematics: FrameKinematics,
+        target: ReferenceFrame,
+    ) -> Result<FrameKinematics, Self::Error> {
+        if kinematics.frame() == target {
+            Ok(kinematics)
+        } else {
+            Err(IdentityKinematicFrameTransformError::FrameMismatch {
+                from: kinematics.frame(),
+                target,
+            })
+        }
+    }
+}
+
+/// Failure from [`IdentityKinematicFrameTransform`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum IdentityKinematicFrameTransformError {
+    /// An identity transform was requested for distinct frame identities.
+    #[error("identity transform cannot convert {from:?} into {target:?}")]
+    FrameMismatch {
+        /// Frame carried by the input kinematics.
+        from: ReferenceFrame,
+        /// Requested result frame.
+        target: ReferenceFrame,
+    },
 }
 
 /// Caller-owned registry for validated parent-relative frame definitions.
@@ -920,6 +1047,33 @@ mod tests {
             ),
             Err(FrameDefinitionError::UnknownRootParent {
                 parent: ReferenceFrame::GCRF,
+            })
+        );
+    }
+
+    #[test]
+    fn identity_kinematic_transform_never_equates_distinct_frames() {
+        let state = FrameKinematics::new(
+            Position::from_metres(1.0, 2.0, 3.0),
+            VelocityVector::from_metres_per_second(4.0, 5.0, 6.0),
+            ReferenceFrame::ITRF2020,
+        )
+        .expect("finite state");
+        let transform = IdentityKinematicFrameTransform;
+
+        assert_eq!(
+            transform.transform(
+                Epoch::from_tai_seconds(0.0),
+                state,
+                ReferenceFrame::ITRF2020
+            ),
+            Ok(state)
+        );
+        assert_eq!(
+            transform.transform(Epoch::from_tai_seconds(0.0), state, ReferenceFrame::GCRF),
+            Err(IdentityKinematicFrameTransformError::FrameMismatch {
+                from: ReferenceFrame::ITRF2020,
+                target: ReferenceFrame::GCRF,
             })
         );
     }
