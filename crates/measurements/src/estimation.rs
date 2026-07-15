@@ -8,13 +8,19 @@
 //! propagation, frame transforms, light time, clocks, media, and other
 //! corrections.
 
-use std::{collections::BTreeMap, error::Error as StdError};
+#[cfg(feature = "light-time")]
+use std::num::NonZeroUsize;
+use std::{collections::BTreeMap, error::Error as StdError, fmt};
 
-use frames::ReferenceFrame;
+use frames::{FrameKinematics, KinematicFrameTransformProvider, ReferenceFrame};
+#[cfg(feature = "light-time")]
+use hifitime::Duration;
 use hifitime::Epoch;
 use thiserror::Error;
 use units::{Position, VelocityVector};
 
+#[cfg(any(feature = "geometric-tdoa", feature = "light-time"))]
+use units::uom::si::time::second;
 #[cfg(any(
     feature = "geometric-range-rate",
     feature = "geometric-bistatic-range-rate",
@@ -24,6 +30,8 @@ use units::{Position, VelocityVector};
     feature = "geometric-phase"
 ))]
 use units::uom::si::velocity::meter_per_second as velocity_unit;
+#[cfg(feature = "geometric-tdoa")]
+use units::Time;
 #[cfg(any(
     feature = "geometric-azimuth-elevation",
     feature = "geometric-angular-ra-dec",
@@ -39,16 +47,16 @@ use units::{uom::si::frequency::hertz, Frequency};
 #[cfg(any(
     feature = "geometric-range",
     feature = "geometric-bistatic-range",
-    feature = "geometric-turnaround-range"
+    feature = "geometric-turnaround-range",
+    feature = "light-time"
 ))]
 use units::{uom::si::length::meter, Length};
-#[cfg(feature = "geometric-tdoa")]
-use units::{uom::si::time::second, Time};
 #[cfg(any(
     feature = "geometric-doppler",
     feature = "geometric-tdoa",
     feature = "geometric-fdoa",
-    feature = "geometric-phase"
+    feature = "geometric-phase",
+    feature = "light-time"
 ))]
 use utils::constants::speed_of_light;
 
@@ -170,6 +178,25 @@ impl ParticipantKinematics {
     pub const fn frame(self) -> ReferenceFrame {
         self.frame
     }
+
+    /// Converts this value to the frame crate's transform-boundary type.
+    #[must_use]
+    pub fn into_frame_kinematics(self) -> FrameKinematics {
+        // Both components were validated when this value was constructed.
+        FrameKinematics::new(self.position, self.velocity, self.frame)
+            .expect("validated participant kinematics remain finite")
+    }
+
+    /// Converts validated frame-transform output into participant kinematics.
+    pub fn from_frame_kinematics(
+        kinematics: FrameKinematics,
+    ) -> Result<Self, ParticipantKinematicsError> {
+        Self::new(
+            kinematics.position(),
+            kinematics.velocity(),
+            kinematics.frame(),
+        )
+    }
 }
 
 /// Invalid participant kinematics.
@@ -213,6 +240,130 @@ impl<T: ParticipantStateProvider + ?Sized> ParticipantStateProvider for &T {
     ) -> Result<Option<ParticipantKinematics>, Self::Error> {
         (*self).state_at(participant, epoch, frame)
     }
+}
+
+/// Adapts a provider fixed in one source frame through an explicit transform provider.
+///
+/// The wrapped provider is always queried in `source_frame`; no request is
+/// silently relabeled as a different frame. The transform provider owns any
+/// orientation, translation, Earth-orientation, or ephemeris data required to
+/// produce the caller's target frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TransformingParticipantStateProvider<P, T> {
+    source: P,
+    source_frame: ReferenceFrame,
+    transforms: T,
+}
+
+impl<P, T> TransformingParticipantStateProvider<P, T> {
+    /// Creates an adapter that obtains source states in `source_frame`.
+    #[must_use]
+    pub const fn new(source: P, source_frame: ReferenceFrame, transforms: T) -> Self {
+        Self {
+            source,
+            source_frame,
+            transforms,
+        }
+    }
+
+    /// Returns the wrapped state provider.
+    #[must_use]
+    pub const fn source(&self) -> &P {
+        &self.source
+    }
+
+    /// Returns the source expression frame.
+    #[must_use]
+    pub const fn source_frame(&self) -> ReferenceFrame {
+        self.source_frame
+    }
+
+    /// Returns the frame-transform provider.
+    #[must_use]
+    pub const fn transforms(&self) -> &T {
+        &self.transforms
+    }
+}
+
+impl<P: ParticipantStateProvider, T: KinematicFrameTransformProvider> ParticipantStateProvider
+    for TransformingParticipantStateProvider<P, T>
+{
+    type Error = TransformingParticipantStateProviderError<P::Error, T::Error>;
+
+    fn state_at(
+        &self,
+        participant: &ParticipantId,
+        epoch: Epoch,
+        frame: ReferenceFrame,
+    ) -> Result<Option<ParticipantKinematics>, Self::Error> {
+        let Some(source) = self
+            .source
+            .state_at(participant, epoch, self.source_frame)
+            .map_err(TransformingParticipantStateProviderError::Source)?
+        else {
+            return Ok(None);
+        };
+        if source.frame() != self.source_frame {
+            return Err(
+                TransformingParticipantStateProviderError::UnexpectedSourceFrame {
+                    participant: participant.clone(),
+                    expected: Box::new(self.source_frame),
+                    actual: Box::new(source.frame()),
+                },
+            );
+        }
+        let transformed = self
+            .transforms
+            .transform(epoch, source.into_frame_kinematics(), frame)
+            .map_err(TransformingParticipantStateProviderError::Transform)?;
+        if transformed.frame() != frame {
+            return Err(
+                TransformingParticipantStateProviderError::UnexpectedTargetFrame {
+                    participant: participant.clone(),
+                    expected: Box::new(frame),
+                    actual: Box::new(transformed.frame()),
+                },
+            );
+        }
+        ParticipantKinematics::from_frame_kinematics(transformed)
+            .map(Some)
+            .map_err(TransformingParticipantStateProviderError::InvalidOutput)
+    }
+}
+
+/// Failure while adapting a source provider through a frame transform.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum TransformingParticipantStateProviderError<P: StdError + 'static, T: StdError + 'static> {
+    /// The source state provider failed.
+    #[error("source participant state provider failed")]
+    Source(#[source] P),
+    /// The frame-transform provider failed.
+    #[error("kinematic frame transform failed")]
+    Transform(#[source] T),
+    /// The source provider relabeled its kinematics.
+    #[error("participant {participant} supplied {actual:?}, expected source frame {expected:?}")]
+    UnexpectedSourceFrame {
+        /// Participant whose source state was returned.
+        participant: ParticipantId,
+        /// Frame requested from the source provider.
+        expected: Box<ReferenceFrame>,
+        /// Frame attached to the returned source state.
+        actual: Box<ReferenceFrame>,
+    },
+    /// The transform provider returned kinematics in a different target frame.
+    #[error("participant {participant} transform supplied {actual:?}, expected target frame {expected:?}")]
+    UnexpectedTargetFrame {
+        /// Participant whose transformed state was returned.
+        participant: ParticipantId,
+        /// Requested transformed frame.
+        expected: Box<ReferenceFrame>,
+        /// Frame attached to the transformed kinematics.
+        actual: Box<ReferenceFrame>,
+    },
+    /// The transform output was not finite.
+    #[error("kinematic frame transform returned invalid output")]
+    InvalidOutput(#[source] ParticipantKinematicsError),
 }
 
 /// Fixed station states resolved from one or more [`GroundStation`] values.
@@ -381,6 +532,287 @@ pub trait SignalPropagationSolver<M, C: ?Sized>: std::fmt::Debug + Send + Sync {
 
 /// Erased source error from an application-defined signal-propagation solver.
 pub type SignalPropagationError = Box<dyn StdError + Send + Sync + 'static>;
+
+/// Iteratively resolves a vacuum light-time timeline for every path leg.
+///
+/// The final path event is fixed at the measurement's reported epoch. Each
+/// preceding event is solved backward from its receiving event using geometric
+/// distance divided by the exact vacuum speed of light. On every iteration the
+/// solver samples the correction chain at the geometric leg midpoint, adding
+/// its excess slowness to the vacuum delay. Applications that need higher-order
+/// path integration, refraction, spacecraft turnaround delay, or specialized
+/// relativistic effects provide a separate [`SignalPropagationSolver`].
+///
+/// Participant states are requested in the measurement's declared frame. Use
+/// [`TransformingParticipantStateProvider`] to make a source-frame conversion
+/// explicit; this solver never assumes that distinct frame identities share
+/// axes or origins.
+#[cfg(feature = "light-time")]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VacuumLightTimeSolver<P> {
+    participants: P,
+    max_iterations: NonZeroUsize,
+    convergence: Duration,
+}
+
+#[cfg(feature = "light-time")]
+impl<P> VacuumLightTimeSolver<P> {
+    /// Creates a solver with a 16-iteration limit and one-nanosecond event-time
+    /// convergence threshold.
+    #[must_use]
+    pub fn new(participants: P) -> Self {
+        Self {
+            participants,
+            max_iterations: NonZeroUsize::new(16).expect("16 is non-zero"),
+            convergence: Duration::from_seconds(1.0e-9),
+        }
+    }
+
+    /// Replaces the convergence configuration.
+    ///
+    /// A positive, finite threshold is required. The convergence condition is
+    /// the absolute difference between two successive emission-epoch updates.
+    pub fn with_convergence(
+        mut self,
+        max_iterations: usize,
+        convergence: Duration,
+    ) -> Result<Self, VacuumLightTimeConfigurationError> {
+        self.max_iterations = NonZeroUsize::new(max_iterations)
+            .ok_or(VacuumLightTimeConfigurationError::ZeroIterations)?;
+        let seconds = convergence.to_seconds();
+        if !seconds.is_finite() || seconds <= 0.0 {
+            return Err(VacuumLightTimeConfigurationError::InvalidConvergence);
+        }
+        self.convergence = convergence;
+        Ok(self)
+    }
+
+    /// Returns the participant state provider.
+    #[must_use]
+    pub const fn participants(&self) -> &P {
+        &self.participants
+    }
+
+    /// Returns the maximum fixed-point iterations allowed per leg.
+    #[must_use]
+    pub const fn max_iterations(&self) -> usize {
+        self.max_iterations.get()
+    }
+
+    /// Returns the absolute event-time convergence threshold.
+    #[must_use]
+    pub const fn convergence(&self) -> Duration {
+        self.convergence
+    }
+}
+
+/// Invalid [`VacuumLightTimeSolver`] configuration.
+#[cfg(feature = "light-time")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum VacuumLightTimeConfigurationError {
+    /// At least one fixed-point iteration is required.
+    #[error("vacuum light-time solver requires at least one iteration")]
+    ZeroIterations,
+    /// The convergence threshold must be finite and strictly positive.
+    #[error("vacuum light-time convergence threshold must be finite and strictly positive")]
+    InvalidConvergence,
+}
+
+/// Failure while resolving a vacuum light-time path.
+#[cfg(feature = "light-time")]
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum VacuumLightTimeError<E: StdError + 'static> {
+    /// The participant state provider failed.
+    #[error("participant state provider failed for {participant}")]
+    Participant {
+        /// Participant whose state was requested.
+        participant: ParticipantId,
+        /// Provider-specific source error.
+        #[source]
+        source: Box<E>,
+    },
+    /// No provider owns a required path participant.
+    #[error("no participant state provider owns {participant}")]
+    MissingParticipant {
+        /// Missing identity.
+        participant: ParticipantId,
+    },
+    /// A provider did not return coordinates in the requested measurement frame.
+    #[error("participant {participant} supplied {actual:?}, expected {expected:?}")]
+    FrameMismatch {
+        /// Participant identity.
+        participant: ParticipantId,
+        /// Requested measurement frame.
+        expected: Box<ReferenceFrame>,
+        /// Frame attached to returned kinematics.
+        actual: Box<ReferenceFrame>,
+    },
+    /// A path leg has zero geometric length.
+    #[error("signal-path leg {leg} has zero geometric length")]
+    ZeroLengthLeg {
+        /// Zero-based path-leg index.
+        leg: usize,
+    },
+    /// A geometric or delay calculation became NaN or infinite.
+    #[error("vacuum light-time computation produced a non-finite value")]
+    NonFiniteComputation,
+    /// Corrections made the total modeled propagation delay non-positive.
+    #[error("signal-path leg {leg} has a non-positive modeled propagation delay")]
+    NonPositiveDelay {
+        /// Zero-based path-leg index.
+        leg: usize,
+    },
+    /// A correction model rejected midpoint propagation evaluation.
+    #[error("signal-propagation correction evaluation failed")]
+    Correction(#[source] CorrectionModelError),
+    /// A leg did not converge within the configured iteration bound.
+    #[error("signal-path leg {leg} did not converge after {iterations} iterations")]
+    NonConvergent {
+        /// Zero-based path-leg index.
+        leg: usize,
+        /// Number of fixed-point updates evaluated.
+        iterations: usize,
+    },
+}
+
+#[cfg(feature = "light-time")]
+impl<P: ParticipantStateProvider + fmt::Debug + Send + Sync, M: Measurement, C: ?Sized>
+    SignalPropagationSolver<M, C> for VacuumLightTimeSolver<P>
+{
+    fn solve_timing(
+        &self,
+        measurement: &M,
+        corrections: &CorrectionModelChain<M, C>,
+        conditions: &C,
+    ) -> Result<SignalEventTimeline, SignalPropagationError> {
+        let path = measurement.path();
+        let frame = measurement.frame();
+        let mut events = vec![measurement.epoch(); path.participant_count()];
+
+        for leg in (0..path.participant_count() - 1).rev() {
+            let receiver_epoch = events[leg + 1];
+            let receiver = self
+                .state(
+                    path.participant(leg + 1).expect("valid signal path"),
+                    receiver_epoch,
+                    frame,
+                )
+                .map_err(|error| Box::new(error) as SignalPropagationError)?;
+            events[leg] = self
+                .solve_leg(
+                    measurement,
+                    corrections,
+                    conditions,
+                    leg,
+                    path.participant(leg).expect("valid signal path"),
+                    receiver,
+                    receiver_epoch,
+                    frame,
+                )
+                .map_err(|error| Box::new(error) as SignalPropagationError)?;
+        }
+
+        SignalEventTimeline::instantaneous(measurement)
+            .with_event_epochs(events)
+            .map_err(|error| Box::new(error) as SignalPropagationError)
+    }
+}
+
+#[cfg(feature = "light-time")]
+impl<P: ParticipantStateProvider> VacuumLightTimeSolver<P> {
+    fn state(
+        &self,
+        participant: &ParticipantId,
+        epoch: Epoch,
+        frame: ReferenceFrame,
+    ) -> Result<ParticipantKinematics, VacuumLightTimeError<P::Error>> {
+        let state = self
+            .participants
+            .state_at(participant, epoch, frame)
+            .map_err(|source| VacuumLightTimeError::Participant {
+                participant: participant.clone(),
+                source: Box::new(source),
+            })?
+            .ok_or_else(|| VacuumLightTimeError::MissingParticipant {
+                participant: participant.clone(),
+            })?;
+        if state.frame() != frame {
+            return Err(VacuumLightTimeError::FrameMismatch {
+                participant: participant.clone(),
+                expected: Box::new(frame),
+                actual: Box::new(state.frame()),
+            });
+        }
+        Ok(state)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn solve_leg<M: Measurement, C: ?Sized>(
+        &self,
+        measurement: &M,
+        corrections: &CorrectionModelChain<M, C>,
+        conditions: &C,
+        leg: usize,
+        emitter: &ParticipantId,
+        receiver: ParticipantKinematics,
+        receiver_epoch: Epoch,
+        frame: ReferenceFrame,
+    ) -> Result<Epoch, VacuumLightTimeError<P::Error>> {
+        let mut emission_epoch = receiver_epoch;
+        let convergence_seconds = self.convergence.to_seconds();
+
+        for _ in 0..self.max_iterations.get() {
+            let source = self.state(emitter, emission_epoch, frame)?;
+            let source_position = source.position().to_metres();
+            let receiver_position = receiver.position().to_metres();
+            let displacement =
+                std::array::from_fn(|axis| receiver_position[axis] - source_position[axis]);
+            let distance_metres = dot(displacement, displacement).sqrt();
+            if !distance_metres.is_finite() {
+                return Err(VacuumLightTimeError::NonFiniteComputation);
+            }
+            if distance_metres == 0.0 {
+                return Err(VacuumLightTimeError::ZeroLengthLeg { leg });
+            }
+
+            let distance = Length::new::<meter>(distance_metres);
+            let midpoint_position = Position::from_metres(
+                0.5 * (source_position[0] + receiver_position[0]),
+                0.5 * (source_position[1] + receiver_position[1]),
+                0.5 * (source_position[2] + receiver_position[2]),
+            );
+            let midpoint_epoch = emission_epoch
+                + Duration::from_seconds((receiver_epoch - emission_epoch).to_seconds() * 0.5);
+            let gradient = corrections
+                .propagation_gradient(
+                    measurement,
+                    crate::SignalPropagationState::new(midpoint_epoch, midpoint_position, frame)
+                        .expect("midpoint of finite positions is finite"),
+                    conditions,
+                )
+                .map_err(VacuumLightTimeError::Correction)?;
+            let delay_seconds = (distance / speed_of_light()).get::<second>()
+                + (gradient.excess_slowness() * distance).get::<second>();
+            if !delay_seconds.is_finite() {
+                return Err(VacuumLightTimeError::NonFiniteComputation);
+            }
+            if delay_seconds <= 0.0 {
+                return Err(VacuumLightTimeError::NonPositiveDelay { leg });
+            }
+            let next_epoch = receiver_epoch - Duration::from_seconds(delay_seconds);
+            if (next_epoch - emission_epoch).to_seconds().abs() <= convergence_seconds {
+                return Ok(next_epoch);
+            }
+            emission_epoch = next_epoch;
+        }
+        Err(VacuumLightTimeError::NonConvergent {
+            leg,
+            iterations: self.max_iterations.get(),
+        })
+    }
+}
 
 /// Predicts one concrete measurement type at an explicit epoch.
 ///
@@ -1449,7 +1881,8 @@ impl<P: ParticipantStateProvider> MeasurementEstimator<PhaseMeasurement> for Geo
     feature = "geometric-turnaround-range",
     feature = "geometric-tdoa",
     feature = "geometric-fdoa",
-    feature = "geometric-phase"
+    feature = "geometric-phase",
+    feature = "light-time"
 ))]
 fn dot(left: [f64; 3], right: [f64; 3]) -> f64 {
     left[0].mul_add(right[0], left[1].mul_add(right[1], left[2] * right[2]))
@@ -1473,7 +1906,7 @@ fn normalize(values: [f64; 3]) -> Option<[f64; 3]> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use frames::{FrameCatalog, FrameNamespace};
+    use frames::{FrameCatalog, FrameKinematics, FrameNamespace, KinematicFrameTransformProvider};
     use units::uom::si::length::meter;
 
     fn id(value: &str) -> ParticipantId {
@@ -1512,6 +1945,192 @@ mod tests {
             ),
             Err(GroundStationProviderError::FrameMismatch { .. })
         ));
+    }
+
+    #[cfg(feature = "light-time")]
+    #[test]
+    fn transforming_provider_requires_and_verifies_an_explicit_target_frame() {
+        #[derive(Debug)]
+        struct TestTransform;
+
+        impl KinematicFrameTransformProvider for TestTransform {
+            type Error = std::convert::Infallible;
+
+            fn transform(
+                &self,
+                epoch: Epoch,
+                state: FrameKinematics,
+                target: ReferenceFrame,
+            ) -> Result<FrameKinematics, Self::Error> {
+                assert_eq!(epoch, Epoch::from_tai_seconds(20.0));
+                let position = state.position().to_metres();
+                Ok(FrameKinematics::new(
+                    Position::from_metres(position[0] + 100.0, position[1], position[2]),
+                    state.velocity(),
+                    target,
+                )
+                .expect("finite transformed state"))
+            }
+        }
+
+        let frame = FrameCatalog::new(FrameNamespace::new(93), [ReferenceFrame::ITRF2020])
+            .expect("catalog")
+            .define_parent_aligned(
+                1,
+                ReferenceFrame::ITRF2020,
+                Position::from_metres(6_378_137.0, 0.0, 0.0),
+            )
+            .expect("station frame");
+        let source = GroundStationProvider::new([GroundStation::new(id("DSS-14"), frame)])
+            .expect("station provider");
+        let provider = TransformingParticipantStateProvider::new(
+            source,
+            ReferenceFrame::ITRF2020,
+            TestTransform,
+        );
+
+        let transformed = provider
+            .state_at(
+                &id("DSS-14"),
+                Epoch::from_tai_seconds(20.0),
+                ReferenceFrame::GCRF,
+            )
+            .expect("explicit transform")
+            .expect("station state");
+        assert_eq!(transformed.frame(), ReferenceFrame::GCRF);
+        assert_eq!(
+            transformed.position().x(),
+            units::Length::new::<meter>(6_378_237.0)
+        );
+    }
+
+    #[cfg(all(feature = "light-time", feature = "range"))]
+    #[test]
+    fn vacuum_light_time_solves_moving_emitter_and_preserves_reported_epoch() {
+        use std::convert::Infallible;
+
+        use crate::{
+            MeasurementCorrectionModel, SignalPropagationGradient, SignalPropagationState,
+        };
+
+        #[derive(Debug)]
+        struct LinearProvider {
+            emitter: ParticipantId,
+            receiver: ParticipantId,
+        }
+
+        impl ParticipantStateProvider for LinearProvider {
+            type Error = Infallible;
+
+            fn state_at(
+                &self,
+                participant: &ParticipantId,
+                epoch: Epoch,
+                frame: ReferenceFrame,
+            ) -> Result<Option<ParticipantKinematics>, Self::Error> {
+                let elapsed = (epoch - Epoch::from_tai_seconds(1_000.0)).to_seconds();
+                let state = if participant == &self.emitter {
+                    Some(
+                        ParticipantKinematics::new(
+                            Position::from_metres(299_792_458.0 + 10.0 * elapsed, 0.0, 0.0),
+                            VelocityVector::from_metres_per_second(10.0, 0.0, 0.0),
+                            frame,
+                        )
+                        .expect("finite emitter"),
+                    )
+                } else if participant == &self.receiver {
+                    Some(
+                        ParticipantKinematics::new(
+                            Position::from_metres(0.0, 0.0, 0.0),
+                            VelocityVector::from_metres_per_second(0.0, 0.0, 0.0),
+                            frame,
+                        )
+                        .expect("finite receiver"),
+                    )
+                } else {
+                    None
+                };
+                Ok(state)
+            }
+        }
+
+        let emitter = id("SC-01");
+        let receiver = id("DSS-14");
+        let epoch = Epoch::from_tai_seconds(1_000.0);
+        let measurement = RangeMeasurement::new(
+            SignalPath::new(vec![emitter.clone(), receiver.clone()]).expect("path"),
+            epoch,
+            ReferenceFrame::GCRF,
+            RangeConvention::PathLength,
+            Measured::new([units::Length::new::<meter>(0.0)], None).expect("range value"),
+        )
+        .expect("range");
+        let participants = LinearProvider { emitter, receiver };
+        let solver = VacuumLightTimeSolver::new(participants);
+        let corrections = CorrectionModelChain::<RangeMeasurement, ()>::new();
+        let timeline = solver
+            .solve_timing(&measurement, &corrections, &())
+            .expect("light-time solution");
+
+        assert_eq!(timeline.observation_epoch(), epoch);
+        assert_eq!(timeline.event_epoch(1), Some(epoch));
+        let emission = timeline.event_epoch(0).expect("emission event");
+        assert!(emission < epoch);
+        assert!(((epoch - emission).to_seconds() - 0.999_999_967).abs() < 1.0e-9);
+
+        let non_convergent = VacuumLightTimeSolver::new(LinearProvider {
+            emitter: id("SC-01"),
+            receiver: id("DSS-14"),
+        })
+        .with_convergence(1, Duration::from_seconds(1.0e-9))
+        .expect("configuration")
+        .solve_timing(&measurement, &corrections, &())
+        .expect_err("one iteration cannot converge moving-emitter solution");
+        assert!(matches!(
+            non_convergent.downcast_ref::<VacuumLightTimeError<Infallible>>(),
+            Some(VacuumLightTimeError::NonConvergent {
+                leg: 0,
+                iterations: 1
+            })
+        ));
+
+        #[derive(Debug)]
+        struct DoubleVacuumSlowness;
+
+        impl MeasurementCorrectionModel<RangeMeasurement, ()> for DoubleVacuumSlowness {
+            fn propagation_gradient(
+                &self,
+                _measurement: &RangeMeasurement,
+                _state: SignalPropagationState,
+                _conditions: &(),
+            ) -> Result<SignalPropagationGradient, CorrectionModelError> {
+                Ok(SignalPropagationGradient::new(
+                    units::Time::new::<second>(1.0) / units::Length::new::<meter>(299_792_458.0),
+                ))
+            }
+
+            fn apply_model(
+                &self,
+                measurement: &RangeMeasurement,
+                _timeline: &SignalEventTimeline,
+                _conditions: &(),
+            ) -> Result<RangeMeasurement, CorrectionModelError> {
+                Ok(measurement.clone())
+            }
+        }
+
+        let mut delayed_corrections = CorrectionModelChain::new();
+        delayed_corrections.push(DoubleVacuumSlowness);
+        let delayed = VacuumLightTimeSolver::new(LinearProvider {
+            emitter: id("SC-01"),
+            receiver: id("DSS-14"),
+        })
+        .solve_timing(&measurement, &delayed_corrections, &())
+        .expect("corrected light-time solution");
+        assert!(
+            (epoch - delayed.event_epoch(0).expect("emission event")).to_seconds() > 1.9,
+            "one added vacuum slowness should approximately double this one-second path delay"
+        );
     }
 
     #[cfg(all(

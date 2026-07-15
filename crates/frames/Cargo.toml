@@ -13,5 +13,6 @@ name = "frames"
 
 [dependencies]
 bodies = { path = "../bodies" }
+hifitime.workspace = true
 units = { path = "../units" }
 thiserror.workspace = true

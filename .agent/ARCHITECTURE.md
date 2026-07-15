@@ -117,8 +117,15 @@ missing abstraction or an incorrectly placed type.
   uses the reported epoch; a multi-leg light-time estimator may use every event
   epoch. Value-domain corrections must preserve the reported epoch.
   Force models remain within the state provider and its propagator rather than
-  creating a measurements-to-dynamics dependency. Concrete light-time solvers,
-  transforms, displacement, weather, and physical correction models remain
+  creating a measurements-to-dynamics dependency. The feature-gated
+  `VacuumLightTimeSolver` resolves every path leg backward from the reported
+  reception epoch with the exact vacuum light speed and one midpoint sample of
+  the correction-gradient field; its fixed-point tolerance is explicitly
+  configured and it reports non-convergence. `frames::FrameKinematics` and a
+  `KinematicFrameTransformProvider` make transformation epochs, data, and
+  output frames explicit; the measurements adapter never relabels coordinates.
+  Earth orientation, concrete transforms, displacement, weather, higher-order
+  media integration, turnaround delay, and physical correction models remain
   separate feature-gated implementations.
   `GroundStation` owns a parent-relative fixed frame; geodetic conversion,
   displacement, topocentric-frame construction,

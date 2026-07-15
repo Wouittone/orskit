@@ -55,7 +55,12 @@ pub use estimation::{
     GroundStationProviderError, MeasurementEstimator, MeasurementModelEstimationError,
     MeasurementPrediction, ObservationEpochStage, ParticipantKinematics,
     ParticipantKinematicsError, ParticipantStateProvider, SignalPropagationError,
-    SignalPropagationSolver,
+    SignalPropagationSolver, TransformingParticipantStateProvider,
+    TransformingParticipantStateProviderError,
+};
+#[cfg(feature = "light-time")]
+pub use estimation::{
+    VacuumLightTimeConfigurationError, VacuumLightTimeError, VacuumLightTimeSolver,
 };
 #[cfg(any(
     feature = "angular-ra-dec",
