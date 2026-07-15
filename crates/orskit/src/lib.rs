@@ -3,8 +3,9 @@
 //! Feature-gated public facade for orskit domain contracts and implementations.
 //!
 //! `core`, `frames`, and `units` are always available. Select concrete state,
-//! dynamics, and I/O implementations explicitly with Cargo features; the
-//! default facade intentionally links no physical model implementation.
+//! attitude, geometry, measurement, dynamics, and I/O implementations
+//! explicitly with Cargo features; the default facade intentionally links no
+//! physical model implementation.
 
 pub use frames;
 pub use orskit_core as core;
@@ -39,8 +40,15 @@ pub mod prelude {
     pub use crate::dynamics_two_bodies::{EllipticKeplerPropagator, TwoBodyDynamics};
     #[cfg(feature = "point-mass-gravity")]
     pub use crate::gravity::PointMass;
+    #[cfg(feature = "measurement-range")]
+    pub use crate::measurements::RangeMeasurement;
+    #[cfg(feature = "measurement-estimation")]
+    pub use crate::measurements::{
+        CorrectionModelChain, MeasurementEstimator, ParticipantStateProvider,
+        SignalPropagationSolver,
+    };
     #[cfg(feature = "measurements")]
-    pub use crate::measurements::{ParticipantId, RangeMeasurement, SignalPath};
+    pub use crate::measurements::{Measurement, ParticipantId, SignalPath};
     #[cfg(feature = "cartesian")]
     pub use crate::orbits::{
         cartesian::CartesianState, circular::CircularState, equinoctial::EquinoctialState,

@@ -16,12 +16,16 @@
 //! ```
 
 mod astronomy;
+mod variance;
 mod vector;
 
 pub use astronomy::{GravitationalConstant, GravitationalParameter, QuantityError};
 pub use uom;
 pub use uom::si::f64::{
-    Acceleration, Angle, AngularAcceleration, AngularVelocity, Area, Length, Mass, MomentOfInertia,
-    Ratio, Velocity,
+    Acceleration, Angle, AngularAcceleration, AngularVelocity, Area, Frequency, Length, Mass,
+    MomentOfInertia, Ratio, Time, Velocity,
+};
+pub use variance::{
+    AngularVariance, FrequencyVariance, PositionVelocityCovariance, TimeVariance, VelocityVariance,
 };
 pub use vector::{AccelerationVector, AngularVelocityVector, Position, VelocityVector};

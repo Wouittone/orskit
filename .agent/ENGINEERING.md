@@ -109,10 +109,12 @@ Run the checks applicable to a change from the repository root:
 
 ```powershell
 cargo fmt --all --check
-cargo check --workspace --all-targets --locked
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo nextest run --workspace --locked
-cargo doc --workspace --no-deps --locked
+cargo check --workspace --all-targets --all-features --locked
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo nextest run --workspace --all-targets --all-features --locked
+# cargo-nextest does not support doctests on stable Rust.
+cargo test --workspace --doc --all-features --locked
+cargo doc --workspace --all-features --no-deps --locked
 ```
 
 Python and JVM binding workspaces are intentionally disabled while the Rust

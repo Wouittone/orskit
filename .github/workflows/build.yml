@@ -45,9 +45,9 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
       - name: Test Rust workspace
-        run: cargo nextest run --workspace --all-features --locked
+        run: cargo nextest run --workspace --all-targets --all-features --locked
 
-      - name: Test Rust documentation
+      - name: Test Rust documentation (not supported by nextest)
         run: cargo test --workspace --doc --all-features --locked
 
       - name: Build Rust documentation

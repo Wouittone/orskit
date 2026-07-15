@@ -463,8 +463,10 @@ version = "0.0.0"
 dependencies = [
  "frames",
  "hifitime",
+ "nalgebra",
  "thiserror",
  "units",
+ "utils",
 ]
 
 [[package]]

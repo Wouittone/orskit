@@ -11,6 +11,12 @@ description = "Core orbital mechanics library for orskit"
 [lib]
 name = "orskit_core"
 
+[features]
+default = ["quaternion-attitude", "standard-shapes"]
+# Built-in implementations of the open attitude and geometry contracts.
+quaternion-attitude = []
+standard-shapes = []
+
 [dependencies]
 hifitime.workspace = true
 nalgebra.workspace = true

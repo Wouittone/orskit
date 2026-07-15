@@ -9,7 +9,11 @@ use orbits::cartesian::{
 };
 use orskit_core::Epoch;
 use thiserror::Error;
-use units::{AccelerationVector, Position, VelocityVector};
+use units::uom::si::area::square_kilometer;
+use units::{
+    AccelerationVector, Area, Position, PositionVelocityCovariance, VelocityVariance,
+    VelocityVector,
+};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -442,6 +446,196 @@ pub struct OemSample {
     sample: CoordinateSample<CartesianCoordinates>,
 }
 
+/// Axes in which an OEM Cartesian covariance matrix is expressed.
+///
+/// Applications can supply an implementation for an axes convention not
+/// represented by this crate. The identifier preserves the `COV_REF_FRAME`
+/// declaration used on the wire.
+pub trait OemCovarianceAxes: fmt::Debug + Send + Sync + 'static {
+    /// Returns the declared OEM `COV_REF_FRAME` identifier.
+    fn identifier(&self) -> &str;
+
+    /// Returns a catalogued Cartesian reference frame when these axes have one.
+    fn reference_frame(&self) -> Option<ReferenceFrame> {
+        None
+    }
+}
+
+/// Catalogued Cartesian axes declared for an OEM covariance matrix.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReferenceCovarianceAxes {
+    frame: ReferenceFrame,
+    identifier: String,
+}
+
+impl ReferenceCovarianceAxes {
+    /// Constructs catalogued Cartesian covariance axes.
+    #[must_use]
+    pub fn new(frame: ReferenceFrame) -> Self {
+        Self {
+            identifier: frame.orientation().to_string(),
+            frame,
+        }
+    }
+}
+
+impl OemCovarianceAxes for ReferenceCovarianceAxes {
+    fn identifier(&self) -> &str {
+        &self.identifier
+    }
+
+    fn reference_frame(&self) -> Option<ReferenceFrame> {
+        Some(self.frame)
+    }
+}
+
+/// Local radial, transverse, normal covariance axes.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct RtnCovarianceAxes;
+
+impl OemCovarianceAxes for RtnCovarianceAxes {
+    fn identifier(&self) -> &str {
+        "RTN"
+    }
+}
+
+/// Covariance axes preserved from an OEM declaration not catalogued by this crate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclaredCovarianceAxes {
+    identifier: String,
+}
+
+impl DeclaredCovarianceAxes {
+    /// Preserves an application-defined OEM covariance-axes identifier.
+    #[must_use]
+    pub fn new(identifier: impl Into<String>) -> Self {
+        Self {
+            identifier: identifier.into(),
+        }
+    }
+}
+
+impl OemCovarianceAxes for DeclaredCovarianceAxes {
+    fn identifier(&self) -> &str {
+        &self.identifier
+    }
+}
+
+/// Type-erased, extensible covariance axes attached to an OEM covariance matrix.
+#[derive(Clone)]
+pub struct OemCovarianceFrame {
+    axes: Arc<dyn OemCovarianceAxes>,
+}
+
+impl OemCovarianceFrame {
+    /// Constructs a covariance-axes declaration from an application-owned implementation.
+    #[must_use]
+    pub fn new(axes: impl OemCovarianceAxes) -> Self {
+        Self {
+            axes: Arc::new(axes),
+        }
+    }
+
+    /// Returns the underlying covariance-axes contract.
+    #[must_use]
+    pub fn axes(&self) -> &dyn OemCovarianceAxes {
+        self.axes.as_ref()
+    }
+
+    /// Returns the declared OEM `COV_REF_FRAME` identifier.
+    #[must_use]
+    pub fn identifier(&self) -> &str {
+        self.axes.identifier()
+    }
+
+    /// Returns a catalogued Cartesian reference frame when these axes have one.
+    #[must_use]
+    pub fn reference_frame(&self) -> Option<ReferenceFrame> {
+        self.axes.reference_frame()
+    }
+}
+
+impl fmt::Debug for OemCovarianceFrame {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OemCovarianceFrame")
+            .field("identifier", &self.identifier())
+            .field("reference_frame", &self.reference_frame())
+            .finish()
+    }
+}
+
+impl PartialEq for OemCovarianceFrame {
+    fn eq(&self, other: &Self) -> bool {
+        self.identifier() == other.identifier() && self.reference_frame() == other.reference_frame()
+    }
+}
+
+impl Eq for OemCovarianceFrame {}
+
+/// One unit-qualified entry in a Cartesian position/velocity covariance matrix.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub enum CartesianCovarianceEntry {
+    /// Position/position covariance in square length.
+    Position(Area),
+    /// Position/velocity covariance in square length per time.
+    PositionVelocity(PositionVelocityCovariance),
+    /// Velocity/velocity covariance in square velocity.
+    Velocity(VelocityVariance),
+}
+
+/// One OEM Cartesian covariance matrix with source and segment provenance.
+///
+/// OEM supplies the lower triangle in km-based units. The reader retains a
+/// symmetric `6 × 6` matrix whose entries retain their physical dimensions.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OemCartesianCovariance {
+    context: OemSegmentContext,
+    source_line: usize,
+    epoch: Epoch,
+    frame: OemCovarianceFrame,
+    matrix: [[CartesianCovarianceEntry; 6]; 6],
+}
+
+impl OemCartesianCovariance {
+    /// Returns the containing segment identifier.
+    #[must_use]
+    pub const fn segment_id(&self) -> OemSegmentId {
+        self.context.id()
+    }
+
+    /// Returns the one-based source line containing this covariance epoch.
+    #[must_use]
+    pub const fn source_line(&self) -> usize {
+        self.source_line
+    }
+
+    /// Returns the immutable context shared by the containing segment.
+    #[must_use]
+    pub const fn context(&self) -> &OemSegmentContext {
+        &self.context
+    }
+
+    /// Returns the covariance epoch.
+    #[must_use]
+    pub const fn epoch(&self) -> Epoch {
+        self.epoch
+    }
+
+    /// Returns the covariance reference axes.
+    #[must_use]
+    pub const fn frame(&self) -> &OemCovarianceFrame {
+        &self.frame
+    }
+
+    /// Returns the symmetric, unit-qualified Cartesian covariance matrix.
+    #[must_use]
+    pub const fn matrix(&self) -> &[[CartesianCovarianceEntry; 6]; 6] {
+        &self.matrix
+    }
+}
+
 impl OemSample {
     /// Returns the containing segment identifier.
     #[must_use]
@@ -500,12 +694,15 @@ pub enum OemRecordRef<'a> {
     Comment(&'a OemComment),
     /// A typed Cartesian state record.
     Coordinates(&'a OemSample),
+    /// A Cartesian covariance matrix.
+    Covariance(&'a OemCartesianCovariance),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OemRecordIndex {
     Comment(usize),
     Coordinates(usize),
+    Covariance(usize),
 }
 
 /// One collected OEM segment.
@@ -513,6 +710,7 @@ enum OemRecordIndex {
 pub struct OemSegment {
     context: OemSegmentContext,
     coordinates: Vec<OemSample>,
+    covariances: Vec<OemCartesianCovariance>,
     comments: Vec<OemComment>,
     record_order: Vec<OemRecordIndex>,
 }
@@ -542,6 +740,12 @@ impl OemSegment {
         &self.coordinates
     }
 
+    /// Returns Cartesian covariance matrices in source order.
+    #[must_use]
+    pub fn covariances(&self) -> &[OemCartesianCovariance] {
+        &self.covariances
+    }
+
     /// Returns metadata and data comments in source order.
     #[must_use]
     pub fn comments(&self) -> &[OemComment] {
@@ -560,6 +764,7 @@ impl OemSegment {
             OemRecordIndex::Coordinates(index) => {
                 OemRecordRef::Coordinates(&self.coordinates[index])
             }
+            OemRecordIndex::Covariance(index) => OemRecordRef::Covariance(&self.covariances[index]),
         })
     }
 }
@@ -597,6 +802,8 @@ pub enum OemEvent {
     Comment(OemComment),
     /// One typed, timed Cartesian ephemeris point with source provenance.
     Coordinates(Box<OemSample>),
+    /// One Cartesian covariance matrix.
+    Covariance(Box<OemCartesianCovariance>),
     /// The end of the identified segment.
     SegmentEnd(OemSegmentId),
 }
@@ -735,11 +942,25 @@ pub enum OemError {
         #[source]
         source: KinematicError,
     },
-    /// Covariance needs a typed parameterization not implemented in this slice.
-    #[error("OEM covariance block at line {line} is not supported yet")]
-    UnsupportedCovariance {
+    /// A covariance entry was not finite numeric text.
+    #[error("invalid OEM covariance entry {value} at line {line}")]
+    InvalidCovarianceEntry {
         /// Source line.
         line: usize,
+        /// Source text.
+        value: String,
+    },
+    /// One covariance row did not contain its required lower-triangle entries.
+    #[error("OEM covariance row {row} at line {line} has {actual} entries; expected {expected}")]
+    InvalidCovarianceRow {
+        /// Source line.
+        line: usize,
+        /// Zero-based covariance row.
+        row: usize,
+        /// Observed count.
+        actual: usize,
+        /// Required count.
+        expected: usize,
     },
     /// Metadata times are not ordered consistently.
     #[error("OEM metadata times are not ordered at line {line}")]
@@ -1210,6 +1431,7 @@ fn collect_document(
                 active = Some(OemSegment {
                     context,
                     coordinates: Vec::new(),
+                    covariances: Vec::new(),
                     comments,
                     record_order,
                 });
@@ -1241,6 +1463,19 @@ fn collect_document(
                 segment
                     .record_order
                     .push(OemRecordIndex::Coordinates(index));
+            }
+            OemEvent::Covariance(covariance) => {
+                let segment = active.as_mut().ok_or(OemError::InvalidEventOrder {
+                    message: "covariance outside a segment",
+                })?;
+                if covariance.segment_id() != segment.id() {
+                    return Err(OemError::InvalidEventOrder {
+                        message: "covariance segment identifier does not match active segment",
+                    });
+                }
+                let index = segment.covariances.len();
+                segment.covariances.push(*covariance);
+                segment.record_order.push(OemRecordIndex::Covariance(index));
             }
             OemEvent::SegmentEnd(id) => {
                 let segment = active.take().ok_or(OemError::InvalidEventOrder {
@@ -1308,7 +1543,7 @@ fn validate_event_chronology(
         OemEvent::Header(_) | OemEvent::SegmentStart(_) | OemEvent::SegmentEnd(_) => {
             chronology.reset();
         }
-        OemEvent::Comment(_) => {}
+        OemEvent::Comment(_) | OemEvent::Covariance(_) => {}
         OemEvent::Coordinates(sample) => {
             chronology.observe(sample.source_line(), sample.epoch())?;
         }
@@ -1341,6 +1576,7 @@ struct Decoder {
     current_segment_id: Option<OemSegmentId>,
     current_context: Option<OemSegmentContext>,
     current_state_count: usize,
+    covariance: Option<CovarianceBuilder>,
 }
 
 impl Default for Decoder {
@@ -1355,6 +1591,7 @@ enum Phase {
     Header,
     Metadata,
     Data,
+    Covariance,
     Done,
 }
 
@@ -1386,6 +1623,7 @@ impl Decoder {
             current_segment_id: None,
             current_context: None,
             current_state_count: 0,
+            covariance: None,
         }
     }
 
@@ -1403,7 +1641,7 @@ impl Decoder {
         match self.phase {
             Phase::Header => OemSection::Header,
             Phase::Metadata => OemSection::Metadata,
-            Phase::Data | Phase::Done => OemSection::Data,
+            Phase::Data | Phase::Covariance | Phase::Done => OemSection::Data,
         }
     }
 
@@ -1537,7 +1775,9 @@ impl Decoder {
                     )))));
                 }
                 if line == "COVARIANCE_START" {
-                    return Err(OemError::UnsupportedCovariance { line: self.line });
+                    self.phase = Phase::Covariance;
+                    self.covariance = None;
+                    return Ok(None);
                 }
                 if let Some(comment) = comment_value(line) {
                     let id = self.current_segment_id.ok_or(OemError::InvalidEventOrder {
@@ -1574,6 +1814,69 @@ impl Decoder {
                     context: context.clone(),
                 })))
             }
+            Phase::Covariance => {
+                if line == "COVARIANCE_STOP" {
+                    let covariance = self
+                        .covariance
+                        .take()
+                        .ok_or(OemError::MissingField {
+                            line: self.line,
+                            section: "covariance",
+                            field: "EPOCH",
+                        })?
+                        .finish()?;
+                    self.phase = Phase::Data;
+                    let event = OemEvent::Covariance(Box::new(covariance));
+                    return Ok(Some(DecoderOutput::Event(Box::new(event))));
+                }
+                if let Some((key, value)) = line.split_once('=') {
+                    let key = key.trim();
+                    let value = value.trim();
+                    if key == "EPOCH" {
+                        let previous = self
+                            .covariance
+                            .take()
+                            .map(CovarianceBuilder::finish)
+                            .transpose()?;
+                        let context =
+                            self.current_context
+                                .as_ref()
+                                .ok_or(OemError::InvalidEventOrder {
+                                    message: "covariance encountered without segment context",
+                                })?;
+                        let epoch =
+                            parse_epoch(value, context.metadata().time_system(), self.line)?;
+                        self.covariance =
+                            Some(CovarianceBuilder::new(context.clone(), self.line, epoch));
+                        return Ok(previous.map(|covariance| {
+                            DecoderOutput::Event(Box::new(OemEvent::Covariance(Box::new(
+                                covariance,
+                            ))))
+                        }));
+                    }
+                    if key == "COV_REF_FRAME" {
+                        let builder = self.covariance.as_mut().ok_or_else(|| {
+                            OemError::UnexpectedContent {
+                                line: self.line,
+                                section: "covariance",
+                                content: line.to_owned(),
+                            }
+                        })?;
+                        builder.set_frame(value, self.line)?;
+                        return Ok(None);
+                    }
+                }
+                let builder =
+                    self.covariance
+                        .as_mut()
+                        .ok_or_else(|| OemError::UnexpectedContent {
+                            line: self.line,
+                            section: "covariance",
+                            content: line.to_owned(),
+                        })?;
+                builder.push_row(line, self.line)?;
+                Ok(None)
+            }
             Phase::Done => Err(OemError::UnexpectedContent {
                 line: self.line,
                 section: "end of message",
@@ -1599,6 +1902,11 @@ impl Decoder {
                 self.current_segment_id = None;
                 Ok(Some(OemEvent::SegmentEnd(id)))
             }
+            Phase::Covariance => Err(OemError::UnexpectedContent {
+                line: self.line,
+                section: "covariance",
+                content: "end of input before COVARIANCE_STOP".to_owned(),
+            }),
             Phase::Done => Ok(None),
             Phase::Header => Err(OemError::UnexpectedContent {
                 line: self.line,
@@ -1611,6 +1919,144 @@ impl Decoder {
                 content: "end of input before META_STOP".to_owned(),
             }),
         }
+    }
+}
+
+struct CovarianceBuilder {
+    context: OemSegmentContext,
+    source_line: usize,
+    epoch: Epoch,
+    frame: Option<OemCovarianceFrame>,
+    rows: Vec<Vec<f64>>,
+}
+
+impl CovarianceBuilder {
+    const fn new(context: OemSegmentContext, source_line: usize, epoch: Epoch) -> Self {
+        Self {
+            context,
+            source_line,
+            epoch,
+            frame: None,
+            rows: Vec::new(),
+        }
+    }
+
+    fn set_frame(&mut self, value: &str, line: usize) -> Result<(), OemError> {
+        if self.frame.is_some() {
+            return Err(OemError::UnexpectedContent {
+                line,
+                section: "covariance",
+                content: "duplicate COV_REF_FRAME".to_owned(),
+            });
+        }
+        self.frame = Some(parse_covariance_frame(value, self.context.metadata()));
+        Ok(())
+    }
+
+    fn push_row(&mut self, line: &str, source_line: usize) -> Result<(), OemError> {
+        let row = self.rows.len();
+        if row == 6 {
+            return Err(OemError::UnexpectedContent {
+                line: source_line,
+                section: "covariance",
+                content: line.to_owned(),
+            });
+        }
+        let values = line
+            .split_ascii_whitespace()
+            .map(|value| {
+                value
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|value| value.is_finite())
+                    .ok_or_else(|| OemError::InvalidCovarianceEntry {
+                        line: source_line,
+                        value: value.to_owned(),
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let expected = row + 1;
+        if values.len() != expected {
+            return Err(OemError::InvalidCovarianceRow {
+                line: source_line,
+                row,
+                actual: values.len(),
+                expected,
+            });
+        }
+        self.rows.push(values);
+        Ok(())
+    }
+
+    fn finish(self) -> Result<OemCartesianCovariance, OemError> {
+        if self.rows.len() != 6 {
+            return Err(OemError::InvalidCovarianceRow {
+                line: self.source_line,
+                row: self.rows.len(),
+                actual: self.rows.len(),
+                expected: 6,
+            });
+        }
+        let frame = self.frame.ok_or(OemError::MissingField {
+            line: self.source_line,
+            section: "covariance",
+            field: "COV_REF_FRAME",
+        })?;
+        let mut matrix = std::array::from_fn(|row| {
+            std::array::from_fn(|column| cartesian_covariance_entry(row, column, 0.0))
+        });
+        for (row, values) in self.rows.iter().enumerate() {
+            let (earlier_rows, current_and_later) = matrix.split_at_mut(row);
+            let current_row = &mut current_and_later[0];
+            for (column, value) in values.iter().copied().enumerate() {
+                let entry = cartesian_covariance_entry(row, column, value);
+                current_row[column] = entry;
+                if column != row {
+                    earlier_rows[column][row] = entry;
+                }
+            }
+        }
+        Ok(OemCartesianCovariance {
+            context: self.context,
+            source_line: self.source_line,
+            epoch: self.epoch,
+            frame,
+            matrix,
+        })
+    }
+}
+
+fn parse_covariance_frame(value: &str, metadata: &OemMetadata) -> OemCovarianceFrame {
+    if value.eq_ignore_ascii_case("RTN") {
+        return OemCovarianceFrame::new(RtnCovarianceAxes);
+    }
+    match value.parse::<FrameOrientation>() {
+        Ok(orientation) => OemCovarianceFrame::new(ReferenceCovarianceAxes::new(
+            ReferenceFrame::new(metadata.frame().origin(), orientation),
+        )),
+        Err(_) => OemCovarianceFrame::new(DeclaredCovarianceAxes::new(value)),
+    }
+}
+
+fn cartesian_covariance_entry(
+    row: usize,
+    column: usize,
+    value_in_square_kilometres: f64,
+) -> CartesianCovarianceEntry {
+    match (row < 3, column < 3) {
+        (true, true) => CartesianCovarianceEntry::Position(Area::new::<square_kilometer>(
+            value_in_square_kilometres,
+        )),
+        (false, false) => CartesianCovarianceEntry::Velocity(
+            VelocityVariance::from_square_metres_per_square_second(
+                value_in_square_kilometres * 1_000_000.0,
+            ),
+        ),
+        _ => CartesianCovarianceEntry::PositionVelocity(
+            PositionVelocityCovariance::from_square_metres_per_second(
+                value_in_square_kilometres * 1_000_000.0,
+            ),
+        ),
     }
 }
 
@@ -2044,6 +2490,9 @@ STOP_TIME = 2024-01-01T00:01:00\n\
 META_STOP\n\
 2024-01-01T00:00:00 1 2 3 4 5 6\n";
 
+    const ISSUE_839_COVARIANCE: &str =
+        include_str!("../testdata/orekit_oem_issue839_covariance.oem");
+
     fn limits(
         max_line_bytes: usize,
         max_section_bytes: usize,
@@ -2232,6 +2681,9 @@ META_STOP\n\
                 .map(|record| match record {
                     OemRecordRef::Comment(comment) => ("comment", comment.source_line()),
                     OemRecordRef::Coordinates(sample) => ("coordinates", sample.source_line()),
+                    OemRecordRef::Covariance(covariance) => {
+                        ("covariance", covariance.source_line())
+                    }
                 })
                 .collect::<Vec<_>>(),
             [
@@ -2383,16 +2835,64 @@ META_STOP\n\
     }
 
     #[test]
-    fn covariance_is_not_silently_discarded() {
-        let input = SAMPLE.replacen(
-            "META_START\nOBJECT_NAME = MARS TEST",
-            "COVARIANCE_START\nMETA_START\nOBJECT_NAME = MARS TEST",
-            1,
+    fn orekit_issue_839_covariances_are_constructed_with_units() {
+        let message = parse_oem_kvn(ISSUE_839_COVARIANCE)
+            .expect("Orekit Issue 839 covariance fixture parses");
+        let segment = message.segments().first().expect("covariance segment");
+        let covariances = segment.covariances();
+        assert_eq!(covariances.len(), 2);
+        assert_eq!(covariances[0].frame().identifier(), "RTN");
+        assert_eq!(covariances[0].frame().reference_frame(), None);
+        assert_eq!(
+            covariances[1].frame().reference_frame(),
+            Some(ReferenceFrame::new(
+                segment.metadata().frame().origin(),
+                FrameOrientation::Eme2000,
+            ))
+        );
+        assert_eq!(
+            covariances[0].matrix()[0][0],
+            CartesianCovarianceEntry::Position(Area::new::<square_kilometer>(3.331_349_4e-4))
+        );
+        assert_eq!(
+            covariances[0].matrix()[3][0],
+            CartesianCovarianceEntry::PositionVelocity(
+                PositionVelocityCovariance::from_square_metres_per_second(-0.334_936_5)
+            )
+        );
+        assert_eq!(
+            covariances[0].matrix()[4][4],
+            CartesianCovarianceEntry::Velocity(
+                VelocityVariance::from_square_metres_per_square_second(0.000_176_751_47)
+            )
         );
         assert!(matches!(
-            parse_oem_kvn(&input),
-            Err(OemError::UnsupportedCovariance { .. })
+            segment.records().last(),
+            Some(OemRecordRef::Covariance(_))
         ));
+    }
+
+    #[test]
+    fn application_declared_covariance_axes_are_preserved() {
+        let input = ISSUE_839_COVARIANCE.replacen("COV_REF_FRAME = RTN", "COV_REF_FRAME = TNW", 1);
+        let message = parse_oem_kvn(&input).expect("unknown axes declaration is retained");
+        let covariance = &message.segments()[0].covariances()[0];
+
+        assert_eq!(covariance.frame().identifier(), "TNW");
+        assert_eq!(covariance.frame().reference_frame(), None);
+
+        #[derive(Debug)]
+        struct StationTopocentricAxes;
+        impl OemCovarianceAxes for StationTopocentricAxes {
+            fn identifier(&self) -> &str {
+                "TOPOCENTRIC"
+            }
+        }
+
+        assert_eq!(
+            OemCovarianceFrame::new(StationTopocentricAxes).identifier(),
+            "TOPOCENTRIC"
+        );
     }
 
     #[test]

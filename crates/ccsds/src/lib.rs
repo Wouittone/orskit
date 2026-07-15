@@ -33,10 +33,11 @@
 mod oem;
 
 pub use oem::{
-    parse_oem_kvn, parse_oem_kvn_with_limits, Oem, OemComment, OemDecoderLimits,
-    OemDecoderLimitsError, OemError, OemEvent, OemHeader, OemKvnReader, OemLimitKind, OemMetadata,
-    OemRecordRef, OemSample, OemSection, OemSegment, OemSegmentContext, OemSegmentId,
-    OemTimeSystem,
+    parse_oem_kvn, parse_oem_kvn_with_limits, CartesianCovarianceEntry, DeclaredCovarianceAxes,
+    Oem, OemCartesianCovariance, OemComment, OemCovarianceAxes, OemCovarianceFrame,
+    OemDecoderLimits, OemDecoderLimitsError, OemError, OemEvent, OemHeader, OemKvnReader,
+    OemLimitKind, OemMetadata, OemRecordRef, OemSample, OemSection, OemSegment, OemSegmentContext,
+    OemSegmentId, OemTimeSystem, ReferenceCovarianceAxes, RtnCovarianceAxes,
 };
 
 #[cfg(feature = "async")]

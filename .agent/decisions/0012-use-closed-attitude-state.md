@@ -1,6 +1,6 @@
 # ADR-0012: represent attitude with a closed state enum
 
-- Status: Superseded by ADR-0028
+- Status: Superseded by ADR-0034
 - Date: 2026-07-05
 - Supersedes: ADR-0011 attitude trait-object decision
 - Affected parity rows: rotations and angular states; two-body propagation
