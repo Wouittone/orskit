@@ -553,8 +553,15 @@ impl TryFrom<KeplerianState> for CartesianState {
     type Error = StateError;
 
     fn try_from(source: KeplerianState) -> Result<Self, Self::Error> {
-        let gravity = Arc::clone(source.central_gravity());
-        cartesian_from_keplerian(&gravity, source)
+        Self::try_from(&source)
+    }
+}
+
+impl TryFrom<&KeplerianState> for CartesianState {
+    type Error = StateError;
+
+    fn try_from(source: &KeplerianState) -> Result<Self, Self::Error> {
+        cartesian_from_keplerian(source.central_gravity(), source)
     }
 }
 
@@ -745,7 +752,7 @@ impl ValidatedKeplerian {
 
 fn cartesian_from_keplerian(
     gravity: &SharedCentralGravity,
-    source: KeplerianState,
+    source: &KeplerianState,
 ) -> Result<CartesianState, StateError> {
     validate_gravity_origin(gravity, source.frame())?;
     let elements = source.validated()?;
@@ -999,7 +1006,7 @@ pub enum StateError {
 mod tests {
     use super::*;
     use frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin, InertialFrame};
-    use orskit_core::Orbit;
+    use orskit_core::{Orbit, OrbitParts};
     use units::uom::si::velocity::meter_per_second;
     use units::GravitationalParameter;
 
@@ -1152,12 +1159,10 @@ mod tests {
             Orbit::new(Epoch::from_tai_seconds(42.0), cartesian_from_recovered)
                 .try_map_state(|state| (state, Arc::clone(&gravity)).try_into())
                 .expect("orbit state conversion");
-        let mapped_cartesian: CartesianState = mapped
-            .state()
-            .try_into()
-            .expect("mapped state to Cartesian");
+        let OrbitParts { epoch, state } = mapped.into();
+        let mapped_cartesian: CartesianState = state.try_into().expect("mapped state to Cartesian");
 
-        assert_eq!(mapped.epoch(), Epoch::from_tai_seconds(42.0));
+        assert_eq!(epoch, Epoch::from_tai_seconds(42.0));
         assert_vector_close(
             cartesian_from_equinoctial.position().to_metres(),
             mapped_cartesian.position().to_metres(),

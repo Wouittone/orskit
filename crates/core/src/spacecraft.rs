@@ -583,7 +583,7 @@ where
         if inertia.frame_capability() != spacecraft.body_frame_capability() {
             return Err(SpacecraftViewError::InertiaFrameMismatch);
         }
-        if attitude.orientation().target_frame() != orbit.state().frame() {
+        if attitude.orientation().target_frame() != orbit.as_ref().frame() {
             return Err(SpacecraftViewError::AttitudeReferenceFrameMismatch);
         }
         Ok(Self {
@@ -607,22 +607,16 @@ where
         self.orbit.epoch()
     }
 
-    /// Returns the epoch-qualified orbit in this complete view.
+    /// Borrows the epoch-qualified orbit in this complete view.
     #[must_use]
-    pub fn orbit(&self) -> Orbit<S> {
-        self.orbit.clone()
+    pub const fn orbit(&self) -> &Orbit<S> {
+        &self.orbit
     }
 
     /// Returns spacecraft mass at the view epoch.
     #[must_use]
     pub const fn mass(&self) -> Mass {
         self.mass
-    }
-
-    /// Returns the orbital state at the view epoch.
-    #[must_use]
-    pub fn state(&self) -> S {
-        self.orbit.state()
     }
 
     /// Returns the inertia tensor at the view epoch.
@@ -840,10 +834,10 @@ mod tests {
         assert_eq!(view.epoch(), Epoch::from_tai_seconds(42.0));
         assert_eq!(
             view.orbit(),
-            Orbit::new(Epoch::from_tai_seconds(42.0), state())
+            &Orbit::new(Epoch::from_tai_seconds(42.0), state())
         );
         assert_eq!(view.mass(), Mass::new::<kilogram>(500.0));
-        assert_eq!(view.state().frame(), ReferenceFrame::GCRF);
+        assert_eq!(view.orbit().as_ref().frame(), ReferenceFrame::GCRF);
         assert_eq!(view.inertia().frame(), body);
         assert_eq!(view.attitude().orientation().source_frame(), body);
     }

@@ -14,7 +14,7 @@ mod spacecraft;
 
 pub use frames;
 pub use hifitime::Epoch;
-pub use orbit::{Orbit, SpacecraftState};
+pub use orbit::{Orbit, OrbitParts, SpacecraftState};
 pub use spacecraft::{
     Attitude, AttitudeError, BodyAngularVelocity, InertiaError, InertiaTensor, Orientation,
     OrientationError, ShapeError, Spacecraft, SpacecraftBodyFrame, SpacecraftError,
