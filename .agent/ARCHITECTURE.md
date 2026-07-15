@@ -198,11 +198,17 @@ missing abstraction or an incorrectly placed type.
 
 - Prefer small cohesive types, enums for closed physical alternatives, and
   traits for genuine extension points.
+- Present one high-level, domain-oriented API to users. Algorithms may use
+  vector/matrix kernels internally for performance, but those kernels are not
+  a second supported public surface.
 - Use builders when construction has many optional model choices; validate at
   construction so propagation does not repeatedly discover configuration
   errors.
 - Separate immutable model configuration from mutable integration workspace.
 - Make expensive allocation and data loading observable to callers.
+- Prefer borrowed access and ownership transfer over cloned return values. Use
+  standard traits for conversions and access when they express the operation;
+  do not add public convenience wrappers that duplicate them.
 - Use typed domain errors and preserve error sources.
 - Do not expose dependency-specific types in stable public APIs unless the
   dependency is an intentional part of the compatibility contract. Hifitime

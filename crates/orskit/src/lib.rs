@@ -6,6 +6,11 @@
 //! attitude, geometry, measurement, dynamics, and I/O implementations
 //! explicitly with Cargo features; the default facade intentionally links no
 //! physical model implementation.
+//!
+//! This is the sole user-facing API layer. Domain types and operations stay
+//! here and in the focused crates it re-exports; vector/matrix kernels and
+//! algorithm workspaces remain implementation details except at explicitly
+//! named interoperability boundaries.
 
 pub use frames;
 pub use orskit_core as core;

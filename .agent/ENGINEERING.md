@@ -50,6 +50,9 @@ passing test. Preserve accuracy checks when optimizing.
   binding task plus policy review before modification or re-enablement.
 - Do not panic across FFI or on untrusted data. Avoid hidden allocations in
   hot loops and expose reusable workspaces only when profiling justifies them.
+- Keep vector/matrix representations and numerical workspaces behind the
+  high-level domain API. Public calls must make allocation and ownership
+  transfer explicit; borrow or move values instead of returning cloned data.
 - Declare and test the minimum supported Rust version before the first public
   release; do not raise it accidentally.
 
