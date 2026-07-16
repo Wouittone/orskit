@@ -9,8 +9,10 @@
 //! pretending that general frame transforms or geodesy already exist.
 //! Orientations explicitly declare whether their axes are inertial,
 //! non-inertial, or unspecified. Kinematic transform providers make their
-//! epoch and data dependencies explicit; this crate deliberately does not
-//! supply an Earth-orientation or ephemeris-backed implementation.
+//! epoch and data dependencies explicit. A
+//! [`FrameReferenceDataSupplier`] carries the selected reference-data identity
+//! and can back a transform provider without making this foundational crate
+//! load files, fetch data, or select an Earth-orientation model implicitly.
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error as StdError;
@@ -356,6 +358,131 @@ pub trait KinematicFrameTransformProvider: fmt::Debug + Send + Sync {
         kinematics: FrameKinematics,
         target: ReferenceFrame,
     ) -> Result<FrameKinematics, Self::Error>;
+}
+
+/// Immutable identity of the reference data selected by an application.
+///
+/// The supplier owns this value and exposes it by reference, so algorithms can
+/// record exactly which data they used without cloning strings or choosing an
+/// ambient data set. `checksum` identifies the exact content when the source
+/// format supplies one.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ReferenceDataDescriptor {
+    /// Publishing organization or application that supplied the data.
+    pub authority: String,
+    /// Product or data family, such as an IERS EOP series or JPL DE440.
+    pub product: String,
+    /// Immutable release, issue, or application-defined revision.
+    pub revision: String,
+    /// Optional content checksum for the selected artifact set.
+    pub checksum: Option<String>,
+}
+
+/// Supplies reference-data-backed kinematic frame solutions.
+///
+/// This is an application-controlled data boundary: implementations own data
+/// loading, coverage checks, interpolation, caching, and the selected
+/// conventions. Each result must include all origin translation, orientation,
+/// and velocity terms needed for the requested frame conversion. The trait
+/// deliberately returns high-level [`FrameKinematics`] rather than exposing a
+/// public matrix kernel.
+///
+/// A recommended production implementation combines a pinned JPL/NAIF SPK
+/// planetary ephemeris (for example DE440) with a pinned IERS Earth-orientation
+/// series and one declared IAU/IERS convention set. JPL ephemerides alone do
+/// not realize the terrestrial-to-celestial orientation; implementations must
+/// report every selected input through [`Self::descriptor`]. Other valid
+/// implementations include a mission-specific validated data bundle or an
+/// adapter to an independently managed almanac.
+pub trait FrameReferenceDataSupplier: fmt::Debug + Send + Sync {
+    /// Failure returned for missing data, unsupported frames, invalid coverage,
+    /// or supplier-specific evaluation errors.
+    type Error: StdError + Send + Sync + 'static;
+
+    /// Returns the immutable identity of the data selected by this supplier.
+    fn descriptor(&self) -> &ReferenceDataDescriptor;
+
+    /// Resolves `kinematics` at `epoch` into `target` using the selected data.
+    fn transform_kinematics(
+        &self,
+        epoch: Epoch,
+        kinematics: FrameKinematics,
+        target: ReferenceFrame,
+    ) -> Result<FrameKinematics, Self::Error>;
+}
+
+/// [`KinematicFrameTransformProvider`] backed by one explicit reference-data supplier.
+///
+/// Construct this adapter with [`From`]. It preserves an identity transform
+/// without querying the supplier, delegates every distinct-frame request to
+/// the supplier, and verifies that the returned kinematics carry the requested
+/// target frame.
+#[derive(Debug)]
+pub struct ReferenceDataKinematicFrameTransform<S> {
+    supplier: S,
+}
+
+impl<S> From<S> for ReferenceDataKinematicFrameTransform<S> {
+    fn from(supplier: S) -> Self {
+        Self { supplier }
+    }
+}
+
+impl<S: FrameReferenceDataSupplier> KinematicFrameTransformProvider
+    for ReferenceDataKinematicFrameTransform<S>
+{
+    type Error = ReferenceDataKinematicFrameTransformError<S::Error>;
+
+    fn transform(
+        &self,
+        epoch: Epoch,
+        kinematics: FrameKinematics,
+        target: ReferenceFrame,
+    ) -> Result<FrameKinematics, Self::Error> {
+        if kinematics.frame() == target {
+            return Ok(kinematics);
+        }
+
+        let transformed = self
+            .supplier
+            .transform_kinematics(epoch, kinematics, target)
+            .map_err(
+                |source| ReferenceDataKinematicFrameTransformError::Supplier {
+                    source: Box::new(source),
+                },
+            )?;
+        if transformed.frame() != target {
+            return Err(
+                ReferenceDataKinematicFrameTransformError::OutputFrameMismatch {
+                    expected: target,
+                    actual: transformed.frame(),
+                },
+            );
+        }
+        Ok(transformed)
+    }
+}
+
+/// Failure from [`ReferenceDataKinematicFrameTransform`].
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum ReferenceDataKinematicFrameTransformError<E: StdError + Send + Sync + 'static> {
+    /// The selected reference-data supplier could not evaluate the request.
+    #[error("reference-data supplier failed to resolve the requested frame transform")]
+    Supplier {
+        /// Supplier-specific source failure. This allocation occurs only on an
+        /// error path, keeping successful transformation results compact.
+        #[source]
+        source: Box<E>,
+    },
+    /// The supplier did not return kinematics in the requested target frame.
+    #[error("reference-data supplier returned {actual:?}, expected {expected:?}")]
+    OutputFrameMismatch {
+        /// Target frame requested from the transform provider.
+        expected: ReferenceFrame,
+        /// Frame carried by the supplier's returned kinematics.
+        actual: ReferenceFrame,
+    },
 }
 
 /// Transform provider that accepts only an identity transform.
@@ -770,6 +897,91 @@ pub enum InertialFrameError {
 mod tests {
     use super::*;
 
+    fn descriptor() -> ReferenceDataDescriptor {
+        ReferenceDataDescriptor {
+            authority: "test authority".to_owned(),
+            product: "test reference data".to_owned(),
+            revision: "test revision".to_owned(),
+            checksum: Some("test checksum".to_owned()),
+        }
+    }
+
+    #[derive(Debug)]
+    struct OffsetSupplier {
+        descriptor: ReferenceDataDescriptor,
+    }
+
+    impl FrameReferenceDataSupplier for OffsetSupplier {
+        type Error = std::convert::Infallible;
+
+        fn descriptor(&self) -> &ReferenceDataDescriptor {
+            &self.descriptor
+        }
+
+        fn transform_kinematics(
+            &self,
+            _epoch: Epoch,
+            kinematics: FrameKinematics,
+            target: ReferenceFrame,
+        ) -> Result<FrameKinematics, Self::Error> {
+            let position = kinematics.position().to_metres();
+            Ok(FrameKinematics::new(
+                Position::from_metres(position[0] + 100.0, position[1], position[2]),
+                kinematics.velocity(),
+                target,
+            )
+            .expect("finite transformed state"))
+        }
+    }
+
+    #[derive(Debug)]
+    struct MislabelledSupplier {
+        descriptor: ReferenceDataDescriptor,
+    }
+
+    impl FrameReferenceDataSupplier for MislabelledSupplier {
+        type Error = std::convert::Infallible;
+
+        fn descriptor(&self) -> &ReferenceDataDescriptor {
+            &self.descriptor
+        }
+
+        fn transform_kinematics(
+            &self,
+            _epoch: Epoch,
+            kinematics: FrameKinematics,
+            _target: ReferenceFrame,
+        ) -> Result<FrameKinematics, Self::Error> {
+            Ok(kinematics)
+        }
+    }
+
+    #[derive(Debug, Error)]
+    #[error("reference data do not cover the requested epoch")]
+    struct CoverageError;
+
+    #[derive(Debug)]
+    struct RejectingSupplier {
+        descriptor: ReferenceDataDescriptor,
+    }
+
+    impl FrameReferenceDataSupplier for RejectingSupplier {
+        type Error = CoverageError;
+
+        fn descriptor(&self) -> &ReferenceDataDescriptor {
+            &self.descriptor
+        }
+
+        fn transform_kinematics(
+            &self,
+            _epoch: Epoch,
+            _kinematics: FrameKinematics,
+            _target: ReferenceFrame,
+        ) -> Result<FrameKinematics, Self::Error> {
+            Err(CoverageError)
+        }
+    }
+
     #[test]
     fn built_in_frames_round_trip_through_names() {
         for frame in [
@@ -1076,5 +1288,93 @@ mod tests {
                 target: ReferenceFrame::GCRF,
             })
         );
+    }
+
+    #[test]
+    fn reference_data_adapter_delegates_distinct_frames_and_preserves_provenance() {
+        let supplier = OffsetSupplier {
+            descriptor: descriptor(),
+        };
+        assert_eq!(supplier.descriptor().product, "test reference data");
+        let transform: ReferenceDataKinematicFrameTransform<_> = supplier.into();
+        let state = FrameKinematics::new(
+            Position::from_metres(1.0, 2.0, 3.0),
+            VelocityVector::from_metres_per_second(4.0, 5.0, 6.0),
+            ReferenceFrame::ITRF2020,
+        )
+        .expect("finite state");
+
+        let transformed = transform
+            .transform(Epoch::from_tai_seconds(42.0), state, ReferenceFrame::GCRF)
+            .expect("supplier resolves distinct frames");
+
+        assert_eq!(transformed.frame(), ReferenceFrame::GCRF);
+        assert_eq!(
+            transformed.position(),
+            Position::from_metres(101.0, 2.0, 3.0)
+        );
+        assert_eq!(transformed.velocity(), state.velocity());
+    }
+
+    #[test]
+    fn reference_data_adapter_preserves_identity_without_loading_data() {
+        let transform: ReferenceDataKinematicFrameTransform<_> = RejectingSupplier {
+            descriptor: descriptor(),
+        }
+        .into();
+        let state = FrameKinematics::new(
+            Position::from_metres(1.0, 2.0, 3.0),
+            VelocityVector::from_metres_per_second(4.0, 5.0, 6.0),
+            ReferenceFrame::GCRF,
+        )
+        .expect("finite state");
+
+        assert!(matches!(
+            transform.transform(Epoch::from_tai_seconds(42.0), state, ReferenceFrame::GCRF),
+            Ok(returned) if returned == state
+        ));
+    }
+
+    #[test]
+    fn reference_data_adapter_rejects_supplier_output_in_the_wrong_frame() {
+        let transform: ReferenceDataKinematicFrameTransform<_> = MislabelledSupplier {
+            descriptor: descriptor(),
+        }
+        .into();
+        let state = FrameKinematics::new(
+            Position::from_metres(1.0, 2.0, 3.0),
+            VelocityVector::from_metres_per_second(4.0, 5.0, 6.0),
+            ReferenceFrame::ITRF2020,
+        )
+        .expect("finite state");
+
+        assert!(matches!(
+            transform.transform(Epoch::from_tai_seconds(42.0), state, ReferenceFrame::GCRF),
+            Err(
+                ReferenceDataKinematicFrameTransformError::OutputFrameMismatch {
+                    expected: ReferenceFrame::GCRF,
+                    actual: ReferenceFrame::ITRF2020,
+                }
+            )
+        ));
+    }
+
+    #[test]
+    fn reference_data_adapter_preserves_supplier_errors() {
+        let transform: ReferenceDataKinematicFrameTransform<_> = RejectingSupplier {
+            descriptor: descriptor(),
+        }
+        .into();
+        let state = FrameKinematics::new(
+            Position::from_metres(1.0, 2.0, 3.0),
+            VelocityVector::from_metres_per_second(4.0, 5.0, 6.0),
+            ReferenceFrame::ITRF2020,
+        )
+        .expect("finite state");
+
+        assert!(matches!(
+            transform.transform(Epoch::from_tai_seconds(42.0), state, ReferenceFrame::GCRF),
+            Err(ReferenceDataKinematicFrameTransformError::Supplier { .. })
+        ));
     }
 }
