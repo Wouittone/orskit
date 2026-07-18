@@ -19,17 +19,23 @@ declared convention set.
 ## Decision
 
 1. `frames::FrameReferenceDataSupplier` is the open contract for an
-   application-owned, reference-data-backed kinematic solution. It exposes an
-   immutable descriptor containing authority, product, revision, and optional
-   content checksum.
+   application-owned, reference-data-backed kinematic solution. It exposes a
+   non-empty borrowed set of immutable artifact descriptors containing
+   non-blank authority, product, revision, and optional content checksum. This
+   represents distinct selected inputs such as a JPL ephemeris, IERS EOP
+   series, and an adopted convention artifact without string-concatenating
+   their provenance. These descriptor records must remain stable for the
+   supplier lifetime; mutable caches may not change selected scientific data.
 2. A supplier resolves one epoch-qualified `FrameKinematics` request directly
    into the requested frame. It owns all source-specific parsing, coverage,
    interpolation, cache policy, time-scale handling, rotational and
    translational terms, and numerical convention selection.
 3. `ReferenceDataKinematicFrameTransform` adapts a supplier to the existing
    `KinematicFrameTransformProvider` contract. It bypasses the supplier for an
-   identity request, forwards every distinct-frame request, and rejects any
-   result whose frame does not equal the requested target.
+   identity request, rejects a distinct-frame request without declared data,
+   forwards every other request, and rejects any result whose frame does not
+   equal the requested target. `AsRef` provides borrowed provenance access
+   after construction.
 4. The recommended future production implementation is a separately
    feature-gated JPL/NAIF SPK adapter using a pinned DE440-class ephemeris
    together with a pinned IERS EOP product and an explicitly named IAU/IERS
@@ -63,10 +69,10 @@ declared convention set.
 ## Validation
 
 `frames` tests prove that data-backed transforms delegate distinct-frame
-requests, bypass identity requests, preserve supplier errors, and reject
-mislabelled output. Full-workspace checks cover the public contract. No
-external transform vector is claimed until a concrete supplier and convention
-set are implemented.
+requests, bypass identity requests, reject absent or incomplete provenance
+before supplier evaluation, preserve supplier errors, and reject mislabelled
+output. Full-workspace checks cover the public contract. No external transform
+vector is claimed until a concrete supplier and convention set are implemented.
 
 ## Provenance
 

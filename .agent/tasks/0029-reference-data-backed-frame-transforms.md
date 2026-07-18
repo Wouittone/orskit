@@ -17,8 +17,9 @@ An application loads and validates its own reference-data bundle, implements
 `FrameReferenceDataSupplier`, and converts it with
 `ReferenceDataKinematicFrameTransform::from`. Estimation or propagation APIs
 then consume the standard `KinematicFrameTransformProvider` contract without
-receiving a hidden global data context. The supplier descriptor is retained by
-reference for scenario provenance.
+receiving a hidden global data context. The adapter exposes its supplier through
+`AsRef`, so every borrowed reference-data artifact record remains available for
+scenario provenance.
 
 ## Scientific contract
 
@@ -31,7 +32,8 @@ reference for scenario provenance.
   and velocity terms.
 - Conventions and valid regimes: the adapter makes no Earth-orientation or
   ephemeris approximation. A supplier must define its IAU/IERS convention,
-  interpolation, coverage, and extrapolation policy.
+  interpolation, coverage, and extrapolation policy; its declared artifact set
+  remains stable for the supplier lifetime.
 - External data requirements: applications own data loading and versions. The
   recommended production stack combines a pinned JPL/NAIF SPK planetary
   ephemeris (such as DE440), a pinned IERS EOP product, and one declared
@@ -65,8 +67,10 @@ No external implementation, source code, test, or data artifact was copied.
 ## Validation
 
 - Unit cases: identity requests do not load data; distinct-frame requests
-  delegate once; source errors survive; wrong-frame supplier output fails.
-- Invariants/properties: descriptor access borrows immutable provenance;
+  delegate; absent or incomplete provenance fails before supplier evaluation;
+  source errors survive; wrong-frame supplier output fails.
+- Invariants/properties: a distinct-frame request requires at least one
+  borrowed immutable provenance record with non-blank identity fields;
   successful adapter output always carries the requested frame.
 - Independent reference vectors: deferred until a concrete JPL/IERS supplier
   and convention set are selected.

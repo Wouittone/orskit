@@ -46,10 +46,13 @@ missing abstraction or an incorrectly placed type.
   form chains, without a global registry.
   Orientations declare inertial, non-inertial, or unspecified motion;
   algorithms requiring inertial axes accept only an affirmative inertial
-  declaration. `FrameReferenceDataSupplier` records an immutable data
-  descriptor and supplies fully resolved kinematics to a validating transform
-  adapter; implementations own Earth orientation, ephemerides, coverage,
-  interpolation, caching, and convention selection. Transform-provider
+  declaration. `FrameReferenceDataSupplier` records a non-empty immutable set
+  of stable data-artifact descriptors with non-blank identities and supplies
+  fully resolved kinematics to a validating transform adapter; implementations
+  own Earth orientation, ephemerides, coverage, interpolation, caching, and
+  convention selection. Caches may retain derived values but cannot silently
+  replace selected scientific data.
+  Transform-provider
   contracts therefore admit optional external adapters without a global data
   context or a public matrix API.
 - **Orbits:** frame- and epoch-qualified states, element sets, conversions,
