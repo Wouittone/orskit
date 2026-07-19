@@ -823,10 +823,10 @@ fn keplerian_from_cartesian(
 
     let mu = gravity.parameter().as_cubic_metres_per_second_squared();
     let velocity_cross_momentum = cross(velocity_m_s, angular_momentum);
-    let eccentricity_vector = subtract(
-        scale(velocity_cross_momentum, 1.0 / mu),
-        scale(position_m, 1.0 / radius),
-    );
+    let scaled_momentum = scale(velocity_cross_momentum, 1.0 / mu);
+    let radial_direction = scale(position_m, 1.0 / radius);
+    let eccentricity_vector =
+        std::array::from_fn(|index| scaled_momentum[index] - radial_direction[index]);
     let eccentricity = norm(eccentricity_vector);
     let specific_energy = 0.5 * dot(velocity_m_s, velocity_m_s) - mu / radius;
     if !specific_energy.is_finite() || specific_energy >= 0.0 || eccentricity >= 1.0 {
@@ -911,10 +911,6 @@ fn norm(vector: [f64; 3]) -> f64 {
 
 fn scale(vector: [f64; 3], factor: f64) -> [f64; 3] {
     vector.map(|component| component * factor)
-}
-
-fn subtract(left: [f64; 3], right: [f64; 3]) -> [f64; 3] {
-    std::array::from_fn(|index| left[index] - right[index])
 }
 
 fn oriented_angle(from: [f64; 3], to: [f64; 3], normal: [f64; 3]) -> f64 {

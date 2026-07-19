@@ -1,0 +1,28 @@
+[package]
+name = "orbit-determination"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Open orbit-determination contracts and Kalman implementations for orskit"
+
+[lib]
+name = "orbit_determination"
+
+[dependencies]
+hifitime.workspace = true
+nalgebra.workspace = true
+thiserror.workspace = true
+dynamics = { path = "../dynamics" }
+finitediff = "0.2.0"
+frames = { path = "../frames" }
+orbits = { path = "../orbits", features = ["cartesian"] }
+orskit_core = { package = "core", path = "../core" }
+units = { path = "../units" }
+
+[dev-dependencies]
+bodies = { path = "../bodies" }
+dynamics = { path = "../dynamics", features = ["point-mass"] }
+gravity = { path = "../gravity" }

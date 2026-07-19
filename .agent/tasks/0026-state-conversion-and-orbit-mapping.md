@@ -15,9 +15,9 @@
 An application constructs an `Orbit<S>`, uses `TryFrom`/`TryInto` to select a
 different orbit representation while retaining the same Hifitime epoch, and
 provides an explicit shared gravity provider with Cartesian inputs. Every
-`Propagator<Problem, S>::propagate` first uses `PropagationState<Problem>` to
-resolve `S` into the implementation's target state, calls
-`propagate_resolved` on the common `Propagator` trait, and restores `S`; the
+concrete `Propagator<S>` owns its physical problem and uses
+`PropagationState<Problem>` to resolve `S` into its target state and restore
+`S`; the
 elliptic two-body propagator thus preserves Cartesian, circular, Keplerian, or
 equinoctial output representation. Its one analytical resolved state is
 Cartesian, advanced through universal variables and Lagrange `f`/`g`
@@ -59,9 +59,9 @@ completion task.
 - Affected crates/layers: core orbit contract, orbit implementations, and the
   two-body analytical implementation.
 - Public API: standard `TryFrom`/`TryInto` conversions; `Orbit::map_state` and
-`Orbit::try_map_state`; `CircularState`; generic
-  `PropagationState<Problem>` and `Propagator::propagate_resolved`, with
-  problem-context restoration for element states.
+  `Orbit::try_map_state`; `CircularState`; generic
+  `PropagationState<Problem>` and `Propagator<State>`, with problem-context
+  restoration for element states owned by the concrete propagator.
 - Rejected alternatives: implicit global gravity, a closed state enum, or a
   core dependency on concrete orbit implementations.
 - ADR required: ADR-0033 records the reusable resolved-state propagation

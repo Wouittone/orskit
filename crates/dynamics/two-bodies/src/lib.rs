@@ -162,7 +162,7 @@ mod tests {
     fn propagates_each_supported_representation_to_the_requested_epoch() {
         let (gravity, problem) = problem();
         let target = Epoch::from_tai_seconds(4_600.0);
-        let solver = EllipticKeplerPropagator::new();
+        let solver = EllipticKeplerPropagator::new(problem.clone());
         let keplerian = keplerian(gravity.clone());
         let circular = CircularState::try_from(keplerian.clone()).expect("conversion");
         let equinoctial = EquinoctialState::try_from(keplerian.clone()).expect("conversion");
@@ -172,7 +172,6 @@ mod tests {
             solver
                 .propagate(
                     Orbit::new(Epoch::from_tai_seconds(1_000.0), circular),
-                    &problem,
                     target
                 )
                 .expect("circular propagation")
@@ -183,7 +182,6 @@ mod tests {
             solver
                 .propagate(
                     Orbit::new(Epoch::from_tai_seconds(1_000.0), keplerian),
-                    &problem,
                     target
                 )
                 .expect("Keplerian propagation")
@@ -194,7 +192,6 @@ mod tests {
             solver
                 .propagate(
                     Orbit::new(Epoch::from_tai_seconds(1_000.0), equinoctial),
-                    &problem,
                     target
                 )
                 .expect("equinoctial propagation")
@@ -205,7 +202,6 @@ mod tests {
             solver
                 .propagate(
                     Orbit::new(Epoch::from_tai_seconds(1_000.0), cartesian),
-                    &problem,
                     target
                 )
                 .expect("Cartesian propagation")
@@ -219,8 +215,8 @@ mod tests {
         let (gravity, problem) = problem();
         let initial = Orbit::new(Epoch::from_tai_seconds(1_000.0), keplerian(gravity));
         let target = initial.epoch() + Duration::from_seconds(900.0);
-        let result = EllipticKeplerPropagator::new()
-            .propagate(initial, &problem, target)
+        let result = EllipticKeplerPropagator::new(problem.clone())
+            .propagate(initial, target)
             .expect("propagation");
         assert_eq!(result.epoch(), target);
     }

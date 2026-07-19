@@ -70,12 +70,11 @@ missing abstraction or an incorrectly placed type.
   orientation, and inertia. Environmental bodies and other parameters belong
   to force-model configuration and explicit future data providers. Dynamics
   composes heterogeneous model trait objects without matching model types.
-- **Propagation:** `Propagator<Problem, State>` separates a solution method from the
-  physical problem it advances. `PropagationState<Problem>` first resolves the
-  caller-selected state into the representation the solver advances;
-  `Propagator::propagate_resolved` solves that representation, and the default
-  `propagate` restores the caller-selected state. The current analytical
-  implementation accepts `TwoBodyDynamics`, advances epoch-qualified
+- **Propagation:** `Propagator<State>` owns both its solution method and the
+  physical problem it advances. `PropagationState<Problem>` lets a concrete
+  propagator resolve a caller-selected state into the representation it
+  advances and restore it using its owned problem. The current analytical
+  implementation owns `TwoBodyDynamics`, advances epoch-qualified
   `Orbit<State>` values, and preserves the selected state representation. A
   translational propagator does not imply that attitude or other
   epoch-dependent spacecraft properties were advanced. Analytical, numerical,
@@ -245,7 +244,7 @@ There is no ambient mutable "current data context."
 
 Focused Cargo packages retain concise domain names. The public facade is the
 `orskit` package; internal implementation packages use names such as `orbits`,
-`gravity`, and `dynamics-two-bodies` because the workspace already establishes
+`gravity`, and the `dynamics/two-bodies` sub-crate because the workspace already establishes
 their provenance. Rust's built-in `core` crate remains reserved, so the core
 contract library is imported internally as `orskit_core` and re-exported to
 facade users as `orskit::core`.
@@ -269,12 +268,13 @@ owns a broader almanac/orbit context than this foundational slice needs. Keep
 the boundary adapter-friendly and revisit both for transform providers rather
 than leaking either API into spacecraft state.
 
-`dynamics` describes named spacecraft-state requirements, open
+`dynamics/core` describes named spacecraft-state requirements, open
 conservative/non-conservative force-model contracts, `ComposedDynamics`, and
-the generic `PropagationState<Problem>`/`Propagator<Problem, State>` boundary.
-Concrete `TwoBodyDynamics`, its point-mass model, and `EllipticKeplerPropagator` live in
-`dynamics-two-bodies`, one implementation crate among future dynamics
-implementations. It depends explicitly on the `orbits` Cartesian feature. The
+the generic `PropagationState<Problem>`/`Propagator<State>` boundary. The
+`dynamics` facade exposes those contracts and feature-gates sub-crates.
+Concrete `TwoBodyDynamics`, its point-mass model, and `EllipticKeplerPropagator`
+live in the opt-in `dynamics/two-bodies` sub-crate. It depends explicitly on the
+`orbits` Cartesian feature. The
 solver accepts a target epoch, derives its internal duration, resolves an
 epoch-qualified `Orbit<S>` into Cartesian state, advances it with universal
 variables, then restores and returns the same selected representation.

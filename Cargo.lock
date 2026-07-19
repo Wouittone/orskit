@@ -33,6 +33,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000"
 
 [[package]]
+name = "anyhow"
+version = "1.0.104"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
+
+[[package]]
 name = "approx"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -239,6 +245,14 @@ checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 name = "dynamics"
 version = "0.0.0"
 dependencies = [
+ "dynamics-core",
+ "dynamics-two-bodies",
+]
+
+[[package]]
+name = "dynamics-core"
+version = "0.0.0"
+dependencies = [
  "bodies",
  "core",
  "frames",
@@ -253,7 +267,7 @@ version = "0.0.0"
 dependencies = [
  "bodies",
  "core",
- "dynamics",
+ "dynamics-core",
  "frames",
  "gravity",
  "hifitime",
@@ -273,6 +287,16 @@ name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
+
+[[package]]
+name = "finitediff"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb08005ceda20e36d233b60fe476059cc9efe6ebd125f3a72b69729dbae0e794"
+dependencies = [
+ "anyhow",
+ "num",
+]
 
 [[package]]
 name = "frames"
@@ -508,6 +532,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "num"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35bd024e8b2ff75562e5f34e7f4905839deb4b22955ef5e73d2fea1b9813cb23"
+dependencies = [
+ "num-bigint",
+ "num-complex",
+ "num-integer",
+ "num-iter",
+ "num-rational",
+ "num-traits",
+]
+
+[[package]]
 name = "num-bigint"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -532,6 +570,16 @@ version = "0.1.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7969661fd2958a5cb096e56c8e1ad0444ac2bbcd0061bd28660485a44879858f"
 dependencies = [
+ "num-traits",
+]
+
+[[package]]
+name = "num-iter"
+version = "0.1.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c92800bd69a1eac91786bcfe9da64a897eb72911b8dc3095decbd07429e8048b"
+dependencies = [
+ "num-integer",
  "num-traits",
 ]
 
@@ -569,6 +617,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
+name = "orbit-determination"
+version = "0.0.0"
+dependencies = [
+ "bodies",
+ "core",
+ "dynamics",
+ "finitediff",
+ "frames",
+ "gravity",
+ "hifitime",
+ "nalgebra",
+ "orbits",
+ "thiserror",
+ "units",
+]
+
+[[package]]
 name = "orbits"
 version = "0.0.0"
 dependencies = [
@@ -588,10 +653,10 @@ dependencies = [
  "ccsds",
  "core",
  "dynamics",
- "dynamics-two-bodies",
  "frames",
  "gravity",
  "measurements",
+ "orbit-determination",
  "orbits",
  "units",
 ]

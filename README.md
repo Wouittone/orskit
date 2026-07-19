@@ -20,7 +20,10 @@ MIT or Apache-2.0 license.
 > with attitude and angular velocity,
 > streaming CCSDS OEM KVN ingestion, composable dynamics descriptions, a
 > minimal range measurement, representation-preserving analytical elliptic
-> two-body propagation for all current state types, and experimental binding
+> two-body propagation for all current state types, a frame-explicit Cartesian
+> extended and unscented Kalman orbit-determination filters over the shared
+> propagation contract, with opt-in innovation/residual diagnostics, and
+> experimental binding
 > adapters. General composed-force/numerical propagation,
 > complete CCSDS coverage, and complete measurement-participant modeling are
 > intentionally not implemented yet. Fixed ground stations can now be defined
@@ -68,8 +71,8 @@ roadmap. Start with [`.agent/README.md`](.agent/README.md).
 | `crates/core` | Open state and generic orbit contracts plus spacecraft identity/geometry and complete physical views |
 | `crates/orbits` | Feature-gated state representations; `cartesian` provides Cartesian, elliptic circular, Keplerian, and equinoctial states |
 | `crates/gravity` | Gravity-provider contract; the `point-mass` feature provides an immutable point-mass provider |
-| `crates/dynamics` | Open force-model composition, `ComposedDynamics`, and generic propagation contracts |
-| `crates/dynamics-two-bodies` | One concrete dynamics implementation: point-mass two-body dynamics and analytical elliptic Kepler propagation |
+| `crates/dynamics` | Core force-model/propagation contracts, with opt-in `two-bodies` point-mass dynamics and analytical elliptic Kepler propagation |
+| `crates/orbit-determination` | Open sequential OD contracts plus Cartesian extended and unscented Kalman filters over caller-selected propagators |
 | `crates/ccsds` | Blocking/Tokio streaming and Rayon collection for CCSDS OEM KVN coordinates |
 | `crates/measurements` | Typed measurements and fixed ground-station participants built on parent-relative frames |
 | `crates/utils` | Typed sourced constants; package boundary remains transitional |

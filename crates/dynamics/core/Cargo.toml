@@ -1,0 +1,22 @@
+[package]
+name = "dynamics-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core contracts for composable spacecraft dynamics in orskit"
+
+[lib]
+name = "dynamics_core"
+
+[dependencies]
+hifitime.workspace = true
+bodies = { path = "../../bodies" }
+orskit_core = { package = "core", path = "../../core" }
+units = { path = "../../units" }
+thiserror.workspace = true
+
+[dev-dependencies]
+frames = { path = "../../frames" }

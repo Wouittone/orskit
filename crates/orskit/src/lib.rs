@@ -22,12 +22,12 @@ pub use bodies;
 pub use ccsds;
 #[cfg(feature = "dynamics")]
 pub use dynamics;
-#[cfg(feature = "two-bodies")]
-pub use dynamics_two_bodies;
 #[cfg(feature = "point-mass-gravity")]
 pub use gravity;
 #[cfg(feature = "measurements")]
 pub use measurements;
+#[cfg(feature = "orbit-determination")]
+pub use orbit_determination;
 #[cfg(feature = "cartesian")]
 pub use orbits;
 
@@ -42,7 +42,7 @@ pub mod prelude {
     #[cfg(feature = "dynamics")]
     pub use crate::dynamics::{ComposedDynamics, PropagationState, Propagator};
     #[cfg(feature = "two-bodies")]
-    pub use crate::dynamics_two_bodies::{EllipticKeplerPropagator, TwoBodyDynamics};
+    pub use crate::dynamics::{EllipticKeplerPropagator, TwoBodyDynamics};
     #[cfg(feature = "point-mass-gravity")]
     pub use crate::gravity::PointMass;
     #[cfg(feature = "measurement-range")]
@@ -54,6 +54,13 @@ pub mod prelude {
     };
     #[cfg(feature = "measurements")]
     pub use crate::measurements::{Measurement, ParticipantId, SignalPath};
+    #[cfg(feature = "orbit-determination")]
+    pub use crate::orbit_determination::{
+        CartesianCovariance, CartesianObservation, CartesianPositionObservation,
+        CartesianStateEstimate, EstimationObserver, ExtendedKalmanFilter, KalmanFilter,
+        OrbitDetermination, PositionCovariance, StateEstimate, UnscentedConfiguration,
+        UnscentedKalmanFilter,
+    };
     #[cfg(feature = "cartesian")]
     pub use crate::orbits::{
         cartesian::CartesianState, circular::CircularState, equinoctial::EquinoctialState,

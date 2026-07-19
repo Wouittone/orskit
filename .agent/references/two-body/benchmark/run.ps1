@@ -59,7 +59,7 @@ function Invoke-Checked {
 
 if (-not $SkipBuild) {
     if ($Implementations -contains 'orskit') {
-        Invoke-Checked cargo @('build', '--release', '-p', 'dynamics', '--example', 'two_body_benchmark') $repository
+        Invoke-Checked cargo @('build', '--release', '-p', 'dynamics-two-bodies', '--example', 'two_body_benchmark') $repository
     }
     if ($Implementations -contains 'lox') {
         Invoke-Checked cargo @(

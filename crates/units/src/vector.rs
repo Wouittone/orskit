@@ -79,6 +79,22 @@ macro_rules! typed_cartesian_vector {
                 ]
             }
         }
+
+        impl std::ops::Add for $name {
+            type Output = Self;
+
+            fn add(self, right: Self) -> Self::Output {
+                Self::new(self.x + right.x, self.y + right.y, self.z + right.z)
+            }
+        }
+
+        impl std::ops::Sub for $name {
+            type Output = Self;
+
+            fn sub(self, right: Self) -> Self::Output {
+                Self::new(self.x - right.x, self.y - right.y, self.z - right.z)
+            }
+        }
     };
 }
 
@@ -159,5 +175,13 @@ mod tests {
     fn velocity_magnitude_is_speed() {
         let velocity = VelocityVector::from_metres_per_second(0.0, 3.0, 4.0);
         assert_eq!(velocity.speed(), Velocity::new::<meter_per_second>(5.0));
+    }
+
+    #[test]
+    fn position_vectors_support_standard_arithmetic() {
+        let left = Position::from_metres(3.0, 4.0, 5.0);
+        let right = Position::from_metres(1.0, 2.0, 3.0);
+        assert_eq!(left + right, Position::from_metres(4.0, 6.0, 8.0));
+        assert_eq!(left - right, Position::from_metres(2.0, 2.0, 2.0));
     }
 }

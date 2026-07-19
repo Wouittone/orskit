@@ -17,19 +17,17 @@ conversion, validation, and restoration behavior.
 ## Decision
 
 1. `dynamics::PropagationState<Problem>` resolves one caller-selected state
-   type into the representation an explicit problem/solver pair advances, then
-   restores that caller type after propagation.
-2. Every `Propagator<Problem, State>::propagate` uses that resolution flow:
-   resolve, call `propagate_resolved`, and restore. `propagate_resolved` is a
-   method of the common `Propagator` trait, not a solver-specific target trait.
-   Restoration receives the problem again, so it can use problem-owned context
-   such as a central-gravity provider.
+   type into the representation a concrete propagator advances, then restores
+   that caller type using the propagator-owned problem.
+2. `Propagator<State>` owns both its algorithm and one physical problem. Each
+   implementation performs resolution, advancement, and restoration internally;
+   callers pass only an epoch-qualified orbit and target epoch.
 3. The elliptic two-body solver resolves every supported caller state to
    Cartesian state and advances that one state with universal variables.
    Cartesian state is regular for every non-collision orbital orientation,
    including exact retrograde planes; element callers retain their own
    restoration-chart policies.
-4. Resolution receives the explicit physical problem, so gravity-identity and
+4. Resolution receives the propagator-owned physical problem, so gravity-identity and
    origin validation occurs before solving, including zero-duration requests.
 
 ## Alternatives considered
@@ -53,8 +51,8 @@ conversion, validation, and restoration behavior.
 
 ## Validation
 
-The `dynamics` contract test verifies resolution, resolved propagation, output
-epoch, and restoration independently of a concrete solver. The two-body suite
+The `dynamics` contract test verifies that a propagator owns and uses one
+physical problem. The two-body suite
 checks an application-defined Cartesian-resolving state, all four supported
 representations, exact retrograde Cartesian propagation, zero-duration
 validation, shared gravity identity, and independent reference vectors.

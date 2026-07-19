@@ -14,8 +14,9 @@ bodies = ["dep:bodies"]
 ccsds = ["dep:ccsds", "cartesian"]
 cartesian = ["dep:orbits", "orbits/cartesian"]
 dynamics = ["dep:dynamics"]
+orbit-determination = ["dep:orbit_determination"]
 point-mass-gravity = ["dep:gravity", "gravity/point-mass"]
-two-bodies = ["cartesian", "dynamics", "point-mass-gravity", "dep:dynamics_two_bodies", "dynamics_two_bodies/point-mass"]
+two-bodies = ["cartesian", "dynamics", "point-mass-gravity", "dynamics/point-mass"]
 measurements = ["dep:measurements"]
 quaternion-attitude = ["orskit_core/quaternion-attitude"]
 standard-shapes = ["orskit_core/standard-shapes"]
@@ -54,7 +55,7 @@ bodies = { path = "../bodies", optional = true }
 ccsds = { path = "../ccsds", optional = true }
 orskit_core = { package = "core", path = "../core", default-features = false }
 dynamics = { path = "../dynamics", optional = true }
-dynamics_two_bodies = { package = "dynamics-two-bodies", path = "../dynamics-two-bodies", optional = true }
+orbit_determination = { package = "orbit-determination", path = "../orbit-determination", optional = true }
 gravity = { path = "../gravity", optional = true }
 frames = { path = "../frames" }
 measurements = { path = "../measurements", optional = true, default-features = false }

@@ -16,17 +16,17 @@ default = []
 point-mass = ["gravity/point-mass"]
 
 [dependencies]
-orskit_core = { package = "core", path = "../core" }
-dynamics = { path = "../dynamics" }
-frames = { path = "../frames" }
-gravity = { path = "../gravity" }
+orskit_core = { package = "core", path = "../../core" }
+dynamics = { package = "dynamics-core", path = "../core" }
+frames = { path = "../../frames" }
+gravity = { path = "../../gravity" }
 hifitime.workspace = true
-orbits = { path = "../orbits", features = ["cartesian"] }
+orbits = { path = "../../orbits", features = ["cartesian"] }
 thiserror.workspace = true
-units = { path = "../units" }
+units = { path = "../../units" }
 
 [dev-dependencies]
-bodies = { path = "../bodies" }
+bodies = { path = "../../bodies" }
 
 [[example]]
 name = "two_body_benchmark"

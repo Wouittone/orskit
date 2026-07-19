@@ -30,22 +30,16 @@ fn main() {
             .expect("positive gravitational parameter"),
     ));
     let problem = TwoBodyDynamics::new(PointMassGravityModel::new(gravity));
-    let propagator = EllipticKeplerPropagator::new();
+    let propagator = EllipticKeplerPropagator::new(problem.clone());
 
     let _warmup_checksum = run_queries(
         black_box(&propagator),
         black_box(initial.clone()),
-        black_box(&problem),
         WARMUP_ITERATIONS,
     );
 
     let started = Instant::now();
-    let checksum = run_queries(
-        black_box(&propagator),
-        black_box(initial),
-        black_box(&problem),
-        iterations,
-    );
+    let checksum = run_queries(black_box(&propagator), black_box(initial), iterations);
     let elapsed_ns = started.elapsed().as_nanos();
 
     println!(
@@ -56,7 +50,6 @@ fn main() {
 fn run_queries(
     propagator: &EllipticKeplerPropagator,
     initial: Orbit<CartesianState>,
-    problem: &TwoBodyDynamics,
     iterations: usize,
 ) -> f64 {
     let mut checksum = 0.0;
@@ -65,7 +58,6 @@ fn run_queries(
         let state = propagator
             .propagate(
                 black_box(initial.clone()),
-                black_box(problem),
                 initial.epoch() + Duration::from_seconds(black_box(elapsed_seconds)),
             )
             .expect("benchmark query must remain in the supported elliptic regime");
