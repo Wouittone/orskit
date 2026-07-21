@@ -61,13 +61,13 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
 
 ## G — Governance and contribution path
 
-- [ ] **G10 (Wave 1, no dependency):** add a pull-request template that links
+- [x] **G10 (Wave 1, no dependency):** add a pull-request template that links
   the parity, provenance, and validation expectations without requiring every
   checkbox for documentation-only changes.
-- [ ] **G11 (Wave 1, depends on G10):** add a non-Rust/scientific-contributor
+- [x] **G11 (Wave 1, depends on G10):** add a non-Rust/scientific-contributor
   guide covering standards research, reference vectors, data licensing, and
   review-only contributions.
-- [ ] **G12 (Wave 1, depends on G10):** document how maintainers curate and
+- [x] **G12 (Wave 1, depends on G10):** document how maintainers curate and
   label `good first issue` and `help wanted` candidates; repository files can
   provide issue content, while applying hosted labels is owner-operated.
 - [ ] **G13 (owner-operated):** select and publish a real-time community venue
@@ -78,12 +78,12 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
 
 ## C — Reproducible developer tooling and CI
 
-- [ ] **C10 (Wave 1, no dependency):** provide a task runner with discoverable
+- [x] **C10 (Wave 1, no dependency):** provide a task runner with discoverable
   `check`, `test`, `docs`, and `bench` commands while retaining raw Cargo
   commands in contributor documentation.
-- [ ] **C11 (Wave 1, no dependency):** add VS Code recommendations/settings
+- [x] **C11 (Wave 1, no dependency):** add VS Code recommendations/settings
   that follow the pinned toolchain without overriding user preferences.
-- [ ] **C12 (Wave 1, no dependency):** add a minimal dev-container/Codespaces
+- [x] **C12 (Wave 1, no dependency):** add a minimal dev-container/Codespaces
   definition with Rust 1.96.1, rustfmt, Clippy, and cargo-nextest.
 - [ ] **C13 (depends on C10):** expand CI to Linux, macOS, and Windows with a
   cost-conscious matrix and retain the full locked check suite.
@@ -95,14 +95,14 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
 
 ## D — Architecture, tutorials, and API documentation
 
-- [ ] **D10 (Wave 1, depends on B01):** add a maintained Mermaid crate/layer
+- [x] **D10 (Wave 1, depends on B01):** add a maintained Mermaid crate/layer
   diagram generated from or checked against Cargo metadata.
-- [ ] **D11 (Wave 1, depends on B00):** write a complete two-body propagation
+- [x] **D11 (Wave 1, depends on B00):** write a complete two-body propagation
   tutorial with explicit epoch, inertial frame, gravity source, units, valid
   elliptic regime, and error handling.
-- [ ] **D12 (Wave 1, depends on B00):** write an orbit-determination tutorial
+- [x] **D12 (Wave 1, depends on B00):** write an orbit-determination tutorial
   using the current Cartesian observation boundary and naming its limitations.
-- [ ] **D13 (Wave 1, depends on D10):** write an API guide for implementing a
+- [x] **D13 (Wave 1, depends on D10):** write an API guide for implementing a
   custom `Propagator<State>` and `PropagationState<Problem>` pair.
 - [ ] **D14 (depends on D11–D13):** add focused rustdoc examples to public core,
   dynamics, orbits, and orbit-determination APIs where usage is non-obvious.
@@ -111,14 +111,14 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
 
 ## T — Testing, validation, and performance evidence
 
-- [ ] **T10 (Wave 1, depends on C10):** establish a maintained benchmark
+- [x] **T10 (Wave 1, depends on C10):** establish a maintained benchmark
   harness and methodology for existing OEM, two-body, and OD workloads,
   including accuracy checks and reproducibility metadata.
-- [ ] **T11 (Wave 1, no dependency):** add deterministic property/invariant
+- [x] **T11 (Wave 1, no dependency):** add deterministic property/invariant
   coverage for supported frame composition/inversion, orbit representation
   round trips, two-body conservation, and symmetric instantaneous range where
   each current contract makes the property meaningful.
-- [ ] **T12 (depends on T10):** record baseline results and regression-review
+- [x] **T12 (depends on T10):** record baseline results and regression-review
   policy without claiming cross-machine timing thresholds.
 - [ ] **T13 (depends on each format/model slice):** grow provenance-cleared
   real-world conformance and scenario data for formats, propagation, frames,
@@ -128,16 +128,16 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
 
 ## Q — Rust API quality audit
 
-- [ ] **Q10 (Wave 1, no dependency):** document and enforce the domain-error
+- [x] **Q10 (Wave 1, no dependency):** document and enforce the domain-error
   policy; audit source chaining and recoverable failure paths rather than
   replacing already-consistent enums mechanically.
-- [ ] **Q11 (Wave 1, no dependency):** audit `#[non_exhaustive]` case by case.
+- [x] **Q11 (Wave 1, no dependency):** audit `#[non_exhaustive]` case by case.
   Retain it for genuine extension/versioning boundaries and remove it only
   where a closed physical set and downstream exhaustive matching are intended.
-- [ ] **Q12 (Wave 1, no dependency):** audit `#[must_use]` on constructors,
+- [x] **Q12 (Wave 1, no dependency):** audit `#[must_use]` on constructors,
   transformations, and owned-result getters where discarding the value is
   likely a bug.
-- [ ] **Q13 (Wave 1, no dependency):** reduce repeated trait bounds with stable
+- [x] **Q13 (Wave 1, no dependency):** reduce repeated trait bounds with stable
   Rust super-traits or helper traits only where this improves diagnostics.
   Rust trait aliases are unstable and are not an implementation option.
 - [ ] **Q14 (depends on all feature additions):** define and test a deliberate
@@ -159,7 +159,7 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
 
 ## P — Propagation, force models, events, and attitude
 
-- [ ] **P10 (Wave 1 design slice; depends on T11):** specify the minimal
+- [x] **P10 (Wave 1 design slice; depends on T11):** specify the minimal
   numerical propagation vertical slice, including coupled-state boundaries,
   typed tolerances, dense output, events, and validation scenarios.
 - [ ] **P11 (depends on P10):** implement an adaptive embedded Runge–Kutta
@@ -206,7 +206,7 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
 
 ## R — Packaging, releases, and adoption
 
-- [ ] **R10 (Wave 1, no dependency):** add a changelog and document pre-1.0
+- [x] **R10 (Wave 1, no dependency):** add a changelog and document pre-1.0
   semantic-versioning and release-note policy for Rust crates.
 - [ ] **R11 (depends on validated facade workflows):** prepare crates.io
   metadata/publishing order and a dry-run checklist; do not publish from CI
@@ -232,6 +232,6 @@ it, and running the relevant checks.
 
 | Track | Branch | Evidence | Status |
 | --- | --- | --- | --- |
-| Governance, DX, docs, release policy | `codex/review-docs-dx` | Pending | In progress |
-| Validation and benchmarks | `codex/review-validation` | Pending | In progress |
-| Rust API quality and numerical-propagation design | `codex/review-core-quality` | Pending | In progress |
+| Governance, DX, docs, release policy | `codex/review-docs-dx` | `455b861`; task 0034 | Complete |
+| Validation and benchmarks | `codex/review-validation` | `8a30211`; task 0035 | Complete |
+| Rust API quality and numerical-propagation design | `codex/review-core-quality` | `f337e8e`; task 0033; ADR-0037 | Complete |

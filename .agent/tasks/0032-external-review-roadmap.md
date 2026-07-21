@@ -50,4 +50,4 @@ binding/community tasks are deliberately parked or owner-operated.
 - [x] Dependency-ordered checklist added
 - [x] Already-satisfied and stale observations recorded
 - [x] Binding work explicitly deferred
-- [ ] Wave 1 branches integrated and verified
+- [x] Wave 1 branches integrated and verified
