@@ -1003,6 +1003,67 @@ mod tests {
         );
     }
 
+    fn specific_energy(state: CartesianState, mu: f64) -> f64 {
+        let position = state.position().to_metres();
+        let velocity = state.velocity().to_metres_per_second();
+        0.5 * dot(velocity, velocity) - mu / norm(position)
+    }
+
+    fn specific_angular_momentum(state: CartesianState) -> [f64; 3] {
+        let position = state.position().to_metres();
+        let velocity = state.velocity().to_metres_per_second();
+        [
+            position[1].mul_add(velocity[2], -position[2] * velocity[1]),
+            position[2].mul_add(velocity[0], -position[0] * velocity[2]),
+            position[0].mul_add(velocity[1], -position[1] * velocity[0]),
+        ]
+    }
+
+    #[test]
+    fn cartesian_propagation_conserves_energy_and_angular_momentum() {
+        let mu = earth_mu();
+        let central_gravity = earth_gravity(mu);
+        let propagator = EllipticKeplerPropagator::new(problem(&central_gravity));
+        let cases = [
+            (0.0, 0.0, -43_200.0),
+            (0.1, 1.3, -3_600.0),
+            (0.4, 2.1, 900.0),
+            (0.7, 5.4, 43_200.0),
+        ];
+
+        for (eccentricity, anomaly, elapsed_seconds) in cases {
+            let initial: CartesianState = orbit(&central_gravity, eccentricity, anomaly)
+                .try_into()
+                .expect("elliptic Cartesian fixture");
+            let propagated = propagator
+                .propagate(
+                    Orbit::new(Epoch::from_tai_seconds(1_000.0), initial),
+                    Epoch::from_tai_seconds(1_000.0 + elapsed_seconds),
+                )
+                .expect("Cartesian propagation converges");
+            let final_state = *propagated.as_ref();
+            let initial_energy = specific_energy(initial, mu.as_cubic_metres_per_second_squared());
+            let final_energy =
+                specific_energy(final_state, mu.as_cubic_metres_per_second_squared());
+            let initial_momentum = specific_angular_momentum(initial);
+            let final_momentum = specific_angular_momentum(final_state);
+
+            let energy_budget = initial_energy.abs() * 2.0e-13;
+            assert!(
+                (final_energy - initial_energy).abs() <= energy_budget,
+                "specific energy changed from {initial_energy} to {final_energy}; budget {energy_budget}"
+            );
+            let momentum_scale = norm(initial_momentum);
+            for (before, after) in initial_momentum.into_iter().zip(final_momentum) {
+                let momentum_budget = momentum_scale * 2.0e-13;
+                assert!(
+                    (after - before).abs() <= momentum_budget,
+                    "specific angular momentum changed from {before} to {after}; budget {momentum_budget}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn signed_duration_round_trip_recovers_cartesian_state() {
         let central_gravity = earth_gravity(earth_mu());
