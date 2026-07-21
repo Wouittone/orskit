@@ -106,7 +106,6 @@ pub enum FrameOrigin {
 
 /// Whether frame axes are suitable for equations requiring inertial axes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
 pub enum FrameMotion {
     /// Axes are explicitly defined as inertial.
     Inertial,
@@ -398,7 +397,6 @@ impl ReferenceDataDescriptor {
 
 /// One identity field of a [`ReferenceDataDescriptor`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum ReferenceDataDescriptorField {
     /// Publishing organization or application identity.
     Authority,

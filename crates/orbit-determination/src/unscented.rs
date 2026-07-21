@@ -210,7 +210,7 @@ impl<P> UnscentedKalmanFilter<P> {
 
 impl<P, Observation> OrbitDetermination<Observation> for UnscentedKalmanFilter<P>
 where
-    P: Propagator<CartesianState> + Send + Sync + std::fmt::Debug,
+    P: Propagator<CartesianState>,
     Observation: CartesianObservation,
 {
     type Estimate = CartesianStateEstimate;
@@ -222,7 +222,7 @@ where
 
 impl<P, Observation> KalmanFilter<Observation> for UnscentedKalmanFilter<P>
 where
-    P: Propagator<CartesianState> + Send + Sync + std::fmt::Debug,
+    P: Propagator<CartesianState>,
     Observation: CartesianObservation,
 {
     fn estimate_with_observer(

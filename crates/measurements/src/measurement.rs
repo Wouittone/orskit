@@ -478,7 +478,6 @@ pub trait Measurement: fmt::Debug + Send + Sync {
 /// Meaning of the scalar stored in a range observation.
 #[cfg(feature = "range")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
 pub enum RangeConvention {
     /// Sum of geometric path lengths over every leg in the signal path.
     PathLength,
@@ -631,7 +630,6 @@ impl Measurement for RangeRateMeasurement {
 /// Explicit convention for ground-relative angular measurements.
 #[cfg(feature = "azimuth-elevation")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
 pub enum AzimuthElevationConvention {
     /// Azimuth is clockwise from local north; elevation is above local horizon.
     ClockwiseFromNorthAboveHorizon,

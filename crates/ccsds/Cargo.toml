@@ -21,6 +21,7 @@ orskit_core = { package = "core", path = "../core", default-features = false, fe
 orbits = { path = "../orbits", features = ["cartesian"] }
 frames = { path = "../frames" }
 units = { path = "../units" }
+hifitime.workspace = true
 rayon = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util"], optional = true }

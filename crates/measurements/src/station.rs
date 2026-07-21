@@ -42,6 +42,7 @@ pub struct GroundStation {
 
 impl GroundStation {
     /// Creates a station and its parent-aligned local frame.
+    #[must_use]
     pub const fn new(id: ParticipantId, frame: DerivedFrame) -> Self {
         Self { id, frame }
     }
