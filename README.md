@@ -87,6 +87,9 @@ what exists and what still needs to be researched, designed, and validated.
 The core crates form a Cargo workspace. The currently validated Rust toolchain
 is pinned in `rust-toolchain.toml` and package metadata. Install
 [`cargo-nextest`](https://nexte.st/) before running the test commands.
+The repository also provides a [`justfile`](justfile) with discoverable
+`check`, `test`, `docs`, and `bench` shortcuts; raw Cargo commands remain in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```powershell
 cargo build --workspace
@@ -134,10 +137,9 @@ OEM supplies timed coordinates but not mass, inertia, attitude, or angular
 velocity. Enable the facade `cartesian` feature (or depend on `orbits` with its
 `cartesian` feature) to convert OEM coordinates to `CartesianState`, then
 combine them with those missing values in a `SpacecraftView<CartesianState>`.
-This is presently
-CCSDS 502.0-B-3 OEM KVN coordinate
-ingestion only. XML,
-covariance, OPM/OMM/OCM, attitude, and tracking messages remain explicit gaps.
+This is presently CCSDS 502.0-B-3 OEM KVN ingestion, including typed Cartesian
+covariance records. XML, writing, OPM/OMM/OCM, attitude, and tracking messages
+remain explicit gaps.
 
 The Python and JVM binding experiments are currently disabled while the Rust
 core API is stabilized. Their separate workspaces remain in the repository but
@@ -153,6 +155,14 @@ policy](.agent/PROVENANCE.md). Work should advance a specific row in the
 and honest known gaps.
 
 The immediate priorities are listed in [the roadmap](.agent/ROADMAP.md).
+
+Current developer and API guides include:
+
+- the [Cargo-metadata-backed crate diagram](docs/architecture.md);
+- [elliptic two-body propagation](docs/tutorials/two-body-propagation.md);
+- [Cartesian position orbit determination](docs/tutorials/cartesian-orbit-determination.md);
+- [custom propagation pairs](docs/guides/custom-propagation.md); and
+- the [pre-1.0 release policy](docs/release-policy.md) and [changelog](CHANGELOG.md).
 
 ## License
 
