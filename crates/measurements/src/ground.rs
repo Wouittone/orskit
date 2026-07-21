@@ -179,7 +179,6 @@ ground_kind!(
 /// Equatorial convention for a ground optical observation.
 #[cfg(feature = "angular-ra-dec")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
 pub enum RightAscensionDeclinationConvention {
     /// Right ascension increases eastward and declination northward in the context frame.
     Equatorial,

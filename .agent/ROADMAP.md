@@ -4,6 +4,12 @@ The roadmap orders risk; it is not a promise of dates. Milestones should ship
 small vertical slices rather than constructing every type before any workflow
 works.
 
+The actionable follow-up to the July 2026 external repository review is tracked
+in [`REVIEW_IMPROVEMENTS.md`](REVIEW_IMPROVEMENTS.md). That checklist corrects
+stale observations in the review, records dependencies between work items, and
+keeps language-binding feature work parked until the Rust core contracts are
+stable.
+
 ## Milestone 0 — trustworthy foundation
 
 - Keep the pinned Orekit baseline and versioned `PARITY.md` inventory current

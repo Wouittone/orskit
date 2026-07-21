@@ -32,3 +32,8 @@ bodies = { path = "../../bodies" }
 name = "two_body_benchmark"
 path = "examples/two_body_benchmark.rs"
 required-features = ["point-mass"]
+
+[[example]]
+name = "two_body_propagation"
+path = "examples/two_body_propagation.rs"
+required-features = ["point-mass"]

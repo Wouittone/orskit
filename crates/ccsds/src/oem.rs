@@ -28,7 +28,6 @@ const DEFAULT_MAX_DOCUMENT_LINES: usize = 8_000_000;
 
 /// OEM KVN section in which a decoder resource limit was reached.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum OemSection {
     /// Message header, through its `META_START` marker.
     Header,
@@ -577,7 +576,6 @@ impl Eq for OemCovarianceFrame {}
 
 /// One unit-qualified entry in a Cartesian position/velocity covariance matrix.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[non_exhaustive]
 pub enum CartesianCovarianceEntry {
     /// Position/position covariance in square length.
     Position(Area),
@@ -684,7 +682,6 @@ impl OemSample {
 
 /// Borrowed record from a collected OEM segment, in original source order.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[non_exhaustive]
 pub enum OemRecordRef<'a> {
     /// A metadata- or data-section comment.
     Comment(&'a OemComment),
@@ -752,6 +749,7 @@ impl OemSegment {
     ///
     /// Metadata comments precede data-section records. Data comments remain
     /// interleaved with the coordinate lines they surrounded in the source.
+    #[must_use]
     pub fn records(
         &self,
     ) -> impl DoubleEndedIterator<Item = OemRecordRef<'_>> + ExactSizeIterator + '_ {
@@ -914,6 +912,9 @@ pub enum OemError {
         value: String,
         /// Declared time system.
         time_system: OemTimeSystem,
+        /// Hifitime parsing failure for the scale-qualified source text.
+        #[source]
+        source: hifitime::HifitimeError,
     },
     /// A scalar state component was invalid.
     #[error("invalid OEM state field {field}={value} at line {line}")]
@@ -2379,10 +2380,11 @@ fn parse_epoch(value: &str, time_system: OemTimeSystem, line: usize) -> Result<E
         value.trim(),
         time_system.hifitime_suffix()
     ))
-    .map_err(|_| OemError::InvalidEpoch {
+    .map_err(|source| OemError::InvalidEpoch {
         line,
         value: value.to_owned(),
         time_system,
+        source,
     })
 }
 
@@ -3282,5 +3284,23 @@ META_STOP\n\
             Err(OemError::IncompatibleFrameCenter { center, frame, .. })
                 if center == "MARS" && frame == "ITRF2020"
         ));
+    }
+
+    #[test]
+    fn invalid_epoch_preserves_the_time_parser_source() {
+        use std::error::Error as _;
+
+        let input = SAMPLE.replacen("2024-01-01T00:00:00 7000", "not-an-epoch 7000", 1);
+        let error = parse_oem_kvn(&input).expect_err("invalid epoch must be rejected");
+
+        assert!(matches!(
+            &error,
+            OemError::InvalidEpoch {
+                line: 16,
+                time_system: OemTimeSystem::Utc,
+                ..
+            }
+        ));
+        assert!(error.source().is_some());
     }
 }

@@ -1236,6 +1236,63 @@ mod tests {
     }
 
     #[test]
+    fn representation_round_trips_preserve_cartesian_state_across_elliptic_regimes() {
+        let gravity = earth_gravity();
+        let fixtures = [
+            (6_800_000.0, 0.001, 0.05, 0.2, 0.4, 0.7),
+            (7_200_000.0, 0.2, 0.7, 1.1, 0.4, 2.0),
+            (26_600_000.0, 0.6, 1.4, 2.3, 1.7, 5.5),
+            (42_164_000.0, 0.05, 2.8, 5.8, 0.9, 0.1),
+        ];
+
+        for (axis, eccentricity, inclination, raan, periapsis, anomaly) in fixtures {
+            let source = KeplerianState::new(
+                InertialFrame::GCRF,
+                Arc::clone(&gravity),
+                Length::new::<meter>(axis),
+                Ratio::new::<ratio>(eccentricity),
+                Angle::new::<radian>(inclination),
+                Angle::new::<radian>(raan),
+                Angle::new::<radian>(periapsis),
+                Angle::new::<radian>(anomaly),
+            )
+            .expect("non-singular elliptic fixture");
+            let expected: CartesianState = source.clone().try_into().expect("reference Cartesian");
+
+            let via_equinoctial: CartesianState = EquinoctialState::try_from(source.clone())
+                .and_then(KeplerianState::try_from)
+                .and_then(CartesianState::try_from)
+                .expect("Keplerian-equinoctial round trip");
+            let via_circular: CartesianState = CircularState::try_from(source.clone())
+                .and_then(KeplerianState::try_from)
+                .and_then(CartesianState::try_from)
+                .expect("Keplerian-circular round trip");
+            let via_cartesian: CartesianState =
+                KeplerianState::try_from(CartesianStateWithGravity {
+                    state: expected,
+                    central_gravity: Arc::clone(&gravity),
+                })
+                .and_then(CartesianState::try_from)
+                .expect("Keplerian-Cartesian round trip");
+
+            for actual in [via_equinoctial, via_circular, via_cartesian] {
+                // One micrometre and one nanometre per second are conservative
+                // round-trip budgets for these deterministic, non-singular charts.
+                assert_vector_close(
+                    actual.position().to_metres(),
+                    expected.position().to_metres(),
+                    1.0e-6,
+                );
+                assert_vector_close(
+                    actual.velocity().to_metres_per_second(),
+                    expected.velocity().to_metres_per_second(),
+                    1.0e-9,
+                );
+            }
+        }
+    }
+
+    #[test]
     fn cartesian_conversion_rejects_wrong_gravity_origin() {
         let mars_gravity = central_gravity(FrameOrigin::Body(frames::Body::MARS), earth_mu());
         let cartesian = CartesianState::new(

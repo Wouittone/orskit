@@ -42,7 +42,7 @@ jobs:
         run: cargo check --workspace --all-targets --all-features --locked
 
       - name: Lint Rust workspace
-        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings -D clippy::must-use-candidate
 
       - name: Test Rust workspace
         run: cargo nextest run --workspace --all-targets --all-features --locked
