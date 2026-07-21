@@ -2259,6 +2259,24 @@ mod tests {
             assert_eq!(predicted_range.epoch(), epoch);
             assert!(predicted_range.value().value().get::<meter>() > 0.0);
             assert_eq!(predicted_range.value().error(), None);
+            let reverse_range = RangeMeasurement::new(
+                path(&[primary.clone(), spacecraft.clone()]),
+                epoch,
+                ReferenceFrame::ITRF2020,
+                RangeConvention::PathLength,
+                scalar_length(0.0),
+            )
+            .expect("reverse range");
+            let predicted_reverse = estimator
+                .predict(&reverse_range, epoch)
+                .expect("predicted reverse range");
+            assert!(
+                (predicted_reverse.value().value().get::<meter>()
+                    - predicted_range.value().value().get::<meter>())
+                .abs()
+                    <= 1.0e-9,
+                "instantaneous one-leg geometric range must be symmetric"
+            );
             let propagation_solver = ConstantGradientPropagation {
                 state: SignalPropagationState::new(
                     epoch,

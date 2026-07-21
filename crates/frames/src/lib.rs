@@ -1014,6 +1014,56 @@ mod tests {
     }
 
     #[derive(Debug)]
+    struct CanonicalOffsetSupplier {
+        reference_data: Vec<ReferenceDataDescriptor>,
+    }
+
+    impl CanonicalOffsetSupplier {
+        fn origin(frame: ReferenceFrame) -> ([f64; 3], [f64; 3]) {
+            match frame {
+                ReferenceFrame::ITRF2020 => ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+                ReferenceFrame::GCRF => ([128.0, -64.0, 32.0], [8.0, -4.0, 2.0]),
+                ReferenceFrame::EME2000 => ([-16.0, 8.0, -4.0], [-1.0, 0.5, -0.25]),
+                _ => unreachable!("the deterministic test supplier supports three frames"),
+            }
+        }
+    }
+
+    impl FrameReferenceDataSupplier for CanonicalOffsetSupplier {
+        type Error = std::convert::Infallible;
+
+        fn reference_data(&self) -> &[ReferenceDataDescriptor] {
+            &self.reference_data
+        }
+
+        fn transform_kinematics(
+            &self,
+            _epoch: Epoch,
+            kinematics: FrameKinematics,
+            target: ReferenceFrame,
+        ) -> Result<FrameKinematics, Self::Error> {
+            let (source_position, source_velocity) = Self::origin(kinematics.frame());
+            let (target_position, target_velocity) = Self::origin(target);
+            let position = kinematics.position().to_metres();
+            let velocity = kinematics.velocity().to_metres_per_second();
+            Ok(FrameKinematics::new(
+                Position::from_metres(
+                    position[0] + source_position[0] - target_position[0],
+                    position[1] + source_position[1] - target_position[1],
+                    position[2] + source_position[2] - target_position[2],
+                ),
+                VelocityVector::from_metres_per_second(
+                    velocity[0] + source_velocity[0] - target_velocity[0],
+                    velocity[1] + source_velocity[1] - target_velocity[1],
+                    velocity[2] + source_velocity[2] - target_velocity[2],
+                ),
+                target,
+            )
+            .expect("deterministic affine transform remains finite"))
+        }
+    }
+
+    #[derive(Debug)]
     struct MislabelledSupplier {
         reference_data: Vec<ReferenceDataDescriptor>,
     }
@@ -1409,6 +1459,43 @@ mod tests {
                 target: ReferenceFrame::GCRF,
             })
         );
+    }
+
+    #[test]
+    fn kinematic_transform_composition_and_inverse_preserve_state() {
+        let transform: ReferenceDataKinematicFrameTransform<_> = CanonicalOffsetSupplier {
+            reference_data: vec![descriptor()],
+        }
+        .into();
+        let epoch = Epoch::from_tai_seconds(42.0);
+
+        for (position, velocity) in [
+            ([1.0, 2.0, 3.0], [4.0, 5.0, 6.0]),
+            ([-7_000_000.0, 125.5, 9.25], [-1.0, 7_500.0, 0.5]),
+            ([0.0, -0.5, 1_024.0], [0.25, -0.125, 64.0]),
+        ] {
+            let initial = FrameKinematics::new(
+                Position::from_metres(position[0], position[1], position[2]),
+                VelocityVector::from_metres_per_second(velocity[0], velocity[1], velocity[2]),
+                ReferenceFrame::ITRF2020,
+            )
+            .expect("finite deterministic state");
+            let intermediate = transform
+                .transform(epoch, initial, ReferenceFrame::GCRF)
+                .expect("first transform");
+            let composed = transform
+                .transform(epoch, intermediate, ReferenceFrame::EME2000)
+                .expect("composed transform");
+            let direct = transform
+                .transform(epoch, initial, ReferenceFrame::EME2000)
+                .expect("direct transform");
+            let recovered = transform
+                .transform(epoch, composed, ReferenceFrame::ITRF2020)
+                .expect("inverse transform");
+
+            assert_eq!(composed, direct);
+            assert_eq!(recovered, initial);
+        }
     }
 
     #[test]
