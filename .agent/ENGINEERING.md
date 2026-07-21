@@ -56,6 +56,32 @@ passing test. Preserve accuracy checks when optimizing.
 - Declare and test the minimum supported Rust version before the first public
   release; do not raise it accidentally.
 
+### Domain-error policy
+
+- Return a named domain error for every recoverable public failure. Do not use
+  `String`, `&str`, or an opaque catch-all as the error contract merely to avoid
+  defining the failed invariant.
+- Preserve lower-level errors with `Error::source`. Use a transparent wrapper
+  when no new domain meaning is added; otherwise use a contextual variant whose
+  fields identify the failed participant, record, model, or boundary. Erase an
+  error behind `Box<dyn Error + Send + Sync>` only at a genuine object-safe or
+  application-extension boundary.
+- Validate recoverable input before entering a numerical kernel. Public errors
+  describe caller-actionable configuration, domain, convergence, coverage, and
+  resource failures; internal invariant failures must not be presented as
+  recoverable scientific results.
+- Mark an evolving public error enum `#[non_exhaustive]`. Leave a public enum
+  exhaustive only when it represents an intentionally closed physical or
+  protocol set and downstream exhaustive matching is part of the contract.
+  Unit parse-error structs are closed by construction and need no attribute.
+- Test error variants that carry context, and test `Error::source` whenever a
+  crate wraps another error. Never discard a source solely to simplify a
+  display message.
+- Constructors and transformations returning `Result` rely on `Result`'s
+  existing `must_use` contract. Add `#[must_use]` to infallible constructors,
+  transformations, and owned-result getters when discarding the returned value
+  is probably a bug; do not annotate mutating commands for consistency alone.
+
 ## Test hierarchy
 
 1. **Unit tests:** formulas, constructors, conversions, and errors.
@@ -113,7 +139,7 @@ Run the checks applicable to a change from the repository root:
 ```powershell
 cargo fmt --all --check
 cargo check --workspace --all-targets --all-features --locked
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings -D clippy::must-use-candidate
 cargo nextest run --workspace --all-targets --all-features --locked
 # cargo-nextest does not support doctests on stable Rust.
 cargo test --workspace --doc --all-features --locked

@@ -48,12 +48,12 @@ set is:
 
 ```powershell
 cargo fmt --all --check
-cargo check --workspace --all-targets --all-features
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo check --workspace --all-targets --all-features --locked
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings -D clippy::must-use-candidate
 cargo nextest run --workspace --all-targets --all-features --locked
 # cargo-nextest does not support doctests on stable Rust.
 cargo test --workspace --doc --all-features --locked
-cargo doc --workspace --all-features --no-deps
+cargo doc --workspace --all-features --no-deps --locked
 ```
 
 Documentation-only changes should at least pass `git diff --check` and should

@@ -101,6 +101,7 @@ dependencies = [
  "core",
  "criterion",
  "frames",
+ "hifitime",
  "orbits",
  "rayon",
  "thiserror",
