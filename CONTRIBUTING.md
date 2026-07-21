@@ -29,6 +29,10 @@ writing.
    `.agent/decisions/`.
 5. For multi-file or cross-crate work, add a task brief in `.agent/tasks/`.
 
+Contributors do not need to write Rust to help. The
+[scientific-contribution guide](SCIENTIFIC_CONTRIBUTING.md) explains standards
+research, reference vectors, data licensing, and review-only contributions.
+
 ## Change expectations
 
 - Prefer small vertical slices over broad placeholder surfaces.
@@ -43,8 +47,18 @@ writing.
 
 ## Local checks
 
-Use the checks that match the files touched. For Rust core changes, the default
-set is:
+If [`just`](https://github.com/casey/just) is installed, discover the supported
+shortcuts with `just`. The common workflows are:
+
+```powershell
+just check
+just test
+just docs
+just bench
+```
+
+The shortcuts do not replace Cargo. Use the checks that match the files
+touched; the raw default commands for Rust core changes are:
 
 ```powershell
 cargo fmt --all --check
@@ -54,10 +68,18 @@ cargo nextest run --workspace --all-targets --all-features --locked
 # cargo-nextest does not support doctests on stable Rust.
 cargo test --workspace --doc --all-features --locked
 cargo doc --workspace --all-features --no-deps --locked
+cargo bench --workspace --all-features --no-run --locked
 ```
 
 Documentation-only changes should at least pass `git diff --check` and should
 be reviewed for stale links, unsupported parity claims, and provenance gaps.
+When manifests or crate boundaries change, also run `just diagram-check` (or
+`pwsh -NoProfile -File scripts/check_crate_diagram.ps1 -Check`).
+
+The optional [development container](.devcontainer/devcontainer.json) provides
+the Rust 1.96.1 toolchain, rustfmt, Clippy, cargo-nextest, `just`, and PowerShell.
+VS Code recommendations intentionally rely on `rust-toolchain.toml` and do not
+set format-on-save or replace personal check preferences.
 
 ## Pull request checklist
 
@@ -66,3 +88,6 @@ be reviewed for stale links, unsupported parity claims, and provenance gaps.
 - [ ] New references or datasets are recorded in provenance docs.
 - [ ] Relevant checks were run, or skipped checks are explained.
 - [ ] The contribution is original or explicitly approved compatible material.
+
+Maintainers can use the [approachable-issue curation guide](docs/maintainers/issue-curation.md)
+when applying `good first issue` and `help wanted` labels.

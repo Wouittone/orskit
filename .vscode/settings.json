@@ -1,0 +1,6 @@
+{
+  // Deliberately keep repository settings minimal. rust-analyzer and VS Code
+  // terminals discover rust-toolchain.toml, so the pinned compiler, rustfmt,
+  // and Clippy are used without replacing personal format-on-save or check
+  // preferences.
+}
