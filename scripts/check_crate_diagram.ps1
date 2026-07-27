@@ -10,7 +10,7 @@ $metadata = cargo metadata --format-version 1 --no-deps --locked --manifest-path
 $layers = @(
     [pscustomobject]@{ Name = 'Public facade'; Packages = @('orskit') }
     [pscustomobject]@{ Name = 'Workflows and I/O'; Packages = @('ccsds', 'tle', 'orskit-export', 'orbit-determination', 'measurements') }
-    [pscustomobject]@{ Name = 'Dynamics'; Packages = @('dynamics', 'dynamics-core', 'dynamics-numerical', 'dynamics-sgp4', 'dynamics-two-bodies') }
+    [pscustomobject]@{ Name = 'Dynamics'; Packages = @('dynamics', 'dynamics-core', 'dynamics-numerical', 'dynamics-two-bodies') }
     [pscustomobject]@{ Name = 'Physical model'; Packages = @('core', 'orbits', 'gravity', 'ephemeris', 'frames', 'bodies') }
     [pscustomobject]@{ Name = 'Foundations'; Packages = @('utils', 'units', 'orskit-data') }
 )

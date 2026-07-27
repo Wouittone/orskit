@@ -8,7 +8,6 @@ members = [
     "crates/dynamics",
     "crates/dynamics/core",
     "crates/dynamics/numerical",
-    "crates/dynamics/sgp4",
     "crates/dynamics/two-bodies",
     "crates/ephemeris",
     "crates/export",

@@ -318,7 +318,7 @@ valid at the propagated epoch.
 The `tle` crate is an operational-format boundary: it validates and formats
 TLE records without owning propagation. Its optional adapter converts validated
 columns into an epoch-qualified `Sgp4Elements` domain state. The separate
-`dynamics-sgp4` crate owns a stateless, non-configurable
+`dynamics` crate's gated `sgp4` module owns a stateless, non-configurable
 `Propagator<Sgp4Elements, CartesianState>` backed by an unmodified black-box
 dependency configured for WGS-72/AFSPC compatibility. It returns the existing
 typed Cartesian orbit in explicit TEME axes. TLE age policy, frame conversion,

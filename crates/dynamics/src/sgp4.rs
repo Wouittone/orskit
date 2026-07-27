@@ -134,7 +134,7 @@ pub enum Sgp4Error {
 /// use std::f64::consts::TAU;
 ///
 /// use dynamics_core::Propagator;
-/// use dynamics_sgp4::{Sgp4Elements, Sgp4Propagator};
+/// use dynamics::sgp4::{Sgp4Elements, Sgp4Propagator};
 /// use hifitime::{Duration, Epoch};
 /// use orskit_core::Orbit;
 /// use units::uom::si::{

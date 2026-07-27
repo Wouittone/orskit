@@ -6,8 +6,8 @@
 //! their fixed columns and standard modulo-10 checksums, and requires the
 //! catalog numbers on both lines to agree. Numeric accessors name the units
 //! defined by the TLE format. The opt-in `sgp4` feature converts a parsed
-//! record into the separate model-specific state consumed by
-//! `dynamics-sgp4`; propagation does not depend on this format type.
+//! record into the separate model-specific state consumed by the `dynamics`
+//! crate's `sgp4` feature; propagation does not depend on this format type.
 //!
 //! The grammar and ranges follow the public CelesTrak TLE format description
 //! and Space-Track's current Alpha-5 documentation. Epoch years use the

@@ -1,6 +1,6 @@
 use std::f64::consts::TAU;
 
-use dynamics_sgp4::{Sgp4Elements, Sgp4ElementsError};
+use dynamics::{Sgp4Elements, Sgp4ElementsError};
 use hifitime::Epoch;
 use orskit_core::Orbit;
 use thiserror::Error;
@@ -31,7 +31,7 @@ impl TwoLineElement {
     /// Converts this format record into an epoch-qualified SGP4 domain state.
     ///
     /// Parsing and fixed-column policy remain in this crate. Propagation and
-    /// its fixed force model live in `dynamics-sgp4`.
+    /// its fixed force model live behind `dynamics`' `sgp4` feature.
     pub fn to_sgp4_orbit(&self) -> Result<Orbit<Sgp4Elements>, Sgp4ConversionError> {
         if self.ephemeris_type() != 0 {
             return Err(Sgp4ConversionError::UnsupportedEphemerisType {

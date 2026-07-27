@@ -11,14 +11,14 @@ description = "Strict Two-Line Element parsing and formatting for orskit"
 [features]
 default = []
 sgp4 = [
-    "dep:dynamics_sgp4",
+    "dep:dynamics",
     "dep:hifitime",
     "dep:orskit_core",
     "dep:units",
 ]
 
 [dependencies]
-dynamics_sgp4 = { package = "dynamics-sgp4", path = "../dynamics/sgp4", optional = true }
+dynamics = { path = "../dynamics", features = ["sgp4"], optional = true }
 hifitime = { workspace = true, optional = true }
 orskit_core = { package = "core", path = "../core", optional = true }
 thiserror.workspace = true

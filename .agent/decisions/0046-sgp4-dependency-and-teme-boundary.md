@@ -15,9 +15,9 @@ terrestrial frame.
 
 ## Decision
 
-1. `dynamics-sgp4` uses the MIT-licensed `sgp4` 2.4 crate unmodified and as a
-   black box. Dependency implementation source, tests, and examples are out of
-   bounds for project implementation work.
+1. The `dynamics` crate's gated `sgp4` module uses the MIT-licensed `sgp4` 2.4
+   crate unmodified and as a black box. Dependency implementation source,
+   tests, and examples are out of bounds for project implementation work.
 2. The project parser remains authoritative, but it is not a propagation
    state. Its optional adapter maps validated columns into an epoch-qualified
    `Sgp4Elements`; the dynamics crate never depends on `TwoLineElement` and
