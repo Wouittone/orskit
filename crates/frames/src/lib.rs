@@ -4,9 +4,10 @@
 //!
 //! A frame identity is modeled as a body-backed, barycentric, or custom origin
 //! plus an orientation. A [`DerivedFrame`] associates a parent-aligned custom
-//! identity with a fixed origin offset expressed in its parent frame. This
-//! supports caller-owned hierarchies such as an Earth-fixed ground site without
-//! pretending that general frame transforms or geodesy already exist.
+//! identity with a fixed origin offset expressed in its parent frame.
+//! [`TopocentricFrame`] adds caller-selected ellipsoid geometry for a local
+//! East–North–Up frame under an affirmatively body-fixed parent.
+//! Neither type implies an epoch-dependent transform.
 //! Orientations explicitly declare whether their axes are inertial,
 //! non-inertial, or unspecified. Kinematic transform providers make their
 //! epoch and data dependencies explicit. A
@@ -14,14 +15,24 @@
 //! and can back a transform provider without making this foundational crate
 //! load files, fetch data, or select an Earth-orientation model implicitly.
 
+#[cfg(feature = "earth-orientation")]
+mod earth_orientation;
+
 use std::collections::{HashMap, HashSet};
 use std::error::Error as StdError;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{fmt, str::FromStr};
 
-pub use bodies::{Body, BodySystem, CustomBodyId};
+pub use bodies::{Body, BodySystem, CustomBodyId, GeodeticPosition, ReferenceEllipsoid};
+#[cfg(feature = "earth-orientation")]
+pub use earth_orientation::{
+    EarthOrientationConvention, EarthOrientationError, EarthOrientationSample,
+    Iers2010EarthOrientation,
+};
 use hifitime::Epoch;
+pub use orskit_data::ArtifactDescriptor as ReferenceDataDescriptor;
 use thiserror::Error;
+use units::uom::si::angle::radian;
 use units::{Position, VelocityVector};
 
 /// Typed identifier reserved for application-defined frame components.
@@ -145,6 +156,8 @@ pub enum FrameOrientation {
     Tod,
     /// Greenwich true-of-date rotating frame.
     Gtod,
+    /// Application-defined axes fixed to their frame-origin body.
+    BodyFixed(CustomFrameId),
     /// Application-defined orientation with explicit motion semantics.
     Custom {
         /// Application-defined orientation identity.
@@ -161,14 +174,23 @@ impl FrameOrientation {
         Self::Custom { id, motion }
     }
 
+    /// Constructs application-defined axes affirmatively fixed to their body.
+    #[must_use]
+    pub const fn body_fixed(id: CustomFrameId) -> Self {
+        Self::BodyFixed(id)
+    }
+
     /// Returns the axes' declared motion semantics.
     #[must_use]
     pub const fn motion(self) -> FrameMotion {
         match self {
             Self::Icrf | Self::Gcrf | Self::Eme2000 => FrameMotion::Inertial,
-            Self::Itrf(_) | Self::Teme | Self::Mod | Self::Tod | Self::Gtod => {
-                FrameMotion::NonInertial
-            }
+            Self::Itrf(_)
+            | Self::Teme
+            | Self::Mod
+            | Self::Tod
+            | Self::Gtod
+            | Self::BodyFixed(_) => FrameMotion::NonInertial,
             Self::Custom { motion, .. } => motion,
         }
     }
@@ -270,6 +292,19 @@ impl ReferenceFrame {
         self.orientation.motion()
     }
 
+    /// Whether these axes are affirmatively fixed to their origin body.
+    ///
+    /// ITRF realizations are Earth-specific. Other bodies require an explicit
+    /// application-defined body-fixed orientation.
+    #[must_use]
+    pub const fn is_body_fixed(self) -> bool {
+        matches!(
+            (self.origin, self.orientation),
+            (FrameOrigin::Body(Body::EARTH), FrameOrientation::Itrf(_))
+                | (FrameOrigin::Body(_), FrameOrientation::BodyFixed(_))
+        )
+    }
+
     /// Returns whether the axes are affirmatively classified as inertial.
     #[must_use]
     pub const fn is_inertial(self) -> bool {
@@ -359,66 +394,6 @@ pub trait KinematicFrameTransformProvider: fmt::Debug + Send + Sync {
     ) -> Result<FrameKinematics, Self::Error>;
 }
 
-/// Immutable identity of one reference-data artifact selected by an application.
-///
-/// A supplier exposes a non-empty borrowed slice of these records, so
-/// algorithms can record every selected input without cloning strings or
-/// choosing an ambient data set. `checksum` identifies the exact content when
-/// the source format supplies one.
-#[derive(Debug, PartialEq, Eq)]
-pub struct ReferenceDataDescriptor {
-    /// Publishing organization or application that supplied the data.
-    pub authority: String,
-    /// Product or data family, such as an IERS EOP series or JPL DE440.
-    pub product: String,
-    /// Immutable release, issue, or application-defined revision.
-    pub revision: String,
-    /// Optional content checksum for the selected artifact set.
-    pub checksum: Option<String>,
-}
-
-impl ReferenceDataDescriptor {
-    fn invalid_field(&self) -> Option<ReferenceDataDescriptorField> {
-        if self.authority.trim().is_empty() {
-            return Some(ReferenceDataDescriptorField::Authority);
-        }
-        if self.product.trim().is_empty() {
-            return Some(ReferenceDataDescriptorField::Product);
-        }
-        if self.revision.trim().is_empty() {
-            return Some(ReferenceDataDescriptorField::Revision);
-        }
-        self.checksum
-            .as_deref()
-            .is_some_and(|checksum| checksum.trim().is_empty())
-            .then_some(ReferenceDataDescriptorField::Checksum)
-    }
-}
-
-/// One identity field of a [`ReferenceDataDescriptor`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ReferenceDataDescriptorField {
-    /// Publishing organization or application identity.
-    Authority,
-    /// Product or data-family identity.
-    Product,
-    /// Immutable version or revision identity.
-    Revision,
-    /// Optional content checksum, when present.
-    Checksum,
-}
-
-impl fmt::Display for ReferenceDataDescriptorField {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Authority => "authority",
-            Self::Product => "product",
-            Self::Revision => "revision",
-            Self::Checksum => "checksum",
-        })
-    }
-}
-
 /// Supplies reference-data-backed kinematic frame solutions.
 ///
 /// This is an application-controlled data boundary: implementations own data
@@ -501,16 +476,6 @@ impl<S: FrameReferenceDataSupplier> KinematicFrameTransformProvider
         if reference_data.is_empty() {
             return Err(ReferenceDataKinematicFrameTransformError::MissingReferenceData);
         }
-        if let Some((artifact, field)) = reference_data
-            .iter()
-            .enumerate()
-            .find_map(|(index, descriptor)| descriptor.invalid_field().map(|field| (index, field)))
-        {
-            return Err(
-                ReferenceDataKinematicFrameTransformError::InvalidReferenceData { artifact, field },
-            );
-        }
-
         let transformed = self
             .supplier
             .transform_kinematics(epoch, kinematics, target)
@@ -538,14 +503,6 @@ pub enum ReferenceDataKinematicFrameTransformError<E: StdError + Send + Sync + '
     /// A distinct-frame request was attempted without any declared reference data.
     #[error("reference-data supplier declared no reference-data artifacts")]
     MissingReferenceData,
-    /// A declared reference-data artifact omitted a required identity field.
-    #[error("reference-data artifact {artifact} has an empty {field}")]
-    InvalidReferenceData {
-        /// Zero-based index within [`FrameReferenceDataSupplier::reference_data`].
-        artifact: usize,
-        /// Required field that was empty or whitespace-only.
-        field: ReferenceDataDescriptorField,
-    },
     /// The selected reference-data supplier could not evaluate the request.
     #[error("reference-data supplier failed to resolve the requested frame transform")]
     Supplier {
@@ -618,6 +575,7 @@ pub struct FrameCatalog {
     issuer_id: u64,
     roots: HashSet<ReferenceFrame>,
     definitions: HashMap<u64, DerivedFrame>,
+    topocentric_definitions: HashMap<u64, TopocentricFrame>,
 }
 
 impl FrameCatalog {
@@ -639,6 +597,7 @@ impl FrameCatalog {
             issuer_id: next_catalog_issuer()?,
             roots,
             definitions: HashMap::new(),
+            topocentric_definitions: HashMap::new(),
         })
     }
 
@@ -673,6 +632,9 @@ impl FrameCatalog {
             parent,
             origin_offset,
         };
+        if self.topocentric_definitions.contains_key(&local_id) {
+            return Err(FrameDefinitionError::ConflictingRedefinition { id });
+        }
         if let Some(existing) = self.definitions.get(&local_id) {
             return if *existing == candidate {
                 Ok(*existing)
@@ -681,6 +643,59 @@ impl FrameCatalog {
             };
         }
         self.definitions.insert(local_id, candidate);
+        Ok(candidate)
+    }
+
+    /// Issues or idempotently retrieves an East–North–Up topocentric frame.
+    ///
+    /// `parent` must be a registered, affirmatively body-fixed frame whose
+    /// conventional geocentric axes match `ellipsoid`: `+Z` is north, `+X`
+    /// crosses the equator at zero longitude, and `+Y` crosses it at 90° east.
+    /// The geodetic origin's longitude therefore fixes the east/north axes even
+    /// at a pole.
+    pub fn define_topocentric_enu(
+        &mut self,
+        local_id: u64,
+        parent: ReferenceFrame,
+        ellipsoid: ReferenceEllipsoid,
+        origin: GeodeticPosition,
+    ) -> Result<TopocentricFrame, FrameDefinitionError> {
+        self.validate_parent(parent)?;
+        if parent.origin() != FrameOrigin::Body(ellipsoid.body()) {
+            return Err(FrameDefinitionError::EllipsoidBodyMismatch {
+                parent,
+                ellipsoid_body: ellipsoid.body(),
+            });
+        }
+        if !parent.is_body_fixed() {
+            return Err(FrameDefinitionError::TopocentricParentMustBeBodyFixed { parent });
+        }
+
+        let id = FrameId {
+            namespace: self.namespace,
+            issuer_id: self.issuer_id,
+            local_id,
+        };
+        let candidate = TopocentricFrame {
+            reference_frame: ReferenceFrame::new(
+                FrameOrigin::Derived(id),
+                FrameOrientation::body_fixed(CustomFrameId::new(local_id)),
+            ),
+            parent,
+            origin,
+            origin_offset: ellipsoid.to_geocentric(origin),
+        };
+        if self.definitions.contains_key(&local_id) {
+            return Err(FrameDefinitionError::ConflictingRedefinition { id });
+        }
+        if let Some(existing) = self.topocentric_definitions.get(&local_id) {
+            return if *existing == candidate {
+                Ok(*existing)
+            } else {
+                Err(FrameDefinitionError::ConflictingRedefinition { id })
+            };
+        }
+        self.topocentric_definitions.insert(local_id, candidate);
         Ok(candidate)
     }
 
@@ -693,17 +708,31 @@ impl FrameCatalog {
             .filter(|definition| definition.id() == id)
     }
 
+    /// Returns a topocentric definition only when its ID belongs to this
+    /// catalog.
+    #[must_use]
+    pub fn topocentric_definition(&self, id: FrameId) -> Option<TopocentricFrame> {
+        (id.namespace == self.namespace && id.issuer_id == self.issuer_id)
+            .then(|| self.topocentric_definitions.get(&id.local_id).copied())
+            .flatten()
+            .filter(|definition| definition.id() == id)
+    }
+
     fn validate_parent(&self, parent: ReferenceFrame) -> Result<(), FrameDefinitionError> {
         match parent.origin() {
             FrameOrigin::Derived(parent_id) => {
                 if parent_id.namespace != self.namespace || parent_id.issuer_id != self.issuer_id {
                     return Err(FrameDefinitionError::ForeignDerivedParent { parent_id });
                 }
-                if self
+                let registered = self
                     .definitions
                     .get(&parent_id.local_id)
                     .is_some_and(|definition| definition.reference_frame() == parent)
-                {
+                    || self
+                        .topocentric_definitions
+                        .get(&parent_id.local_id)
+                        .is_some_and(|definition| definition.reference_frame() == parent);
+                if registered {
                     Ok(())
                 } else {
                     Err(FrameDefinitionError::UnknownDerivedParent { parent_id })
@@ -771,6 +800,118 @@ impl DerivedFrame {
     #[must_use]
     pub const fn origin_offset(self) -> Position {
         self.origin_offset
+    }
+}
+
+/// Catalog-issued local East–North–Up frame at one geodetic origin.
+///
+/// East is tangent to increasing east-positive longitude, north is tangent to
+/// increasing geodetic latitude, and up follows the outward ellipsoid normal.
+/// Position transforms are affine: parent coordinates are translated by the
+/// geocentric origin and then rotated. No Earth-orientation or epoch transform
+/// is implied; `parent` is already a caller-selected body-fixed frame.
+///
+/// ```
+/// use bodies::{GeodeticPosition, ReferenceEllipsoid};
+/// use frames::{FrameCatalog, FrameNamespace, ReferenceFrame};
+/// use units::uom::si::{angle::degree, length::meter};
+/// use units::{Angle, Length, Position};
+///
+/// let origin = GeodeticPosition::new(
+///     Angle::new::<degree>(5.0),
+///     Angle::new::<degree>(55.0),
+///     Length::new::<meter>(200.0),
+/// )?;
+/// let mut catalog = FrameCatalog::new(
+///     FrameNamespace::new(1),
+///     [ReferenceFrame::ITRF2020],
+/// )?;
+/// let enu = catalog.define_topocentric_enu(
+///     7,
+///     ReferenceFrame::ITRF2020,
+///     ReferenceEllipsoid::wgs84(),
+///     origin,
+/// )?;
+///
+/// let local = enu.to_topocentric_position(enu.origin_offset());
+/// assert_eq!(local, Position::from_metres(0.0, 0.0, 0.0));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TopocentricFrame {
+    reference_frame: ReferenceFrame,
+    parent: ReferenceFrame,
+    origin: GeodeticPosition,
+    origin_offset: Position,
+}
+
+impl TopocentricFrame {
+    /// Returns the catalog-issued identity.
+    #[must_use]
+    pub const fn id(self) -> FrameId {
+        match self.reference_frame.origin() {
+            FrameOrigin::Derived(id) => id,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Returns the local frame identity carried by local coordinates.
+    #[must_use]
+    pub const fn reference_frame(self) -> ReferenceFrame {
+        self.reference_frame
+    }
+
+    /// Returns the body-fixed geocentric parent.
+    #[must_use]
+    pub const fn parent(self) -> ReferenceFrame {
+        self.parent
+    }
+
+    /// Returns the geodetic origin, including its explicit polar meridian.
+    #[must_use]
+    pub const fn origin(self) -> GeodeticPosition {
+        self.origin
+    }
+
+    /// Returns the parent-to-local-origin vector in parent axes.
+    #[must_use]
+    pub const fn origin_offset(self) -> Position {
+        self.origin_offset
+    }
+
+    /// Converts a position in parent axes to local `(east, north, up)`.
+    #[must_use]
+    pub fn to_topocentric_position(self, parent_position: Position) -> Position {
+        let [x, y, z] = (parent_position - self.origin_offset).to_metres();
+        let longitude = self.origin.longitude().get::<radian>();
+        let latitude = self.origin.latitude().get::<radian>();
+        let (sin_longitude, cos_longitude) = longitude.sin_cos();
+        let (sin_latitude, cos_latitude) = latitude.sin_cos();
+
+        Position::from_metres(
+            -x * sin_longitude + y * cos_longitude,
+            -x * sin_latitude * cos_longitude - y * sin_latitude * sin_longitude + z * cos_latitude,
+            x * cos_latitude * cos_longitude + y * cos_latitude * sin_longitude + z * sin_latitude,
+        )
+    }
+
+    /// Converts local `(east, north, up)` to a position in parent axes.
+    #[must_use]
+    pub fn to_parent_position(self, topocentric_position: Position) -> Position {
+        let [east, north, up] = topocentric_position.to_metres();
+        let longitude = self.origin.longitude().get::<radian>();
+        let latitude = self.origin.latitude().get::<radian>();
+        let (sin_longitude, cos_longitude) = longitude.sin_cos();
+        let (sin_latitude, cos_latitude) = latitude.sin_cos();
+        let [origin_x, origin_y, origin_z] = self.origin_offset.to_metres();
+
+        Position::from_metres(
+            origin_x - east * sin_longitude - north * sin_latitude * cos_longitude
+                + up * cos_latitude * cos_longitude,
+            origin_y + east * cos_longitude - north * sin_latitude * sin_longitude
+                + up * cos_latitude * sin_longitude,
+            origin_z + north * cos_latitude + up * sin_latitude,
+        )
     }
 }
 
@@ -864,6 +1005,7 @@ impl fmt::Display for FrameOrientation {
             Self::Mod => formatter.write_str("MOD"),
             Self::Tod => formatter.write_str("TOD"),
             Self::Gtod => formatter.write_str("GTOD"),
+            Self::BodyFixed(id) => write!(formatter, "BODY_FIXED({})", id.value()),
             Self::Custom { id, motion } => {
                 write!(formatter, "CUSTOM({},{motion})", id.value())
             }
@@ -928,6 +1070,20 @@ pub enum FrameDefinitionError {
     /// At least one parent-frame offset component is NaN or infinite.
     #[error("derived-frame origin offset must be finite")]
     NonFiniteOriginOffset,
+    /// The ellipsoid body did not match the body-centered parent origin.
+    #[error("ellipsoid body {ellipsoid_body} does not match topocentric parent {parent}")]
+    EllipsoidBodyMismatch {
+        /// Rejected parent.
+        parent: ReferenceFrame,
+        /// Body modeled by the ellipsoid.
+        ellipsoid_body: Body,
+    },
+    /// Topocentric axes require an affirmatively body-fixed parent.
+    #[error("topocentric parent {parent} is not affirmatively body-fixed")]
+    TopocentricParentMustBeBodyFixed {
+        /// Rejected parent.
+        parent: ReferenceFrame,
+    },
     /// A derived frame cannot bypass catalog validation by being declared a root.
     #[error("derived frame {frame} cannot be registered as a catalog root")]
     DerivedFrameCannotBeRoot {
@@ -975,14 +1131,19 @@ pub enum InertialFrameError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use orskit_data::{ArtifactCoverage, Sha256Digest};
+    use units::uom::si::{angle::degree, length::meter, ratio::ratio};
+    use units::{Angle, Length, Ratio};
 
     fn descriptor() -> ReferenceDataDescriptor {
-        ReferenceDataDescriptor {
-            authority: "test authority".to_owned(),
-            product: "test reference data".to_owned(),
-            revision: "test revision".to_owned(),
-            checksum: Some("test checksum".to_owned()),
-        }
+        ReferenceDataDescriptor::new(
+            "test authority",
+            "test reference data",
+            "test revision",
+            Sha256Digest::compute(b"test reference data"),
+            ArtifactCoverage::AllTime,
+        )
+        .expect("valid test reference-data descriptor")
     }
 
     #[derive(Debug)]
@@ -1128,28 +1289,6 @@ mod tests {
             _target: ReferenceFrame,
         ) -> Result<FrameKinematics, Self::Error> {
             unreachable!("the adapter must reject an empty reference-data set first")
-        }
-    }
-
-    #[derive(Debug)]
-    struct InvalidDescriptorSupplier {
-        reference_data: Vec<ReferenceDataDescriptor>,
-    }
-
-    impl FrameReferenceDataSupplier for InvalidDescriptorSupplier {
-        type Error = std::convert::Infallible;
-
-        fn reference_data(&self) -> &[ReferenceDataDescriptor] {
-            &self.reference_data
-        }
-
-        fn transform_kinematics(
-            &self,
-            _epoch: Epoch,
-            _kinematics: FrameKinematics,
-            _target: ReferenceFrame,
-        ) -> Result<FrameKinematics, Self::Error> {
-            unreachable!("the adapter must reject invalid reference data first")
         }
     }
 
@@ -1503,17 +1642,19 @@ mod tests {
         let supplier = OffsetSupplier {
             reference_data: vec![
                 descriptor(),
-                ReferenceDataDescriptor {
-                    authority: "test convention authority".to_owned(),
-                    product: "test convention".to_owned(),
-                    revision: "test convention revision".to_owned(),
-                    checksum: None,
-                },
+                ReferenceDataDescriptor::new(
+                    "test convention authority",
+                    "test convention",
+                    "test convention revision",
+                    Sha256Digest::compute(b"test convention"),
+                    ArtifactCoverage::AllTime,
+                )
+                .expect("valid convention descriptor"),
             ],
         };
         let transform: ReferenceDataKinematicFrameTransform<_> = supplier.into();
         assert_eq!(
-            transform.as_ref().reference_data()[0].product,
+            transform.as_ref().reference_data()[0].product(),
             "test reference data"
         );
         assert_eq!(transform.as_ref().reference_data().len(), 2);
@@ -1615,31 +1756,102 @@ mod tests {
     }
 
     #[test]
-    fn reference_data_adapter_rejects_incomplete_provenance_before_loading_data() {
-        let transform: ReferenceDataKinematicFrameTransform<_> = InvalidDescriptorSupplier {
-            reference_data: vec![ReferenceDataDescriptor {
-                authority: " ".to_owned(),
-                product: "test reference data".to_owned(),
-                revision: "test revision".to_owned(),
-                checksum: None,
-            }],
-        }
-        .into();
-        let state = FrameKinematics::new(
-            Position::from_metres(1.0, 2.0, 3.0),
-            VelocityVector::from_metres_per_second(4.0, 5.0, 6.0),
-            ReferenceFrame::ITRF2020,
+    fn epsg_topocentric_vector_matches_and_round_trips() {
+        let origin = GeodeticPosition::new(
+            Angle::new::<degree>(5.0),
+            Angle::new::<degree>(55.0),
+            Length::new::<meter>(200.0),
         )
-        .expect("finite state");
-
-        assert!(matches!(
-            transform.transform(Epoch::from_tai_seconds(42.0), state, ReferenceFrame::GCRF),
-            Err(
-                ReferenceDataKinematicFrameTransformError::InvalidReferenceData {
-                    artifact: 0,
-                    field: ReferenceDataDescriptorField::Authority,
-                }
+        .expect("EPSG origin");
+        let mut catalog = FrameCatalog::new(FrameNamespace::new(50), [ReferenceFrame::ITRF2020])
+            .expect("topocentric catalog");
+        let frame = catalog
+            .define_topocentric_enu(
+                1,
+                ReferenceFrame::ITRF2020,
+                ReferenceEllipsoid::wgs84(),
+                origin,
             )
-        ));
+            .expect("valid ENU definition");
+        let parent_position = Position::from_metres(3_771_793.968, 140_253.342, 5_124_304.349);
+        let local = frame.to_topocentric_position(parent_position);
+        let [east, north, up] = local.to_metres();
+
+        assert!((east - -189_013.869).abs() <= 0.002);
+        assert!((north - -128_642.040).abs() <= 0.002);
+        assert!((up - -4_220.171).abs() <= 0.002);
+        let round_trip = frame.to_parent_position(local).to_metres();
+        for (actual, expected) in round_trip.into_iter().zip(parent_position.to_metres()) {
+            assert!((actual - expected).abs() < 1.0e-9);
+        }
+    }
+
+    #[test]
+    fn topocentric_definition_requires_matching_body_fixed_parent() {
+        let origin = GeodeticPosition::new(
+            Angle::new::<degree>(0.0),
+            Angle::new::<degree>(0.0),
+            Length::new::<meter>(0.0),
+        )
+        .expect("equatorial origin");
+        let mars_ellipsoid = ReferenceEllipsoid::new(
+            Body::MARS,
+            Length::new::<meter>(3_396_190.0),
+            Ratio::new::<ratio>(169.894_447_223_612),
+        )
+        .expect("valid test ellipsoid");
+        let mars_fixed = ReferenceFrame::new(
+            FrameOrigin::Body(Body::MARS),
+            FrameOrientation::body_fixed(CustomFrameId::new(51)),
+        );
+        let mut catalog = FrameCatalog::new(
+            FrameNamespace::new(51),
+            [
+                ReferenceFrame::ITRF2020,
+                ReferenceFrame::GCRF,
+                ReferenceFrame::TEME,
+                mars_fixed,
+            ],
+        )
+        .expect("catalog roots");
+
+        assert_eq!(
+            catalog.define_topocentric_enu(1, ReferenceFrame::ITRF2020, mars_ellipsoid, origin,),
+            Err(FrameDefinitionError::EllipsoidBodyMismatch {
+                parent: ReferenceFrame::ITRF2020,
+                ellipsoid_body: Body::MARS,
+            })
+        );
+        assert_eq!(
+            catalog.define_topocentric_enu(
+                2,
+                ReferenceFrame::GCRF,
+                ReferenceEllipsoid::wgs84(),
+                origin,
+            ),
+            Err(FrameDefinitionError::TopocentricParentMustBeBodyFixed {
+                parent: ReferenceFrame::GCRF,
+            })
+        );
+        assert_eq!(
+            catalog.define_topocentric_enu(
+                3,
+                ReferenceFrame::TEME,
+                ReferenceEllipsoid::wgs84(),
+                origin,
+            ),
+            Err(FrameDefinitionError::TopocentricParentMustBeBodyFixed {
+                parent: ReferenceFrame::TEME,
+            })
+        );
+
+        let mars = catalog
+            .define_topocentric_enu(4, mars_fixed, mars_ellipsoid, origin)
+            .expect("explicit Mars body-fixed parent");
+        assert_eq!(mars.parent(), mars_fixed);
+        assert_eq!(
+            mars.reference_frame().orientation().motion(),
+            FrameMotion::NonInertial
+        );
     }
 }

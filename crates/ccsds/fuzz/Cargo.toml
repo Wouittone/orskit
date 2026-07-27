@@ -1,0 +1,28 @@
+[package]
+name = "ccsds-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+ccsds = { path = "..", default-features = false, features = ["parallel"] }
+libfuzzer-sys = "0.4"
+
+[[bin]]
+name = "oem_kvn"
+path = "fuzz_targets/oem_kvn.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "oem_xml"
+path = "fuzz_targets/oem_xml.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

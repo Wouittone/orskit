@@ -1,0 +1,34 @@
+[package]
+name = "orskit-export"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Feature-gated versioned snapshots for orskit orbits and propagators"
+
+[lib]
+name = "orskit_export"
+
+[features]
+default = []
+json = ["dep:serde_json"]
+orbits = ["dep:orbits", "dep:units"]
+two-bodies = ["orbits", "dep:dynamics-two-bodies"]
+
+[dependencies]
+dynamics-two-bodies = { path = "../dynamics/two-bodies", optional = true }
+frames = { path = "../frames" }
+gravity = { path = "../gravity" }
+hifitime.workspace = true
+orskit_core = { package = "core", path = "../core" }
+orbits = { path = "../orbits", features = ["cartesian"], optional = true }
+serde.workspace = true
+serde_json = { workspace = true, optional = true }
+thiserror.workspace = true
+units = { path = "../units", optional = true }
+
+[dev-dependencies]
+gravity = { path = "../gravity", features = ["point-mass"] }
+units = { path = "../units" }

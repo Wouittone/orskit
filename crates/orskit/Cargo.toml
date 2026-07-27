@@ -12,14 +12,20 @@ description = "Public Rust facade for orskit astrodynamics"
 default = []
 bodies = ["dep:bodies"]
 ccsds = ["dep:ccsds", "cartesian"]
-cartesian = ["dep:orbits", "orbits/cartesian"]
+cartesian = ["dep:orbits", "orbits/cartesian", "orskit_export?/orbits"]
 dynamics = ["dep:dynamics"]
+earth-orientation = ["frames/earth-orientation"]
+ephemeris = ["dep:ephemeris", "bodies"]
 orbit-determination = ["dep:orbit_determination"]
 point-mass-gravity = ["dep:gravity", "gravity/point-mass"]
-two-bodies = ["cartesian", "dynamics", "point-mass-gravity", "dynamics/point-mass"]
+two-bodies = ["cartesian", "dynamics", "point-mass-gravity", "dynamics/point-mass", "orskit_export?/two-bodies"]
 measurements = ["dep:measurements"]
 quaternion-attitude = ["orskit_core/quaternion-attitude"]
+serialization = ["dep:orskit_export"]
+serialization-json = ["serialization", "orskit_export/json"]
 standard-shapes = ["orskit_core/standard-shapes"]
+tle = ["dep:tle"]
+sgp4 = ["tle", "tle/sgp4", "cartesian"]
 measurement-range = ["measurements", "measurements/range"]
 measurement-range-rate = ["measurements", "measurements/range-rate"]
 measurement-azimuth-elevation = ["measurements", "measurements/azimuth-elevation"]
@@ -49,15 +55,20 @@ measurement-geometric-turnaround-range = ["measurement-estimation", "measurement
 measurement-geometric-tdoa = ["measurement-estimation", "measurements/geometric-tdoa"]
 measurement-geometric-fdoa = ["measurement-estimation", "measurements/geometric-fdoa"]
 measurement-geometric-phase = ["measurement-estimation", "measurements/geometric-phase"]
+numerical = ["cartesian", "dynamics", "dynamics/numerical"]
 
 [dependencies]
 bodies = { path = "../bodies", optional = true }
 ccsds = { path = "../ccsds", optional = true }
+orskit_data = { package = "orskit-data", path = "../data" }
 orskit_core = { package = "core", path = "../core", default-features = false }
 dynamics = { path = "../dynamics", optional = true }
+ephemeris = { path = "../ephemeris", optional = true }
 orbit_determination = { package = "orbit-determination", path = "../orbit-determination", optional = true }
 gravity = { path = "../gravity", optional = true }
 frames = { path = "../frames" }
 measurements = { path = "../measurements", optional = true, default-features = false }
 orbits = { path = "../orbits", optional = true }
+orskit_export = { package = "orskit-export", path = "../export", optional = true }
+tle = { path = "../tle", optional = true, default-features = false }
 units = { path = "../units" }

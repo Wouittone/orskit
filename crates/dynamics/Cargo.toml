@@ -13,9 +13,11 @@ name = "dynamics"
 
 [features]
 default = []
+numerical = ["dep:dynamics_numerical"]
 two-bodies = ["dep:dynamics_two_bodies"]
 point-mass = ["two-bodies", "dynamics_two_bodies/point-mass"]
 
 [dependencies]
 dynamics_core = { package = "dynamics-core", path = "core" }
+dynamics_numerical = { package = "dynamics-numerical", path = "numerical", optional = true }
 dynamics_two_bodies = { package = "dynamics-two-bodies", path = "two-bodies", optional = true }

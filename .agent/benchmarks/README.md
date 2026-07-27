@@ -79,6 +79,12 @@ may later maintain its own statistically characterized alert band, but that
 local policy must remain an investigation trigger rather than a cross-machine
 performance promise.
 
+The `Scheduled benchmark evidence` workflow runs the project-owned accuracy
+phase followed by quick timing samples each Monday and on manual dispatch. It
+retains raw output and metadata for 30 days. A timing change never fails that
+workflow by comparison with another run; maintainers inspect paired evidence
+under the policy above.
+
 ## Deterministic invariant strategy
 
 Current invariant coverage uses fixed, reviewable case matrices instead of a

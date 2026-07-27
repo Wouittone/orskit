@@ -13,3 +13,4 @@ name = "bodies"
 
 [dependencies]
 thiserror.workspace = true
+units = { path = "../units" }

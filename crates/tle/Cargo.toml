@@ -1,0 +1,29 @@
+[package]
+name = "tle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Strict Two-Line Element parsing and formatting for orskit"
+
+[features]
+default = []
+sgp4 = [
+    "dep:frames",
+    "dep:hifitime",
+    "dep:orskit_core",
+    "dep:orbits",
+    "dep:sgp4",
+    "dep:units",
+]
+
+[dependencies]
+frames = { path = "../frames", optional = true }
+hifitime = { workspace = true, optional = true }
+orskit_core = { package = "core", path = "../core", optional = true }
+orbits = { path = "../orbits", optional = true, features = ["cartesian"] }
+sgp4 = { workspace = true, optional = true }
+thiserror.workspace = true
+units = { path = "../units", optional = true }

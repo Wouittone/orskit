@@ -1,0 +1,21 @@
+[package]
+name = "tle-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+tle = { path = ".." }
+
+[[bin]]
+name = "two_line_element"
+path = "fuzz_targets/two_line_element.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

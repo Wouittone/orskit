@@ -34,6 +34,50 @@ pub trait PropagationState<Problem: ?Sized>: SpacecraftState + Sized {
 /// a different problem on a later call. The selected state representation is
 /// preserved; callers compose mass, inertia, and attitude separately when
 /// constructing a complete spacecraft view.
+///
+/// ```
+/// use std::convert::Infallible;
+///
+/// use dynamics_core::Propagator;
+/// use frames::ReferenceFrame;
+/// use hifitime::Epoch;
+/// use orskit_core::{Orbit, SpacecraftState};
+///
+/// #[derive(Debug)]
+/// struct State(ReferenceFrame);
+///
+/// impl SpacecraftState for State {
+///     fn frame(&self) -> ReferenceFrame {
+///         self.0
+///     }
+/// }
+///
+/// #[derive(Debug)]
+/// struct HoldStatePropagator;
+///
+/// impl Propagator<State> for HoldStatePropagator {
+///     type Error = Infallible;
+///
+///     fn propagate(
+///         &self,
+///         initial: Orbit<State>,
+///         target: Epoch,
+///     ) -> Result<Orbit<State>, Self::Error> {
+///         Ok(Orbit::new(target, State(initial.as_ref().frame())))
+///     }
+/// }
+///
+/// let target = Epoch::from_gregorian_tai_at_midnight(2026, 1, 2);
+/// let result = HoldStatePropagator.propagate(
+///     Orbit::new(
+///         Epoch::from_gregorian_tai_at_midnight(2026, 1, 1),
+///         State(ReferenceFrame::GCRF),
+///     ),
+///     target,
+/// )?;
+/// assert_eq!(result.epoch(), target);
+/// # Ok::<(), Infallible>(())
+/// ```
 pub trait Propagator<State: SpacecraftState>: fmt::Debug + Send + Sync {
     /// Typed error returned by this propagator.
     type Error: Error + Send + Sync + 'static;

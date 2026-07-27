@@ -3,10 +3,10 @@
 //! CCSDS navigation-message ingestion at the orskit I/O boundary.
 //!
 //! The first supported vertical slice is the CCSDS 502.0-B-3 Orbit
-//! Ephemeris Message (OEM) in Key-Value Notation (KVN). The blocking and Tokio
+//! Ephemeris Message (OEM) in Key-Value Notation (KVN) and XML. The blocking
 //! readers emit events while reading, so callers can process ephemeris points
-//! without retaining a complete message. Callers that already own a complete
-//! input may use the Rayon parser for ordered parallel coordinate conversion.
+//! without retaining a complete message. KVN additionally offers Tokio and
+//! ordered Rayon ingestion.
 //!
 //! This implementation crate depends on the core contract library as
 //! `orskit_core`; it cannot depend on the `orskit` facade because the facade
@@ -33,11 +33,12 @@
 mod oem;
 
 pub use oem::{
-    parse_oem_kvn, parse_oem_kvn_with_limits, CartesianCovarianceEntry, DeclaredCovarianceAxes,
-    Oem, OemCartesianCovariance, OemComment, OemCovarianceAxes, OemCovarianceFrame,
-    OemDecoderLimits, OemDecoderLimitsError, OemError, OemEvent, OemHeader, OemKvnReader,
-    OemLimitKind, OemMetadata, OemRecordRef, OemSample, OemSection, OemSegment, OemSegmentContext,
-    OemSegmentId, OemTimeSystem, ReferenceCovarianceAxes, RtnCovarianceAxes,
+    parse_oem_kvn, parse_oem_kvn_with_limits, parse_oem_xml, parse_oem_xml_with_limits,
+    CartesianCovarianceEntry, DeclaredCovarianceAxes, Oem, OemCartesianCovariance, OemComment,
+    OemCovarianceAxes, OemCovarianceFrame, OemDecoderLimits, OemDecoderLimitsError, OemError,
+    OemEvent, OemHeader, OemKvnReader, OemLimitKind, OemMetadata, OemRecordRef, OemSample,
+    OemSection, OemSegment, OemSegmentContext, OemSegmentId, OemTimeSystem, OemXmlReader,
+    ReferenceCovarianceAxes, RtnCovarianceAxes,
 };
 
 #[cfg(feature = "async")]

@@ -17,6 +17,27 @@ pub trait SpacecraftState: fmt::Debug + Send + Sync {
 ///
 /// `Orbit` owns no coordinate implementation. Its state type is selected by
 /// the caller, preserving the native representation through generic workflows.
+///
+/// ```
+/// use frames::ReferenceFrame;
+/// use hifitime::Epoch;
+/// use orskit_core::{Orbit, SpacecraftState};
+///
+/// #[derive(Debug)]
+/// struct ApplicationState(ReferenceFrame);
+///
+/// impl SpacecraftState for ApplicationState {
+///     fn frame(&self) -> ReferenceFrame {
+///         self.0
+///     }
+/// }
+///
+/// let epoch = Epoch::from_gregorian_tai_at_midnight(2026, 1, 1);
+/// let orbit = Orbit::new(epoch, ApplicationState(ReferenceFrame::GCRF));
+///
+/// assert_eq!(orbit.epoch(), epoch);
+/// assert_eq!(orbit.as_ref().frame(), ReferenceFrame::GCRF);
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct Orbit<S: SpacecraftState> {
     epoch: Epoch,

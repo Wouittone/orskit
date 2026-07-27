@@ -12,25 +12,18 @@ implementation: their source is not copied, translated, or adapted into
 project-owned code. That code is intended to remain available under either the
 MIT or Apache-2.0 license.
 
-> **Status: pre-alpha.** The repository currently contains an early workspace
-> scaffold with typed units, celestial-body and frame identities, open
-> frame-qualified spacecraft-state and generic epoch-qualified-orbit contracts,
-> feature-gated Cartesian/circular/Keplerian/equinoctial implementations, time-independent spacecraft definitions,
-> and epoch-specific views
-> with attitude and angular velocity,
-> streaming CCSDS OEM KVN ingestion, composable dynamics descriptions, a
-> minimal range measurement, representation-preserving analytical elliptic
-> two-body propagation for all current state types, a frame-explicit Cartesian
-> extended and unscented Kalman orbit-determination filters over the shared
-> propagation contract, with opt-in innovation/residual diagnostics, and
-> experimental binding
-> adapters. General composed-force/numerical propagation,
-> complete CCSDS coverage, and complete measurement-participant modeling are
-> intentionally not implemented yet. Fixed ground stations can now be defined
-> through parent-relative frames, but transforms, geodesy, clocks, and signal
-> paths are absent. It is
-> not suitable for scientific or operational use and does not have Orekit
-> parity.
+> **Status: pre-alpha.** The workspace has typed units; explicit body, frame,
+> orbit, dynamics, and scientific-data contracts; Cartesian and primary
+> elliptic element representations; verified Earth-orientation transforms,
+> WGS 84 geodesy and local ENU frames; caller-selected sampled ephemerides;
+> streaming OEM KVN/XML and strict TLE ingestion; analytical elliptic two-body
+> and adaptive Cartesian propagation with optional dense output and events;
+> Cartesian sequential
+> orbit-determination filters; and versioned snapshot exchange. General
+> high-fidelity force coverage, complete
+> CCSDS coverage, broader operational propagation policy, clocks and complete participant paths,
+> mission geometry, and stable bindings remain roadmap work. The project is not
+> suitable for scientific or operational use and does not have Orekit parity.
 
 Rust core correctness is the current priority. Python and JVM bindings are
 planned, but feature work on them is deferred until the core contracts settle.
@@ -65,15 +58,20 @@ roadmap. Start with [`.agent/README.md`](.agent/README.md).
 | Path | Current role |
 | --- | --- |
 | `crates/orskit` | Feature-gated public facade: contracts by default, selected implementations on demand |
+| `crates/data` | Verified caller-selected scientific-data identities, SHA-256 digests, time coverage, and bounded offline loading |
 | `crates/units` | `uom`-backed physical quantities and typed Cartesian vectors |
-| `crates/bodies` | Planet, moon, dwarf-planet, custom-body, and explicit body-system identities |
-| `crates/frames` | Reference-frame identities plus caller-owned, parent-relative fixed frame definitions |
+| `crates/bodies` | Body identities plus caller-selected reference ellipsoids and geodetic/geocentric conversion |
+| `crates/frames` | Reference-frame identities, caller-owned derived frames, and an opt-in verified IERS 2010 GCRF/ITRF2020 transform |
 | `crates/core` | Open state and generic orbit contracts plus spacecraft identity/geometry and complete physical views |
 | `crates/orbits` | Feature-gated state representations; `cartesian` provides Cartesian, elliptic circular, Keplerian, and equinoctial states |
 | `crates/gravity` | Gravity-provider contract; the `point-mass` feature provides an immutable point-mass provider |
 | `crates/dynamics` | Core force-model/propagation contracts, with opt-in `two-bodies` point-mass dynamics and analytical elliptic Kepler propagation |
+| `crates/dynamics/numerical` | Opt-in adaptive Fehlberg RK4(5) Cartesian propagation with immutable dense output and bounded event localization |
+| `crates/ephemeris` | Caller-selected physical ephemeris contracts and verified-artifact-backed sampled interpolation |
 | `crates/orbit-determination` | Open sequential OD contracts plus Cartesian extended and unscented Kalman filters over caller-selected propagators |
-| `crates/ccsds` | Blocking/Tokio streaming and Rayon collection for CCSDS OEM KVN coordinates |
+| `crates/ccsds` | Bounded blocking OEM KVN/XML streaming plus Tokio KVN streaming and Rayon KVN collection |
+| `crates/export` | Opt-in, versioned Serde snapshots and validated reconstruction for orbit states and analytical-propagator configuration; JSON is separately feature-gated |
+| `crates/tle` | Strict, bounded NORAD TLE parsing and canonical formatting, plus opt-in independently verified SGP4-to-TEME propagation |
 | `crates/measurements` | Typed measurements and fixed ground-station participants built on parent-relative frames |
 | `crates/utils` | Typed sourced constants; package boundary remains transitional |
 | `bindings/python` | Disabled experimental PyO3 binding workspace |
@@ -110,6 +108,18 @@ let frame = ReferenceFrame::GCRF;
 assert!(frame.is_inertial());
 ```
 
+The public facade's `serialization` feature exposes format-neutral, owned
+snapshots without changing domain objects or attempting to serialize
+application-owned provider trait objects. `serialization-json` additionally
+provides JSON encoding and decoding. Element-state and propagator snapshots
+require callers to register stable IDs for their selected central-gravity
+providers; snapshot fields containing raw physical values name their SI or
+radian units explicitly. Import resolves only caller-approved frame, origin,
+and provider identities, checks the declared schema and provider metadata, and
+reconstructs values through the live domain constructors. Serialization follows
+the selected facade capabilities and does not silently enable Cartesian or
+two-body implementations.
+
 ### Stream a CCSDS OEM
 
 The current I/O slice emits timed coordinates without retaining a complete message:
@@ -137,9 +147,9 @@ OEM supplies timed coordinates but not mass, inertia, attitude, or angular
 velocity. Enable the facade `cartesian` feature (or depend on `orbits` with its
 `cartesian` feature) to convert OEM coordinates to `CartesianState`, then
 combine them with those missing values in a `SpacecraftView<CartesianState>`.
-This is presently CCSDS 502.0-B-3 OEM KVN ingestion, including typed Cartesian
-covariance records. XML, writing, OPM/OMM/OCM, attitude, and tracking messages
-remain explicit gaps.
+This is presently CCSDS 502.0-B-3 OEM KVN ingestion and bounded blocking OEM
+3.0 XML ingestion, including typed Cartesian covariance records. XML writing,
+OPM/OMM/OCM, attitude, and tracking messages remain explicit gaps.
 
 The Python and JVM binding experiments are currently disabled while the Rust
 core API is stabilized. Their separate workspaces remain in the repository but
@@ -161,8 +171,9 @@ Current developer and API guides include:
 - the [Cargo-metadata-backed crate diagram](docs/architecture.md);
 - [elliptic two-body propagation](docs/tutorials/two-body-propagation.md);
 - [Cartesian position orbit determination](docs/tutorials/cartesian-orbit-determination.md);
-- [custom propagation pairs](docs/guides/custom-propagation.md); and
-- the [pre-1.0 release policy](docs/release-policy.md) and [changelog](CHANGELOG.md).
+- [custom propagation pairs](docs/guides/custom-propagation.md);
+- the [Orekit workflow migration guide](docs/orekit-migration.md);
+- and the [pre-1.0 release policy](docs/release-policy.md) and [changelog](CHANGELOG.md).
 
 ## License
 

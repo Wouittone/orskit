@@ -1,0 +1,14 @@
+[package]
+name = "orskit-data"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Explicit, verified scientific-data artifacts for orskit"
+
+[dependencies]
+hifitime.workspace = true
+sha2 = { version = "0.10.9", default-features = false, features = ["std"] }
+thiserror.workspace = true

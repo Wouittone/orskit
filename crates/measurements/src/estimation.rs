@@ -9,15 +9,19 @@
 //! corrections.
 
 #[cfg(feature = "light-time")]
+use std::fmt;
+#[cfg(feature = "light-time")]
 use std::num::NonZeroUsize;
-use std::{collections::BTreeMap, error::Error as StdError, fmt};
+use std::{collections::BTreeMap, error::Error as StdError};
 
 use frames::{KinematicFrameTransformProvider, ReferenceFrame};
 #[cfg(feature = "light-time")]
 use hifitime::Duration;
 use hifitime::Epoch;
 use thiserror::Error;
-use units::{Position, VelocityVector};
+#[cfg(feature = "light-time")]
+use units::Position;
+use units::VelocityVector;
 
 #[cfg(any(feature = "geometric-tdoa", feature = "light-time"))]
 use units::uom::si::time::second;

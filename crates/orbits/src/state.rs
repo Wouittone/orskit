@@ -45,6 +45,22 @@ impl<C> CoordinateSample<C> {
 }
 
 /// Cartesian orbital state `(x, y, z, vx, vy, vz)` in one reference frame.
+///
+/// ```
+/// use frames::ReferenceFrame;
+/// use orbits::cartesian::CartesianState;
+/// use units::{Position, VelocityVector};
+///
+/// let state = CartesianState::new(
+///     ReferenceFrame::GCRF,
+///     Position::from_metres(7_000_000.0, 0.0, 0.0),
+///     VelocityVector::from_metres_per_second(0.0, 7_500.0, 0.0),
+/// )?;
+///
+/// assert_eq!(state.frame(), ReferenceFrame::GCRF);
+/// assert_eq!(state.position().to_metres(), [7_000_000.0, 0.0, 0.0]);
+/// # Ok::<(), orbits::cartesian::StateError>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CartesianState {
     frame: ReferenceFrame,
