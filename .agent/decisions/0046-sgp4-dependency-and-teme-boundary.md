@@ -15,21 +15,23 @@ terrestrial frame.
 
 ## Decision
 
-1. `orskit-tle` uses the MIT-licensed `sgp4` 2.4 crate unmodified and as a
+1. `dynamics-sgp4` uses the MIT-licensed `sgp4` 2.4 crate unmodified and as a
    black box. Dependency implementation source, tests, and examples are out of
    bounds for project implementation work.
-2. The project parser remains authoritative. Validated `TwoLineElement` fields
-   are mapped directly through the dependency's public APIs; its TLE parser is
-   not called.
+2. The project parser remains authoritative, but it is not a propagation
+   state. Its optional adapter maps validated columns into an epoch-qualified
+   `Sgp4Elements`; the dynamics crate never depends on `TwoLineElement` and
+   never calls the dependency's TLE parser.
 3. TLE propagation selects WGS-72 and the dependency's AFSPC-compatible epoch,
    sidereal-time, and propagation behavior to match the published verification
    convention. The adapter accepts distributed-data ephemeris type `0`.
    Explicit nonzero legacy model selectors are rejected with a typed error
    rather than silently evaluated by a different model.
-4. `Sgp4Propagator` accepts a typed target `Epoch` and returns
-   `Orbit<CartesianState>`. Position and velocity cross the dependency boundary
-   in documented kilometres and kilometres per second and are immediately
-   converted to project unit types.
+4. The stateless, non-configurable `Sgp4Propagator` implements
+   `Propagator<Sgp4Elements, CartesianState>`. The input `Orbit` supplies the
+   element epoch and the target is a typed `Epoch`. Position and velocity cross
+   the dependency boundary in documented kilometres and kilometres per second
+   and are immediately converted to project unit types.
 5. Every returned state is explicitly tagged `ReferenceFrame::TEME`. This
    feature performs no TEME-to-GCRF/ITRF conversion.
 6. Elapsed time is the signed Hifitime duration divided by sixty SI seconds.
@@ -60,8 +62,9 @@ the public numerical verification results accompanying Vallado et al.,
 
 ## Consequences
 
-Users gain a small typed TLE-to-TEME workflow without a second parser or raw
-numeric public API. Deep-space cases supported by the dependency are available,
+Users gain a small typed TLE-to-domain-state adapter and a format-independent
+SGP4-to-TEME propagator without a second parser or raw numeric public API.
+Deep-space cases supported by the dependency are available,
 but only representative published cases are locked down. TLE age, atmospheric
 model limits, maneuvers, reentry/decay policy, covariance, catalog operations,
 and frame conversion remain caller concerns.

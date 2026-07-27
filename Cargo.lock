@@ -297,6 +297,7 @@ version = "0.0.0"
 dependencies = [
  "dynamics-core",
  "dynamics-numerical",
+ "dynamics-sgp4",
  "dynamics-two-bodies",
 ]
 
@@ -324,6 +325,20 @@ dependencies = [
  "gravity",
  "hifitime",
  "orbits",
+ "thiserror",
+ "units",
+]
+
+[[package]]
+name = "dynamics-sgp4"
+version = "0.0.0"
+dependencies = [
+ "core",
+ "dynamics-core",
+ "frames",
+ "hifitime",
+ "orbits",
+ "sgp4",
  "thiserror",
  "units",
 ]
@@ -1065,10 +1080,8 @@ name = "tle"
 version = "0.0.0"
 dependencies = [
  "core",
- "frames",
+ "dynamics-sgp4",
  "hifitime",
- "orbits",
- "sgp4",
  "thiserror",
  "units",
 ]

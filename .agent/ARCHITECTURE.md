@@ -316,12 +316,13 @@ own conversion singularities.
 Complete spacecraft views are composed separately from properties known to be
 valid at the propagated epoch.
 The `tle` crate is an operational-format boundary: it validates and formats
-model-specific TLE mean elements without presenting them as generic osculating
-orbits. Its opt-in SGP4 adapter passes only validated fields to an unmodified
-black-box dependency configured for WGS-72/AFSPC compatibility and returns the
-existing typed Cartesian orbit in explicit TEME axes. TLE age policy, frame
-conversion, covariance, maneuvers, and operational accuracy remain outside
-that adapter.
+TLE records without owning propagation. Its optional adapter converts validated
+columns into an epoch-qualified `Sgp4Elements` domain state. The separate
+`dynamics-sgp4` crate owns a stateless, non-configurable
+`Propagator<Sgp4Elements, CartesianState>` backed by an unmodified black-box
+dependency configured for WGS-72/AFSPC compatibility. It returns the existing
+typed Cartesian orbit in explicit TEME axes. TLE age policy, frame conversion,
+covariance, maneuvers, and operational accuracy remain outside that propagator.
 General force evaluation remains distinct from the first caller-implemented
 Cartesian acceleration boundary. Numerical propagation currently covers
 adaptive translational Cartesian state with optional immutable dense output

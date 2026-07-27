@@ -26,14 +26,16 @@ pub trait PropagationState<Problem: ?Sized>: SpacecraftState + Sized {
     fn restore(resolved: Self::Resolved, problem: &Problem) -> Result<Self, Self::Error>;
 }
 
-/// Propagates an epoch-qualified orbit using the physical problem owned by
+/// Propagates an epoch-qualified input using the physical problem owned by
 /// this value.
 ///
 /// The concrete propagator selects both the physical problem and the numerical
 /// or analytical method. Consequently an estimator cannot accidentally supply
-/// a different problem on a later call. The selected state representation is
-/// preserved; callers compose mass, inertia, and attitude separately when
-/// constructing a complete spacecraft view.
+/// a different problem on a later call. The output representation defaults to
+/// the input representation; model-specific propagators may instead declare a
+/// distinct output, such as TLE mean elements propagated to Cartesian TEME.
+/// Callers compose mass, inertia, and attitude separately when constructing a
+/// complete spacecraft view.
 ///
 /// ```
 /// use std::convert::Infallible;
@@ -78,12 +80,17 @@ pub trait PropagationState<Problem: ?Sized>: SpacecraftState + Sized {
 /// assert_eq!(result.epoch(), target);
 /// # Ok::<(), Infallible>(())
 /// ```
-pub trait Propagator<State: SpacecraftState>: fmt::Debug + Send + Sync {
+pub trait Propagator<Input, Output = Input>: fmt::Debug + Send + Sync
+where
+    Input: SpacecraftState,
+    Output: SpacecraftState,
+{
     /// Typed error returned by this propagator.
     type Error: Error + Send + Sync + 'static;
 
     /// Advances `initial` to the absolute `target` epoch.
-    fn propagate(&self, initial: Orbit<State>, target: Epoch) -> Result<Orbit<State>, Self::Error>;
+    fn propagate(&self, initial: Orbit<Input>, target: Epoch)
+        -> Result<Orbit<Output>, Self::Error>;
 }
 
 #[cfg(test)]

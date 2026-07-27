@@ -24,6 +24,16 @@ pub mod numerical {
     pub use dynamics_numerical::*;
 }
 
+#[cfg(feature = "sgp4")]
+pub use dynamics_sgp4::{Sgp4Elements, Sgp4ElementsError, Sgp4Error, Sgp4Propagator};
+
+#[cfg(feature = "sgp4")]
+pub mod sgp4 {
+    //! Fixed-model SGP4 propagation from model-specific mean elements.
+
+    pub use dynamics_sgp4::*;
+}
+
 #[cfg(feature = "two-bodies")]
 pub use dynamics_two_bodies::{EllipticKeplerPropagator, PointMassGravityModel, TwoBodyDynamics};
 

@@ -5,14 +5,14 @@
 //! A [`TwoLineElement`] accepts exactly two 69-character ASCII lines, validates
 //! their fixed columns and standard modulo-10 checksums, and requires the
 //! catalog numbers on both lines to agree. Numeric accessors name the units
-//! defined by the TLE format. The opt-in `sgp4` feature adds independently
-//! validated propagation of a parsed record to a typed Cartesian state in
-//! [`frames::ReferenceFrame::TEME`].
+//! defined by the TLE format. The opt-in `sgp4` feature converts a parsed
+//! record into the separate model-specific state consumed by
+//! `dynamics-sgp4`; propagation does not depend on this format type.
 //!
 //! The grammar and ranges follow the public CelesTrak TLE format description
 //! and Space-Track's current Alpha-5 documentation. Epoch years use the
 //! conventional pivot: `57..=99` mean 1957–1999 and `00..=56` mean 2000–2056.
-//! Epoch day zero is retained because it is explicitly admitted by the format.
+//! Epoch days start at one and remain within the selected calendar year.
 //!
 //! # Example
 //!
@@ -36,10 +36,10 @@ use std::{fmt, str::FromStr};
 use thiserror::Error;
 
 #[cfg(feature = "sgp4")]
-mod propagation;
+mod sgp4;
 
 #[cfg(feature = "sgp4")]
-pub use propagation::{Sgp4Error, Sgp4Propagator};
+pub use sgp4::Sgp4ConversionError;
 
 const LINE_LENGTH: usize = 69;
 const SCALE_4: u64 = 10_000;

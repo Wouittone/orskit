@@ -21,6 +21,7 @@ flowchart TB
         DYNAMICS["dynamics"]
         DYNAMICS_CORE["dynamics-core"]
         DYNAMICS_NUMERICAL["dynamics-numerical"]
+        DYNAMICS_SGP4["dynamics-sgp4"]
         DYNAMICS_TWO_BODIES["dynamics-two-bodies"]
     end
     subgraph LAYER_PHYSICAL_MODEL["Physical model"]
@@ -45,6 +46,7 @@ flowchart TB
     CORE --> UNITS
     DYNAMICS --> DYNAMICS_CORE
     DYNAMICS -.->|optional| DYNAMICS_NUMERICAL
+    DYNAMICS -.->|optional| DYNAMICS_SGP4
     DYNAMICS -.->|optional| DYNAMICS_TWO_BODIES
     DYNAMICS_CORE --> BODIES
     DYNAMICS_CORE --> CORE
@@ -54,6 +56,11 @@ flowchart TB
     DYNAMICS_NUMERICAL --> FRAMES
     DYNAMICS_NUMERICAL --> ORBITS
     DYNAMICS_NUMERICAL --> UNITS
+    DYNAMICS_SGP4 --> CORE
+    DYNAMICS_SGP4 --> DYNAMICS_CORE
+    DYNAMICS_SGP4 --> FRAMES
+    DYNAMICS_SGP4 --> ORBITS
+    DYNAMICS_SGP4 --> UNITS
     DYNAMICS_TWO_BODIES --> CORE
     DYNAMICS_TWO_BODIES --> DYNAMICS_CORE
     DYNAMICS_TWO_BODIES --> FRAMES
@@ -102,8 +109,7 @@ flowchart TB
     ORSKIT_EXPORT -.->|optional| ORBITS
     ORSKIT_EXPORT -.->|optional| UNITS
     TLE -.->|optional| CORE
-    TLE -.->|optional| FRAMES
-    TLE -.->|optional| ORBITS
+    TLE -.->|optional| DYNAMICS_SGP4
     TLE -.->|optional| UNITS
     UTILS --> UNITS
 ```

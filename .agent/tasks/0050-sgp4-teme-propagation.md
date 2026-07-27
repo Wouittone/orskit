@@ -9,14 +9,14 @@
 
 ## User workflow
 
-A caller parses a [`TwoLineElement`] through the project-owned strict parser,
-constructs an `Sgp4Propagator`, and requests a state at a typed Hifitime
-`Epoch`. The result is an `Orbit<CartesianState>` in `ReferenceFrame::TEME`
-with typed position and velocity.
+A caller obtains an epoch-qualified `Sgp4Elements` domain state, directly or
+through the optional strict-TLE adapter, then passes it to the stateless
+`Sgp4Propagator` through the common `Propagator` trait with a typed target
+`Epoch`. The result is an `Orbit<CartesianState>` in `ReferenceFrame::TEME`.
 
 ## Scientific contract
 
-- Inputs: validated TLE mean elements and one target epoch.
+- Inputs: validated model-specific `Sgp4Elements` and one target epoch.
 - Outputs: metres and metres per second in geocentric TEME.
 - Model: the unmodified `sgp4` 2.4 dependency, configured with WGS-72 and its
   AFSPC-compatible epoch, sidereal-time, and propagation modes. The adapter
@@ -45,8 +45,10 @@ code. Acceptance values come only from the published Revision 3 material.
 ## Design
 
 - Keep the project strict parser as the only public TLE format boundary.
-- Map validated fields directly into the dependency's public element and
-  constants APIs; never invoke its TLE parser.
+- Keep the TLE conversion at the I/O boundary; `dynamics-sgp4` has no
+  `TwoLineElement` dependency.
+- Implement `Propagator<Sgp4Elements, CartesianState>` with no configurable
+  force-model or gravity selection; never invoke the dependency's TLE parser.
 - Add no parallel public numeric state type.
 - Keep the facade feature opt-in and preserve default-build isolation.
 - ADR required: ADR-0046.

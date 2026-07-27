@@ -58,6 +58,8 @@ pub mod prelude {
     pub use crate::dynamics::{ComposedDynamics, PropagationState, Propagator};
     #[cfg(feature = "two-bodies")]
     pub use crate::dynamics::{EllipticKeplerPropagator, TwoBodyDynamics};
+    #[cfg(feature = "sgp4")]
+    pub use crate::dynamics::{Sgp4Elements, Sgp4ElementsError, Sgp4Error, Sgp4Propagator};
     #[cfg(feature = "ephemeris")]
     pub use crate::ephemeris::{EphemerisProvider, EphemerisQuery, EphemerisState};
     #[cfg(feature = "serialization")]
@@ -87,8 +89,8 @@ pub mod prelude {
         cartesian::CartesianState, circular::CircularState, equinoctial::EquinoctialState,
         keplerian::KeplerianState,
     };
+    #[cfg(feature = "sgp4")]
+    pub use crate::tle::Sgp4ConversionError;
     #[cfg(feature = "tle")]
     pub use crate::tle::TwoLineElement;
-    #[cfg(feature = "sgp4")]
-    pub use crate::tle::{Sgp4Error, Sgp4Propagator};
 }

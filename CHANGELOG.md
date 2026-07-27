@@ -14,9 +14,9 @@ and versioning follows the project's [pre-1.0 release policy](docs/release-polic
 - Opt-in strict Two-Line Element parsing and canonical formatting with fixed
   69-column validation, standard checksums, Alpha-5 identifiers, typed errors,
   and exact semantic round-trip evidence.
-- Opt-in SGP4 propagation from validated TLE records to typed Cartesian TEME
-  states, checked against published near-Earth and deep-space verification
-  vectors.
+- A stateless, non-configurable SGP4 implementation of the common propagator
+  trait, advancing model-specific mean elements to typed Cartesian TEME states
+  independently of the optional TLE conversion boundary.
 - Bounded blocking OEM 3.0 XML streaming and collection over the existing
   typed OEM semantic model, with strict namespace, structure, unit, chronology,
   and resource-limit validation.

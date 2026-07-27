@@ -67,11 +67,12 @@ roadmap. Start with [`.agent/README.md`](.agent/README.md).
 | `crates/gravity` | Gravity-provider contract; the `point-mass` feature provides an immutable point-mass provider |
 | `crates/dynamics` | Core force-model/propagation contracts, with opt-in `two-bodies` point-mass dynamics and analytical elliptic Kepler propagation |
 | `crates/dynamics/numerical` | Opt-in adaptive Fehlberg RK4(5) Cartesian propagation with immutable dense output and bounded event localization |
+| `crates/dynamics/sgp4` | Stateless, non-configurable WGS-72/AFSPC SGP4 propagation from model-specific mean elements to Cartesian TEME |
 | `crates/ephemeris` | Caller-selected physical ephemeris contracts and verified-artifact-backed sampled interpolation |
 | `crates/orbit-determination` | Open sequential OD contracts plus Cartesian extended and unscented Kalman filters over caller-selected propagators |
 | `crates/ccsds` | Bounded blocking OEM KVN/XML streaming plus Tokio KVN streaming and Rayon KVN collection |
 | `crates/export` | Opt-in, versioned Serde snapshots and validated reconstruction for orbit states and analytical-propagator configuration; JSON is separately feature-gated |
-| `crates/tle` | Strict, bounded NORAD TLE parsing and canonical formatting, plus opt-in independently verified SGP4-to-TEME propagation |
+| `crates/tle` | Strict, bounded NORAD TLE parsing and canonical formatting, plus opt-in conversion to the separate SGP4 domain state |
 | `crates/measurements` | Typed measurements and fixed ground-station participants built on parent-relative frames |
 | `crates/utils` | Typed sourced constants; package boundary remains transitional |
 | `bindings/python` | Disabled experimental PyO3 binding workspace |
