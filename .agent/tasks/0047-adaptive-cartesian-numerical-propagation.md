@@ -39,12 +39,12 @@ limits. `AdaptiveRungeKuttaFehlberg` then propagates an
 
 | Reference | Class/terms | Facts used | Evidence/code affected |
 | --- | --- | --- | --- |
-| Erwin Fehlberg, NASA TR R-315, July 1969 | Primary US Government technical report; public use permitted | RK4(5) formula 2 Table III nodes, stages, embedded weights, and error-control concept | `crates/dynamics/numerical`; ADR-0044 |
+| Erwin Fehlberg, NASA TR R-315, July 1969 | Primary US Government technical report; public use permitted | RK4(5) formula 2 Table III nodes, stages, embedded weights, and error-control concept | `crates/dynamics/src/numerical.rs`; ADR-0044 |
 | Existing analytical two-body solver and its Orekit 13.1.6 black-box evidence | Original implementation with provenance-cleared behavior comparison | Independent endpoint and physical conservation baseline | numerical point-mass scenario |
 
 ## Design
 
-- Affected crates/layers: new `dynamics-numerical`; `dynamics` and `orskit`
+- Affected crates/layers: gated `dynamics::numerical` implementation; `dynamics` and `orskit`
   opt-in features; architecture/parity/provenance/roadmap records.
 - Public API: `CartesianDynamics`, typed tolerance/bounds/limits/configuration,
   `AdaptiveRungeKuttaFehlberg`, and typed build/propagation errors.

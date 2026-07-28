@@ -6,7 +6,7 @@ use orbits::cartesian::{CartesianState, StateError};
 use orskit_core::Orbit;
 use thiserror::Error;
 
-use crate::StateVector;
+use super::StateVector;
 
 /// Directional epoch interval covered by one dense ephemeris.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,8 +123,8 @@ impl DenseEphemeris {
         config: EventSearchConfig,
     ) -> Result<EventSearchOutcome, EventSearchError<D::Error>> {
         let mut events = Vec::new();
-        let mut last_epochs = vec![None; detectors.len()];
         let mut pending = Vec::new();
+        let tolerance_ns = duration_magnitude_nanoseconds(config.epoch_tolerance);
 
         for (segment_index, segment) in self.segments.iter().enumerate() {
             let start = segment.start;
@@ -146,15 +146,10 @@ impl DenseEphemeris {
                     self.frame,
                     detector,
                     detector_index,
-                    start,
                     start_value,
-                    end,
                     end_value,
                     config,
                 )?;
-                if last_epochs[detector_index].is_some_and(|last| last == root.epoch()) {
-                    continue;
-                }
                 candidates.push((detector_index, direction, root));
             }
 
@@ -169,20 +164,18 @@ impl DenseEphemeris {
             candidates
                 .dedup_by(|left, right| left.0 == right.0 && left.2.epoch() == right.2.epoch());
 
+            let has_next_segment = segment_index + 1 < self.segments.len();
             while let Some((_, _, first)) = candidates.first() {
                 let group_epoch = first.epoch();
                 let group_len = candidates
                     .iter()
                     .take_while(|(_, _, state)| {
-                        duration_magnitude_nanoseconds(state.epoch() - group_epoch)
-                            <= duration_magnitude_nanoseconds(config.epoch_tolerance)
+                        duration_magnitude_nanoseconds(state.epoch() - group_epoch) <= tolerance_ns
                     })
                     .count();
-                let has_next_segment = segment_index + 1 < self.segments.len();
                 if has_next_segment
                     && group_len == candidates.len()
-                    && duration_magnitude_nanoseconds(end - group_epoch)
-                        <= duration_magnitude_nanoseconds(config.epoch_tolerance)
+                    && duration_magnitude_nanoseconds(end - group_epoch) <= tolerance_ns
                 {
                     pending = candidates;
                     break;
@@ -213,7 +206,6 @@ impl DenseEphemeris {
                                 stage: EventStage::Handler,
                                 source: Box::new(source),
                             })?;
-                    last_epochs[detector_index] = Some(occurrence.epoch());
                     events.push(occurrence);
                     stop |= action == EventAction::Stop;
                 }
@@ -550,18 +542,18 @@ fn evaluate<D: EventDetector>(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn localize_root<D: EventDetector>(
     segment: &DenseSegment,
     frame: ReferenceFrame,
     detector: &mut D,
     detector_index: usize,
-    mut left_epoch: Epoch,
     mut left_value: f64,
-    mut right_epoch: Epoch,
     right_value: f64,
     config: EventSearchConfig,
 ) -> Result<Orbit<CartesianState>, EventSearchError<D::Error>> {
+    let mut left_epoch = segment.start;
+    let mut right_epoch = segment.end;
+    let tolerance_ns = duration_magnitude_nanoseconds(config.epoch_tolerance);
     if left_value == 0.0 {
         return segment.state_at(left_epoch, frame).map_err(Into::into);
     }
@@ -569,9 +561,7 @@ fn localize_root<D: EventDetector>(
         return segment.state_at(right_epoch, frame).map_err(Into::into);
     }
     for _ in 0..config.maximum_iterations.get() {
-        if duration_magnitude_nanoseconds(right_epoch - left_epoch)
-            <= duration_magnitude_nanoseconds(config.epoch_tolerance)
-        {
+        if duration_magnitude_nanoseconds(right_epoch - left_epoch) <= tolerance_ns {
             return segment
                 .state_at(midpoint(left_epoch, right_epoch), frame)
                 .map_err(Into::into);
@@ -589,9 +579,7 @@ fn localize_root<D: EventDetector>(
             right_epoch = middle_epoch;
         }
     }
-    if duration_magnitude_nanoseconds(right_epoch - left_epoch)
-        <= duration_magnitude_nanoseconds(config.epoch_tolerance)
-    {
+    if duration_magnitude_nanoseconds(right_epoch - left_epoch) <= tolerance_ns {
         return segment
             .state_at(midpoint(left_epoch, right_epoch), frame)
             .map_err(Into::into);

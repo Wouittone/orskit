@@ -295,11 +295,12 @@ dependencies = [
 name = "dynamics"
 version = "0.0.0"
 dependencies = [
+ "bodies",
  "core",
  "dynamics-core",
- "dynamics-numerical",
  "dynamics-two-bodies",
  "frames",
+ "gravity",
  "hifitime",
  "orbits",
  "sgp4",
@@ -315,22 +316,6 @@ dependencies = [
  "core",
  "frames",
  "hifitime",
- "thiserror",
- "units",
-]
-
-[[package]]
-name = "dynamics-numerical"
-version = "0.0.0"
-dependencies = [
- "bodies",
- "core",
- "dynamics-core",
- "dynamics-two-bodies",
- "frames",
- "gravity",
- "hifitime",
- "orbits",
  "thiserror",
  "units",
 ]

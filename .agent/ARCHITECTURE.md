@@ -98,7 +98,7 @@ missing abstraction or an incorrectly placed type.
   semi-analytical, and TLE
   algorithms, dense output, ephemerides, and variational equations remain
   distinct capabilities.
-  The opt-in `dynamics-numerical` implementation owns one evaluable
+  The `dynamics` crate's gated `numerical` module owns one evaluable
   `CartesianDynamics`, whose typed acceleration boundary declares its frame
   and component requirements. It advances only epoch-qualified translational
   `CartesianState` values with caller-selected typed tolerances, step bounds,

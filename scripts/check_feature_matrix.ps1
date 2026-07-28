@@ -42,6 +42,16 @@ $previousRustFlags = $env:RUSTFLAGS
 $env:RUSTFLAGS = "$previousRustFlags -D warnings".Trim()
 
 try {
+    Invoke-Cargo -Label "minimal dynamics" -Arguments @(
+        "check", "-p", "dynamics", "--no-default-features", "--locked"
+    )
+    Invoke-Cargo -Label "isolated numerical dynamics" -Arguments @(
+        "test", "-p", "dynamics", "--no-default-features", "--features", "numerical", "--locked"
+    )
+    Invoke-Cargo -Label "isolated SGP4 dynamics" -Arguments @(
+        "test", "-p", "dynamics", "--no-default-features", "--features", "sgp4", "--locked"
+    )
+
     $facadeRows = @(
         @{ Label = "minimal facade"; Features = $null },
         @{ Label = "Earth orientation"; Features = "earth-orientation" },
@@ -75,6 +85,9 @@ try {
     )
     Assert-FacadeExcludesPackages -Features "serialization-json" -Packages @(
         "orbits", "dynamics-two-bodies"
+    )
+    Assert-FacadeExcludesPackages -Features "numerical" -Packages @(
+        "dynamics-two-bodies", "sgp4", "tle"
     )
 
     Invoke-Cargo -Label "maximal facade" -Arguments @(

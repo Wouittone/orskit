@@ -121,8 +121,9 @@ fn propagate(
 
 Do not translate Orekit event handlers, dense ephemeris generation, numerical
 force-model configuration, or reset semantics into this analytical slice.
-Consult the parity ledger for the separate numerical-propagation boundary;
-events, dense output, and reset semantics remain roadmap items.
+Use `dynamics::numerical` for the supported Cartesian adaptive propagation,
+dense ephemeris, and immutable bracketed-event boundary. Reset/reintegration
+semantics and Orekit's broader force-model ecosystem remain roadmap items.
 
 ## Treat parsing and persistence as boundaries
 
@@ -146,7 +147,9 @@ do not recreate provider implementations.
 ## Capabilities without a current migration path
 
 There is not yet a supported equivalent for Orekit's high-fidelity numerical
-force-model ecosystem, events/dense output, maneuvers, attitude propagation,
-SGP4, most CCSDS/GNSS formats, batch least squares, broad measurement
-corrections, mission geometry, or language bindings. These are tracked
-explicitly in the roadmap and parity ledger.
+force-model ecosystem, event-driven reset/reintegration, maneuvers, attitude
+propagation, most CCSDS/GNSS formats, batch least squares, broad measurement
+corrections, mission geometry, or language bindings. The supported
+`dynamics::numerical` dense/event slice and fixed-model `dynamics::sgp4`
+implementation are narrower than their full Orekit counterparts. Remaining
+gaps are tracked explicitly in the roadmap and parity ledger.

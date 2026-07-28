@@ -48,9 +48,9 @@ event order are explicit.
 
 | Reference | Class/terms | Facts used | Evidence/code affected |
 | --- | --- | --- | --- |
-| Lawrence F. Shampine, “Some Practical Runge-Kutta Formulas,” *Mathematics of Computation* 46(173), 1986, DOI 10.1090/S0025-5718-1986-0815836-3 | Primary numerical paper; published mathematical description | Continuous extensions permit output between accepted Runge--Kutta endpoints and require an explicit interpolation-order contract | `crates/dynamics/numerical/src/dense.rs`; dense-order test |
-| Richard P. Brent, “An algorithm with guaranteed convergence for finding a zero of a function,” *The Computer Journal* 14(4), 1971, DOI 10.1093/comjnl/14.4.422 | Primary numerical paper | Maintaining a sign-changing bracket gives a guaranteed root-localization path; this slice deliberately uses bounded bisection only, not Brent interpolation | `crates/dynamics/numerical/src/dense.rs`; event-root tests |
-| Erwin Fehlberg, NASA TR R-315, July 1969 | Primary US Government technical report; public use permitted | Existing accepted fifth-order RKF45 endpoint and embedded error estimate | `crates/dynamics/numerical/src/lib.rs`; ADR-0044 |
+| Lawrence F. Shampine, “Some Practical Runge-Kutta Formulas,” *Mathematics of Computation* 46(173), 1986, DOI 10.1093/S0025-5718-1986-0815836-3 | Primary numerical paper; published mathematical description | Continuous extensions permit output between accepted Runge--Kutta endpoints and require an explicit interpolation-order contract | `crates/dynamics/src/numerical/dense.rs`; dense-order test |
+| Richard P. Brent, “An algorithm with guaranteed convergence for finding a zero of a function,” *The Computer Journal* 14(4), 1971, DOI 10.1093/comjnl/14.4.422 | Primary numerical paper | Maintaining a sign-changing bracket gives a guaranteed root-localization path; this slice deliberately uses bounded bisection only, not Brent interpolation | `crates/dynamics/src/numerical/dense.rs`; event-root tests |
+| Erwin Fehlberg, NASA TR R-315, July 1969 | Primary US Government technical report; public use permitted | Existing accepted fifth-order RKF45 endpoint and embedded error estimate | `crates/dynamics/src/numerical.rs`; ADR-0044 |
 
 No source code, tests, examples, or distinctive implementation structure from
 another astrodynamics library was consulted or copied. The Hermite polynomial,
@@ -58,7 +58,7 @@ bisection loop, tests, and event API are project-authored.
 
 ## Design
 
-- Affected crates/layers: `dynamics-numerical`; `dynamics` facade re-export
+- Affected crates/layers: gated `dynamics::numerical` implementation and facade re-export
   proposed in integration notes.
 - Public API: `DenseEphemeris`, `EphemerisInterval`, dense query errors;
   `EventDetector`, direction/action/configuration, occurrence/outcome, and

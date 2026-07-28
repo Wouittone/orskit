@@ -193,11 +193,11 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
   typed tolerances, dense output, events, and validation scenarios.
 - [x] **P11 (depends on P10):** implement an adaptive embedded Runge–Kutta
   integrator and a frame/epoch-qualified numerical propagator with documented
-  local/global error behavior. Evidence: `dynamics-numerical`, ADR-0044, and
-  task 0047. Dense output and events remain P12.
+  local/global error behavior. Evidence: `dynamics::numerical`, ADR-0044, and
+  task 0047. Dense output and events were deferred to P12.
 - [x] **P12 (depends on P11):** implement dense ephemerides, root localization,
   event direction, handlers, and deterministic simultaneous-event policy.
-  Evidence: `dynamics-numerical` dense/event APIs, ADR-0047, and task 0051.
+  Evidence: `dynamics::numerical` dense/event APIs, ADR-0047, and task 0051.
   Grazing roots, hidden multiple roots, and reset/reintegration remain pending.
 - [ ] **P13 (depends on F14 and P11):** add third-body point-mass gravity.
 - [ ] **P14 (depends on F11–F14 and P11):** add harmonics/tides, drag and

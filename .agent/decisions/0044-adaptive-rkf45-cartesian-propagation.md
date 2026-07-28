@@ -17,7 +17,8 @@ erase units, frames, and component identity.
 
 ## Decision
 
-1. The first implementation is an opt-in `dynamics-numerical` crate.
+1. The first implementation is the `dynamics` crate's opt-in `numerical`
+   module.
    `CartesianDynamics` is the evaluable boundary: it declares one
    `ReferenceFrame`, declares its state-component requirements, and evaluates
    a typed `AccelerationVector` from an epoch-qualified typed
@@ -54,10 +55,9 @@ erase units, frames, and component identity.
    global trajectory-error bound. Determinism holds for identical inputs on
    one supported platform/toolchain, subject to ordinary floating-point
    differences across targets.
-8. Contrary to the original ADR-0037 item 5, P11 does not implement even an
-   internal dense extension. P12 must select a primary-source continuous
-   extension compatible with its endpoint method and validate dense endpoints,
-   interiors, and event roots before adding those capabilities.
+8. Contrary to the original ADR-0037 item 5, P11 did not implement even an
+   internal dense extension. P12 subsequently added the primary-source
+   continuous extension and bracketed-event behavior specified by ADR-0047.
 
 ## Alternatives considered
 
@@ -76,9 +76,10 @@ erase units, frames, and component identity.
 
 Cartesian users can integrate caller-owned acceleration models with explicit
 frames, epochs, tolerances, bounds, and limits. Coupled state, other
-representations, dense output, events, and global-error guarantees remain
-absent. The classical RKF pair is not FSAL and performs six acceleration
-evaluations per attempt.
+representations, reset/reintegration, and global-error guarantees remain
+absent. ADR-0047 adds dense output and immutable bracketed events. The
+classical RKF pair is not FSAL and performs six acceleration evaluations per
+attempt.
 
 ## Validation
 

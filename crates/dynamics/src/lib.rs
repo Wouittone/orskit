@@ -9,7 +9,7 @@
 pub use dynamics_core::*;
 
 #[cfg(feature = "numerical")]
-pub use dynamics_numerical::{
+pub use numerical::{
     AdaptiveRungeKuttaConfig, AdaptiveRungeKuttaFehlberg, AdaptiveStepBounds, AdaptiveStepLimits,
     CartesianDynamics, CartesianTolerances, DenseEphemeris, DenseOutputError, EphemerisInterval,
     EventAction, EventDetector, EventDirection, EventOccurrence, EventSearchConfig,
@@ -18,11 +18,7 @@ pub use dynamics_numerical::{
 };
 
 #[cfg(feature = "numerical")]
-pub mod numerical {
-    //! Adaptive translational Cartesian propagation.
-
-    pub use dynamics_numerical::*;
-}
+pub mod numerical;
 
 #[cfg(feature = "sgp4")]
 pub use sgp4::{Sgp4Elements, Sgp4ElementsError, Sgp4Error, Sgp4Propagator};

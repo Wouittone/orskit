@@ -20,7 +20,6 @@ flowchart TB
     subgraph LAYER_DYNAMICS["Dynamics"]
         DYNAMICS["dynamics"]
         DYNAMICS_CORE["dynamics-core"]
-        DYNAMICS_NUMERICAL["dynamics-numerical"]
         DYNAMICS_TWO_BODIES["dynamics-two-bodies"]
     end
     subgraph LAYER_PHYSICAL_MODEL["Physical model"]
@@ -45,7 +44,6 @@ flowchart TB
     CORE --> UNITS
     DYNAMICS -.->|optional| CORE
     DYNAMICS --> DYNAMICS_CORE
-    DYNAMICS -.->|optional| DYNAMICS_NUMERICAL
     DYNAMICS -.->|optional| DYNAMICS_TWO_BODIES
     DYNAMICS -.->|optional| FRAMES
     DYNAMICS -.->|optional| ORBITS
@@ -53,11 +51,6 @@ flowchart TB
     DYNAMICS_CORE --> BODIES
     DYNAMICS_CORE --> CORE
     DYNAMICS_CORE --> UNITS
-    DYNAMICS_NUMERICAL --> CORE
-    DYNAMICS_NUMERICAL --> DYNAMICS_CORE
-    DYNAMICS_NUMERICAL --> FRAMES
-    DYNAMICS_NUMERICAL --> ORBITS
-    DYNAMICS_NUMERICAL --> UNITS
     DYNAMICS_TWO_BODIES --> CORE
     DYNAMICS_TWO_BODIES --> DYNAMICS_CORE
     DYNAMICS_TWO_BODIES --> FRAMES
@@ -119,6 +112,7 @@ locked dependency graph.
 
 The graph is descriptive. The normative dependency direction and the meaning
 of each domain boundary remain in [the target architecture](../.agent/ARCHITECTURE.md).
-In particular, the feature-gated `dynamics` and `orskit` facades point inward
-to implementations because they curate exports; this does not permit a
-physical-model crate to depend upward on either facade.
+In particular, `dynamics` combines core re-exports, an optional analytical
+subcrate, and gated in-crate numerical and SGP4 algorithms. The `orskit`
+facade points inward because it curates exports; this does not permit a
+physical-model crate to depend upward on either package.

@@ -26,7 +26,7 @@
 //! use std::{convert::Infallible, num::NonZeroU64};
 //!
 //! use dynamics_core::Propagator;
-//! use dynamics_numerical::{
+//! use dynamics::numerical::{
 //!     AdaptiveRungeKuttaConfig, AdaptiveRungeKuttaFehlberg, AdaptiveStepBounds,
 //!     AdaptiveStepLimits, CartesianDynamics, CartesianTolerances,
 //! };
@@ -629,7 +629,7 @@ impl<D: CartesianDynamics> AdaptiveRungeKuttaFehlberg<D> {
                         minimum: self.config.step_bounds.minimum,
                     });
                 }
-                next_step = reduced.min(self.config.step_bounds.maximum);
+                next_step = reduced;
             }
         }
 
