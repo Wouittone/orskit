@@ -6,16 +6,45 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Feature-gated facade for orskit dynamics capabilities"
+description = "Core contracts and feature-gated propagation implementations for orskit"
 
 [lib]
 name = "dynamics"
 
 [features]
 default = []
+numerical = [
+    "dep:frames",
+    "dep:hifitime",
+    "dep:orskit_core",
+    "dep:orbits",
+    "dep:thiserror",
+    "dep:units",
+]
+sgp4 = [
+    "dep:frames",
+    "dep:hifitime",
+    "dep:orskit_core",
+    "dep:orbits",
+    "dep:sgp4",
+    "dep:thiserror",
+    "dep:units",
+]
 two-bodies = ["dep:dynamics_two_bodies"]
 point-mass = ["two-bodies", "dynamics_two_bodies/point-mass"]
 
 [dependencies]
 dynamics_core = { package = "dynamics-core", path = "core" }
 dynamics_two_bodies = { package = "dynamics-two-bodies", path = "two-bodies", optional = true }
+frames = { path = "../frames", optional = true }
+hifitime = { workspace = true, optional = true }
+orskit_core = { package = "core", path = "../core", optional = true }
+orbits = { path = "../orbits", features = ["cartesian"], optional = true }
+sgp4 = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+units = { path = "../units", optional = true }
+
+[dev-dependencies]
+bodies = { path = "../bodies" }
+dynamics_two_bodies = { package = "dynamics-two-bodies", path = "two-bodies", features = ["point-mass"] }
+gravity = { path = "../gravity", features = ["point-mass"] }

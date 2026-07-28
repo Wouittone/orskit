@@ -1,0 +1,49 @@
+name: Scheduled benchmark evidence
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: Rust-owned workloads
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@1.96.1
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: scheduled-bench-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: scheduled-bench-${{ runner.os }}-
+
+      - name: Run correctness gates and quick timing samples
+        shell: pwsh
+        run: >
+          ./.agent/benchmarks/run.ps1
+          -Phase accuracy,timing
+          -Quick
+          -OutputDirectory target/benchmark-runs/scheduled
+
+      - name: Retain raw benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scheduled-benchmark-${{ github.run_id }}
+          path: target/benchmark-runs/scheduled
+          if-no-files-found: error
+          retention-days: 30

@@ -21,7 +21,8 @@ declared convention set.
 1. `frames::FrameReferenceDataSupplier` is the open contract for an
    application-owned, reference-data-backed kinematic solution. It exposes a
    non-empty borrowed set of immutable artifact descriptors containing
-   non-blank authority, product, revision, and optional content checksum. This
+   validated `orskit-data` descriptors with non-blank authority, product,
+   version, required SHA-256 content checksum, and explicit coverage. This
    represents distinct selected inputs such as a JPL ephemeris, IERS EOP
    series, and an adopted convention artifact without string-concatenating
    their provenance. These descriptor records must remain stable for the
@@ -69,10 +70,11 @@ declared convention set.
 ## Validation
 
 `frames` tests prove that data-backed transforms delegate distinct-frame
-requests, bypass identity requests, reject absent or incomplete provenance
-before supplier evaluation, preserve supplier errors, and reject mislabelled
-output. Full-workspace checks cover the public contract. No external transform
-vector is claimed until a concrete supplier and convention set are implemented.
+requests, bypass identity requests, reject absent provenance before supplier
+evaluation, preserve supplier errors, and reject mislabelled output.
+`orskit-data` construction separately prevents incomplete descriptor identity.
+Full-workspace checks cover the public contract. No external transform vector
+is claimed until a concrete supplier and convention set are implemented.
 
 ## Provenance
 

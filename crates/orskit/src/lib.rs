@@ -5,7 +5,9 @@
 //! `core`, `frames`, and `units` are always available. Select concrete state,
 //! attitude, geometry, measurement, dynamics, and I/O implementations
 //! explicitly with Cargo features; the default facade intentionally links no
-//! physical model implementation.
+//! physical model implementation. The `serialization` feature provides
+//! format-neutral owned snapshots and validated reconstruction, while
+//! `serialization-json` adds JSON encoding and decoding.
 //!
 //! This is the sole user-facing API layer. Domain types and operations stay
 //! here and in the focused crates it re-exports; vector/matrix kernels and
@@ -14,6 +16,7 @@
 
 pub use frames;
 pub use orskit_core as core;
+pub use orskit_data as data;
 pub use units;
 
 #[cfg(feature = "bodies")]
@@ -22,6 +25,8 @@ pub use bodies;
 pub use ccsds;
 #[cfg(feature = "dynamics")]
 pub use dynamics;
+#[cfg(feature = "ephemeris")]
+pub use ephemeris;
 #[cfg(feature = "point-mass-gravity")]
 pub use gravity;
 #[cfg(feature = "measurements")]
@@ -30,11 +35,22 @@ pub use measurements;
 pub use orbit_determination;
 #[cfg(feature = "cartesian")]
 pub use orbits;
+#[cfg(feature = "serialization")]
+pub use orskit_export as export;
+#[cfg(feature = "tle")]
+pub use tle;
 
 /// Conservative imports for selected workflow capabilities.
 pub mod prelude {
     pub use crate::core::{Orbit, SpacecraftState};
-    pub use crate::frames::{FrameCatalog, FrameNamespace, ReferenceFrame};
+    pub use crate::data::{
+        ArtifactCoverage, ArtifactDescriptor, Sha256Digest, TimeCoverage, VerifiedArtifact,
+    };
+    pub use crate::frames::{
+        FrameCatalog, FrameKinematics, FrameNamespace, GeodeticPosition,
+        KinematicFrameTransformProvider, ReferenceEllipsoid, ReferenceFrame, TopocentricFrame,
+        TopocentricTransformError,
+    };
     pub use crate::units::{Length, Position, VelocityVector};
 
     #[cfg(feature = "bodies")]
@@ -43,6 +59,14 @@ pub mod prelude {
     pub use crate::dynamics::{ComposedDynamics, PropagationState, Propagator};
     #[cfg(feature = "two-bodies")]
     pub use crate::dynamics::{EllipticKeplerPropagator, TwoBodyDynamics};
+    #[cfg(feature = "sgp4")]
+    pub use crate::dynamics::{Sgp4Elements, Sgp4ElementsError, Sgp4Error, Sgp4Propagator};
+    #[cfg(feature = "ephemeris")]
+    pub use crate::ephemeris::{EphemerisProvider, EphemerisQuery, EphemerisState};
+    #[cfg(feature = "serialization")]
+    pub use crate::export::{
+        ExportContext, ExportableState, ImportContext, ImportableState, OrbitSnapshot,
+    };
     #[cfg(feature = "point-mass-gravity")]
     pub use crate::gravity::PointMass;
     #[cfg(feature = "measurement-range")]
@@ -66,4 +90,8 @@ pub mod prelude {
         cartesian::CartesianState, circular::CircularState, equinoctial::EquinoctialState,
         keplerian::KeplerianState,
     };
+    #[cfg(feature = "sgp4")]
+    pub use crate::tle::Sgp4ConversionError;
+    #[cfg(feature = "tle")]
+    pub use crate::tle::TwoLineElement;
 }

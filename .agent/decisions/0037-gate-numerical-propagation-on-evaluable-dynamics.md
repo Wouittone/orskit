@@ -1,6 +1,6 @@
 # ADR-0037: gate numerical propagation on evaluable dynamics
 
-- Status: Accepted
+- Status: Accepted; dense-output item 5 superseded by ADR-0044
 - Date: 2026-07-21
 - Owners: orskit maintainers
 - Affected parity rows: numerical integration and dense ephemerides; dynamics
@@ -47,11 +47,9 @@ make later dense output and events either inconsistent or duplicative.
    Identical inputs, configuration, providers, and target produce the same
    step decisions on one supported platform/toolchain, subject to documented
    floating-point caveats.
-5. Every accepted step produces the continuous extension associated with the
-   selected embedded method. Dense evaluation is valid only on that closed
-   step interval, reproduces both accepted endpoints within the declared
-   numerical policy, and does not reintegrate the problem. P11 may keep this
-   internal; P12 owns public dense ephemerides and event integration.
+5. Superseded by ADR-0044. P11 implements endpoint propagation without a dense
+   extension. P12 owns selection and validation of a continuous extension
+   before exposing dense ephemerides or event integration.
 6. Event detectors in P12 evaluate typed states obtained from dense output.
    A detector owns any physical normalization needed to return a finite signed,
    dimensionless switching value. Direction is a closed rising/falling/any

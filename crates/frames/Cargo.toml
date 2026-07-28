@@ -8,11 +8,17 @@ license.workspace = true
 repository.workspace = true
 description = "Reference-frame identities and contracts for orskit"
 
+[features]
+default = []
+earth-orientation = ["dep:sofars"]
+
 [lib]
 name = "frames"
 
 [dependencies]
 bodies = { path = "../bodies" }
 hifitime.workspace = true
+orskit_data = { package = "orskit-data", path = "../data" }
+sofars = { workspace = true, optional = true }
 units = { path = "../units" }
 thiserror.workspace = true

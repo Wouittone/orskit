@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<oem xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xmlns:ndm="urn:ccsds:schema:ndmxml"
+     xsi:noNamespaceSchemaLocation="https://sanaregistry.org/r/ndmxml_unqualified/ndmxml-3.0.0-master-3.0.xsd"
+     id="CCSDS_OEM_VERS" version="3.0">
+  <header>
+    <COMMENT>Project-authored CCSDS OEM XML conformance fixture.</COMMENT>
+    <CREATION_DATE>2024-01-01T00:00:00</CREATION_DATE>
+    <ORIGINATOR>ORSKIT</ORIGINATOR>
+    <MESSAGE_ID>XML-TEST-1</MESSAGE_ID>
+  </header>
+  <body>
+    <segment>
+      <metadata>
+        <COMMENT>One Earth-centered segment.</COMMENT>
+        <OBJECT_NAME>TEST SAT</OBJECT_NAME>
+        <OBJECT_ID>2024-001A</OBJECT_ID>
+        <CENTER_NAME>EARTH</CENTER_NAME>
+        <REF_FRAME>EME2000</REF_FRAME>
+        <TIME_SYSTEM>UTC</TIME_SYSTEM>
+        <START_TIME>2024-01-01T00:00:00</START_TIME>
+        <STOP_TIME>2024-01-01T00:01:00</STOP_TIME>
+        <INTERPOLATION>LAGRANGE</INTERPOLATION>
+        <INTERPOLATION_DEGREE>7</INTERPOLATION_DEGREE>
+      </metadata>
+      <data>
+        <COMMENT>Data comment remains an event.</COMMENT>
+        <stateVector>
+          <EPOCH>2024-01-01T00:00:00</EPOCH>
+          <X units="km">7000</X>
+          <Y units="km">0</Y>
+          <Z units="km">0</Z>
+          <X_DOT units="km/s">0</X_DOT>
+          <Y_DOT units="km/s">7.5</Y_DOT>
+          <Z_DOT units="km/s">0</Z_DOT>
+        </stateVector>
+        <stateVector>
+          <EPOCH>2024-01-01T00:01:00</EPOCH>
+          <X units="km">6990</X>
+          <Y units="km">450</Y>
+          <Z units="km">0</Z>
+          <X_DOT units="km/s">-0.5</X_DOT>
+          <Y_DOT units="km/s">7.48</Y_DOT>
+          <Z_DOT units="km/s">0</Z_DOT>
+          <X_DDOT units="km/s**2">0.001</X_DDOT>
+          <Y_DDOT units="km/s**2">0</Y_DDOT>
+          <Z_DDOT units="km/s**2">0</Z_DDOT>
+        </stateVector>
+        <covarianceMatrix>
+          <EPOCH>2024-01-01T00:01:00</EPOCH>
+          <COV_REF_FRAME>RTN</COV_REF_FRAME>
+          <CX_X units="km**2">1</CX_X>
+          <CY_X units="km**2">0</CY_X>
+          <CY_Y units="km**2">2</CY_Y>
+          <CZ_X units="km**2">0</CZ_X>
+          <CZ_Y units="km**2">0</CZ_Y>
+          <CZ_Z units="km**2">3</CZ_Z>
+          <CX_DOT_X units="km**2/s">0</CX_DOT_X>
+          <CX_DOT_Y units="km**2/s">0</CX_DOT_Y>
+          <CX_DOT_Z units="km**2/s">0</CX_DOT_Z>
+          <CX_DOT_X_DOT units="km**2/s**2">4</CX_DOT_X_DOT>
+          <CY_DOT_X units="km**2/s">0</CY_DOT_X>
+          <CY_DOT_Y units="km**2/s">0</CY_DOT_Y>
+          <CY_DOT_Z units="km**2/s">0</CY_DOT_Z>
+          <CY_DOT_X_DOT units="km**2/s**2">0</CY_DOT_X_DOT>
+          <CY_DOT_Y_DOT units="km**2/s**2">5</CY_DOT_Y_DOT>
+          <CZ_DOT_X units="km**2/s">0</CZ_DOT_X>
+          <CZ_DOT_Y units="km**2/s">0</CZ_DOT_Y>
+          <CZ_DOT_Z units="km**2/s">0</CZ_DOT_Z>
+          <CZ_DOT_X_DOT units="km**2/s**2">0</CZ_DOT_X_DOT>
+          <CZ_DOT_Y_DOT units="km**2/s**2">0</CZ_DOT_Y_DOT>
+          <CZ_DOT_Z_DOT units="km**2/s**2">6</CZ_DOT_Z_DOT>
+        </covarianceMatrix>
+      </data>
+    </segment>
+  </body>
+</oem>

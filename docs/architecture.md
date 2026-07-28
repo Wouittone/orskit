@@ -12,6 +12,8 @@ flowchart TB
     end
     subgraph LAYER_WORKFLOWS_AND_I_O["Workflows and I/O"]
         CCSDS["ccsds"]
+        TLE["tle"]
+        ORSKIT_EXPORT["orskit-export"]
         ORBIT_DETERMINATION["orbit-determination"]
         MEASUREMENTS["measurements"]
     end
@@ -24,21 +26,28 @@ flowchart TB
         CORE["core (lib: orskit_core)"]
         ORBITS["orbits"]
         GRAVITY["gravity"]
+        EPHEMERIS["ephemeris"]
         FRAMES["frames"]
         BODIES["bodies"]
     end
     subgraph LAYER_FOUNDATIONS["Foundations"]
         UTILS["utils"]
         UNITS["units"]
+        ORSKIT_DATA["orskit-data"]
     end
+    BODIES --> UNITS
     CCSDS --> CORE
     CCSDS --> FRAMES
     CCSDS --> ORBITS
     CCSDS --> UNITS
     CORE --> FRAMES
     CORE --> UNITS
+    DYNAMICS -.->|optional| CORE
     DYNAMICS --> DYNAMICS_CORE
     DYNAMICS -.->|optional| DYNAMICS_TWO_BODIES
+    DYNAMICS -.->|optional| FRAMES
+    DYNAMICS -.->|optional| ORBITS
+    DYNAMICS -.->|optional| UNITS
     DYNAMICS_CORE --> BODIES
     DYNAMICS_CORE --> CORE
     DYNAMICS_CORE --> UNITS
@@ -48,7 +57,12 @@ flowchart TB
     DYNAMICS_TWO_BODIES --> GRAVITY
     DYNAMICS_TWO_BODIES --> ORBITS
     DYNAMICS_TWO_BODIES --> UNITS
+    EPHEMERIS --> BODIES
+    EPHEMERIS --> FRAMES
+    EPHEMERIS --> ORSKIT_DATA
+    EPHEMERIS --> UNITS
     FRAMES --> BODIES
+    FRAMES --> ORSKIT_DATA
     FRAMES --> UNITS
     GRAVITY --> FRAMES
     GRAVITY --> UNITS
@@ -68,12 +82,25 @@ flowchart TB
     ORSKIT -.->|optional| CCSDS
     ORSKIT --> CORE
     ORSKIT -.->|optional| DYNAMICS
+    ORSKIT -.->|optional| EPHEMERIS
     ORSKIT --> FRAMES
     ORSKIT -.->|optional| GRAVITY
     ORSKIT -.->|optional| MEASUREMENTS
     ORSKIT -.->|optional| ORBIT_DETERMINATION
     ORSKIT -.->|optional| ORBITS
+    ORSKIT --> ORSKIT_DATA
+    ORSKIT -.->|optional| ORSKIT_EXPORT
+    ORSKIT -.->|optional| TLE
     ORSKIT --> UNITS
+    ORSKIT_EXPORT --> CORE
+    ORSKIT_EXPORT -.->|optional| DYNAMICS_TWO_BODIES
+    ORSKIT_EXPORT --> FRAMES
+    ORSKIT_EXPORT --> GRAVITY
+    ORSKIT_EXPORT -.->|optional| ORBITS
+    ORSKIT_EXPORT -.->|optional| UNITS
+    TLE -.->|optional| CORE
+    TLE -.->|optional| DYNAMICS
+    TLE -.->|optional| UNITS
     UTILS --> UNITS
 ```
 
@@ -85,6 +112,7 @@ locked dependency graph.
 
 The graph is descriptive. The normative dependency direction and the meaning
 of each domain boundary remain in [the target architecture](../.agent/ARCHITECTURE.md).
-In particular, the feature-gated `dynamics` and `orskit` facades point inward
-to implementations because they curate exports; this does not permit a
-physical-model crate to depend upward on either facade.
+In particular, `dynamics` combines core re-exports, an optional analytical
+subcrate, and gated in-crate numerical and SGP4 algorithms. The `orskit`
+facade points inward because it curates exports; this does not permit a
+physical-model crate to depend upward on either package.

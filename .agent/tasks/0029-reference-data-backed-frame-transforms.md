@@ -56,7 +56,8 @@ No external implementation, source code, test, or data artifact was copied.
 
 - Affected crates/layers: `frames`, public facade re-export, architecture,
   parity, and provenance records.
-- Public API: `ReferenceDataDescriptor`, `FrameReferenceDataSupplier`, and
+- Public API: the `orskit-data` descriptor re-exported as
+  `ReferenceDataDescriptor`, `FrameReferenceDataSupplier`, and
   `ReferenceDataKinematicFrameTransform`.
 - Rejected alternatives: global data context; a JPL-only transform claim;
   exposing rotations/matrices as a second public numerical API; or treating an
@@ -67,10 +68,11 @@ No external implementation, source code, test, or data artifact was copied.
 ## Validation
 
 - Unit cases: identity requests do not load data; distinct-frame requests
-  delegate; absent or incomplete provenance fails before supplier evaluation;
-  source errors survive; wrong-frame supplier output fails.
+  delegate; absent provenance fails before supplier evaluation; descriptor
+  construction rejects incomplete identity (task 0040); source errors survive;
+  wrong-frame supplier output fails.
 - Invariants/properties: a distinct-frame request requires at least one
-  borrowed immutable provenance record with non-blank identity fields;
+  borrowed immutable validated provenance record;
   successful adapter output always carries the requested frame.
 - Independent reference vectors: deferred until a concrete JPL/IERS supplier
   and convention set are selected.

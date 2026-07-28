@@ -10,6 +10,7 @@ check:
     cargo check --workspace --all-targets --all-features --locked
     cargo clippy --workspace --all-targets --all-features --locked -- -D warnings -D clippy::must-use-candidate
     pwsh -NoProfile -File scripts/check_crate_diagram.ps1 -Check
+    pwsh -NoProfile -File scripts/check_feature_matrix.ps1
 
 # Run workspace tests, including doctests (which nextest does not support).
 test:
@@ -31,3 +32,7 @@ diagram:
 # Verify the committed crate diagram matches Cargo metadata.
 diagram-check:
     pwsh -NoProfile -File scripts/check_crate_diagram.ps1 -Check
+
+# Check the maintained representative Cargo feature combinations.
+feature-matrix:
+    pwsh -NoProfile -File scripts/check_feature_matrix.ps1

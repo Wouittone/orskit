@@ -9,10 +9,10 @@ $metadata = cargo metadata --format-version 1 --no-deps --locked --manifest-path
 
 $layers = @(
     [pscustomobject]@{ Name = 'Public facade'; Packages = @('orskit') }
-    [pscustomobject]@{ Name = 'Workflows and I/O'; Packages = @('ccsds', 'orbit-determination', 'measurements') }
+    [pscustomobject]@{ Name = 'Workflows and I/O'; Packages = @('ccsds', 'tle', 'orskit-export', 'orbit-determination', 'measurements') }
     [pscustomobject]@{ Name = 'Dynamics'; Packages = @('dynamics', 'dynamics-core', 'dynamics-two-bodies') }
-    [pscustomobject]@{ Name = 'Physical model'; Packages = @('core', 'orbits', 'gravity', 'frames', 'bodies') }
-    [pscustomobject]@{ Name = 'Foundations'; Packages = @('utils', 'units') }
+    [pscustomobject]@{ Name = 'Physical model'; Packages = @('core', 'orbits', 'gravity', 'ephemeris', 'frames', 'bodies') }
+    [pscustomobject]@{ Name = 'Foundations'; Packages = @('utils', 'units', 'orskit-data') }
 )
 
 function ConvertTo-NodeId([string]$Name) {
@@ -79,9 +79,10 @@ locked dependency graph.
 
 The graph is descriptive. The normative dependency direction and the meaning
 of each domain boundary remain in [the target architecture](../.agent/ARCHITECTURE.md).
-In particular, the feature-gated ``dynamics`` and ``orskit`` facades point inward
-to implementations because they curate exports; this does not permit a
-physical-model crate to depend upward on either facade.
+In particular, ``dynamics`` combines core re-exports, an optional analytical
+subcrate, and gated in-crate numerical and SGP4 algorithms. The ``orskit``
+facade points inward because it curates exports; this does not permit a
+physical-model crate to depend upward on either package.
 "@
 $expected = $expected.Replace("`r`n", "`n").TrimEnd() + "`n"
 $destination = Join-Path $repositoryRoot 'docs/architecture.md'

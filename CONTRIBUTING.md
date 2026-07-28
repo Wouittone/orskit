@@ -55,6 +55,7 @@ just check
 just test
 just docs
 just bench
+just feature-matrix
 ```
 
 The shortcuts do not replace Cargo. Use the checks that match the files
@@ -74,7 +75,14 @@ cargo bench --workspace --all-features --no-run --locked
 Documentation-only changes should at least pass `git diff --check` and should
 be reviewed for stale links, unsupported parity claims, and provenance gaps.
 When manifests or crate boundaries change, also run `just diagram-check` (or
-`pwsh -NoProfile -File scripts/check_crate_diagram.ps1 -Check`).
+`pwsh -NoProfile -File scripts/check_crate_diagram.ps1 -Check`) and the
+[representative feature matrix](docs/feature-matrix.md).
+
+The [CI assurance policy](docs/ci-policy.md) documents the explicit MSRV,
+dependency-license/advisory, coverage, documentation-publication, failure, and
+secret-handling contracts. Its local commands require `cargo-deny` or
+`cargo-llvm-cov` only when changing those policies; the hosted Pages deployment
+cannot be reproduced locally.
 
 The optional [development container](.devcontainer/devcontainer.json) provides
 the Rust 1.96.1 toolchain, rustfmt, Clippy, cargo-nextest, `just`, and PowerShell.

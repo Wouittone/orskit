@@ -1,4 +1,4 @@
-//! CCSDS 502.0-B-3 OEM KVN reader.
+//! CCSDS 502.0-B-3 OEM readers.
 
 use std::{fmt, io::BufRead, str::FromStr, sync::Arc};
 
@@ -19,6 +19,9 @@ use units::{
 use rayon::prelude::*;
 #[cfg(feature = "async")]
 use tokio::io::{AsyncBufRead, AsyncBufReadExt};
+
+mod xml;
+pub use xml::{parse_oem_xml, parse_oem_xml_with_limits, OemXmlReader};
 
 const DEFAULT_MAX_LINE_BYTES: usize = 64 * 1024;
 const DEFAULT_MAX_SECTION_BYTES: usize = 256 * 1024 * 1024;
@@ -806,7 +809,7 @@ pub enum OemEvent {
     SegmentEnd(OemSegmentId),
 }
 
-/// Error returned while decoding or collecting OEM KVN.
+/// Error returned while decoding or collecting OEM.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum OemError {
@@ -840,6 +843,45 @@ pub enum OemError {
     InvalidUtf8 {
         /// Source line.
         line: usize,
+    },
+    /// The XML source was not well formed.
+    #[error("malformed OEM XML at line {line}: {source}")]
+    MalformedXml {
+        /// Source line at or immediately after the malformed construct.
+        line: usize,
+        /// XML parser failure.
+        #[source]
+        source: quick_xml::Error,
+    },
+    /// XML nesting exceeded the decoder's finite structural bound.
+    #[error("OEM XML nesting limit exceeded at line {line}: configured {configured}, observed {observed}")]
+    XmlDepthLimitExceeded {
+        /// Source line that crossed the limit.
+        line: usize,
+        /// Configured maximum element nesting depth.
+        configured: usize,
+        /// Observed nesting depth.
+        observed: usize,
+    },
+    /// XML semantic record count exceeded its finite document bound.
+    #[error("OEM XML record limit exceeded at line {line}: configured {configured}, observed {observed}")]
+    XmlRecordLimitExceeded {
+        /// Source line that crossed the limit.
+        line: usize,
+        /// Configured maximum number of semantic records.
+        configured: usize,
+        /// Observed number of semantic records.
+        observed: usize,
+    },
+    /// An XML element used attributes or units outside the supported OEM schema.
+    #[error("invalid OEM XML element {element} at line {line}: {message}")]
+    InvalidXmlElement {
+        /// Source line.
+        line: usize,
+        /// Element name.
+        element: String,
+        /// Validation failure.
+        message: String,
     },
     /// A required field was absent.
     #[error("missing required {section} field {field} at OEM line {line}")]

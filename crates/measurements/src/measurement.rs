@@ -535,6 +535,7 @@ impl RangeMeasurement {
         self.value
     }
 
+    #[cfg(feature = "geometric-range")]
     pub(crate) fn with_value(&self, value: Measured<Length>) -> Result<Self, MeasurementError> {
         Self::new(
             self.path.clone(),

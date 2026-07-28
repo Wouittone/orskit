@@ -1,0 +1,17 @@
+[package]
+name = "ephemeris"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Caller-selected physical ephemeris provider contracts for orskit"
+
+[dependencies]
+bodies = { path = "../bodies" }
+frames = { path = "../frames" }
+hifitime.workspace = true
+orskit_data = { package = "orskit-data", path = "../data" }
+thiserror.workspace = true
+units = { path = "../units" }

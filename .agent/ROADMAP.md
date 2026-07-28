@@ -35,7 +35,12 @@ units, frame, or epoch.
 - Implement precise instants/durations and initial time-scale conversions.
 - Introduce explicit data contexts and versioned leap/Earth-orientation inputs.
 - Implement inertial/terrestrial frame transforms and transform composition.
-- Implement body/ellipsoid/geodetic primitives.
+- Extend the validated WGS 84 ellipsoid, geodetic/geocentric conversion, and
+  local East–North–Up slice to additional caller-selected body models as
+  evidence requires (ADR-0041; task 0044).
+- Extend the caller-selected physical ephemeris boundary beyond verified
+  sampled interpolation with format-backed and multi-segment providers as
+  evidence requires (ADR-0043; task 0045).
 - Implement epoch/frame-qualified Cartesian and primary orbital element types,
   conversions, anomalies, and interpolation.
 
@@ -51,8 +56,10 @@ inertial frames across representative epochs and orbit regimes.
   third bodies, relativity, and tides), aerodynamic models, radiation-pressure
   models, and maneuvers. Two-body motion is a validation case, not the
   architecture.
-- Add numerical integrator abstraction, dense output, ephemeris generation,
-  event detection, and deterministic simultaneous-event handling.
+- Extend the adaptive Cartesian numerical propagator beyond its initial
+  immutable cubic-Hermite dense output and bounded event localization with
+  reusable ephemeris generation, reset/reintegration, and grazing/multiple-root
+  policies.
 - Add spacecraft mass and initial maneuver support.
 - Establish accuracy-plus-performance benchmark scenarios.
 
@@ -61,7 +68,8 @@ data, bounded errors, events, and benchmark baselines.
 
 ## Milestone 3 — operational propagators and attitude
 
-- Implement TLE parsing and independently validated SGP4 behavior.
+- Extend the independently validated SGP4-to-TEME boundary with operational
+  age/decay policy and selected frame-conversion workflows.
 - Add selected analytical and semi-analytical families based on user demand.
 - Add attitude state, providers, interpolation, and attitude-dependent force
   models.
@@ -89,8 +97,10 @@ and covariance behavior.
 
 ## Milestone 5 — data formats and mission workflows
 
-- Implement prioritized CCSDS messages and operational formats using conformance
-  corpora and fuzzing.
+- Implement prioritized CCSDS messages and operational formats using
+  provenance-cleared conformance corpora and bounded fuzzing; OEM KVN and
+  bounded blocking OEM 3.0 XML are the maintained parser-evidence slices
+  (tasks 0039 and 0048).
 - Add visibility, eclipse, occultation, field-of-view, and access workflows.
 - Build explicit fetch/cache tooling for public scientific datasets without
   adding implicit network behavior to algorithms.

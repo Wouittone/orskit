@@ -37,13 +37,17 @@ missing abstraction or an incorrectly placed type.
 ### Physical model
 
 - **Bodies:** reusable celestial-body identities and explicit body-system
-  membership, followed by reference ellipsoids, geodetic conversion, rotation,
-  and ephemeris providers. Identity does not imply a physical-data model.
+  membership remain independent of caller-selected reference ellipsoids.
+  Ellipsoids provide typed geodetic/geocentric conversion without implying a
+  rotation or ephemeris provider.
 - **Frames:** lightweight identities compose a body, body-system barycenter, or
   explicit custom origin with an orientation. Caller-owned `FrameCatalog`
   values issue namespace-qualified `FrameId` identities and validated
   `DerivedFrame` definitions with fixed typed offsets; only registered parents
   form chains, without a global registry.
+  Catalog-issued local East–North–Up frames retain their affirmatively
+  body-fixed parent, ellipsoidal geodetic origin, and reversible position
+  transform; generic non-inertial axes do not satisfy that capability.
   Orientations declare inertial, non-inertial, or unspecified motion;
   algorithms requiring inertial axes accept only an affirmative inertial
   declaration. `FrameReferenceDataSupplier` records a non-empty immutable set
@@ -52,9 +56,22 @@ missing abstraction or an incorrectly placed type.
   own Earth orientation, ephemerides, coverage, interpolation, caching, and
   convention selection. Caches may retain derived values but cannot silently
   replace selected scientific data.
+  `Iers2010EarthOrientation` is the first concrete implementation: it consumes
+  one verified caller-selected artifact and typed UT1-TAI/polar-motion samples,
+  rejects coverage and interpolation gaps, and resolves full position and
+  velocity between GCRF and ITRF2020 using the CIO-based IERS 2010/IAU
+  2006+2000A convention. Observed celestial-pole offsets and operational
+  IERS-product parsing remain separate future slices.
   Transform-provider
   contracts therefore admit optional external adapters without a global data
   context or a public matrix API.
+- **Ephemerides:** an open provider evaluates one explicit target relative to
+  one explicit observer, in a complete observer-centered frame, at an absolute
+  epoch. Results contain finite typed position and velocity and expose every
+  verified caller-selected artifact used. The first concrete provider applies
+  piecewise cubic Hermite interpolation to already-decoded samples; operational
+  format readers, transforms, aberration corrections, and caches remain
+  separate explicit boundaries.
 - **Orbits:** frame- and epoch-qualified states, element sets, conversions,
   Jacobians, interpolation, and covariance representations.
 
@@ -81,8 +98,20 @@ missing abstraction or an incorrectly placed type.
   semi-analytical, and TLE
   algorithms, dense output, ephemerides, and variational equations remain
   distinct capabilities.
-- **Events:** detector functions, direction, root localization, handlers, and
-  deterministic simultaneous-event policy.
+  The `dynamics` crate's gated `numerical` module owns one evaluable
+  `CartesianDynamics`, whose typed acceleration boundary declares its frame
+  and component requirements. It advances only epoch-qualified translational
+  `CartesianState` values with caller-selected typed tolerances, step bounds,
+  and limits; the raw six-component SI layout is private. Its optional dense
+  output is an immutable, directional collection of accepted-step cubic
+  Hermite segments. Typed event handlers inspect those dense states, define
+  direction in increasing physical epoch, and use bounded bisection with
+  deterministic simultaneous ordering. This first event slice cannot reset or
+  reintegrate state; coupled spacecraft properties and variational state remain
+  separate capabilities.
+- **Events:** detector functions, physical-time direction, bounded root
+  localization, source-preserving handlers, and deterministic simultaneous
+  ordering are explicit contracts.
 - **Attitude:** open `Attitude` and `SpacecraftGeometry` contracts compose
   caller-selected representations into a `SpacecraftView`; optional built-in
   quaternion attitude and standard geometry implementations are separately
@@ -130,14 +159,15 @@ missing abstraction or an incorrectly placed type.
   configured and it reports non-convergence. `frames::FrameKinematics` and a
   `KinematicFrameTransformProvider` make transformation epochs, data, and
   output frames explicit; the measurements adapter never relabels coordinates.
-  Earth orientation, concrete transforms, displacement, weather, higher-order
-  media integration, turnaround delay, and physical correction models remain
-  separate feature-gated implementations.
-  `GroundStation` owns a parent-relative fixed frame; geodetic conversion,
-  displacement, topocentric-frame construction,
-  clocks, weather inputs, light-time solving, and physical correction-model
-  evaluation remain future contracts. A ground observer is not a separate
-  top-level domain or crate.
+  The concrete verified IERS 2010 GCRF/ITRF2020 provider can satisfy this
+  boundary; displacement, weather, higher-order media integration, turnaround
+  delay, and physical correction models remain separate implementations.
+  `GroundStation` owns a parent-relative fixed frame. A catalog-issued
+  `TopocentricFrame` implements the same kinematic-transform provider used by
+  measurement workflows for its static parent/local pair. Displacement,
+  clocks, weather inputs, and physical correction-model evaluation remain
+  future contracts. A ground observer is not a separate top-level domain or
+  crate.
 - **Estimation:** parameters, residuals, least squares, filters, covariance,
   and state-transition/sensitivity machinery.
 
@@ -193,8 +223,11 @@ missing abstraction or an incorrectly placed type.
   narrowing what a `SpacecraftState` may represent. Unknown or future frame
   orientations never become inertial merely because they are absent from a
   non-inertial blacklist.
-- External scientific data enters through an immutable `DataContext`-style
-  value or trait-backed provider. Algorithms declare their required data.
+- External scientific data enters through a verified `orskit-data` artifact
+  and an immutable trait-backed provider. Artifact authority, product, version,
+  SHA-256 content digest, coverage, and caller-selected allocation limit are
+  explicit; algorithms declare their required data and perform no implicit
+  network or cache lookup.
 - Constants identify their convention and source; there is no anonymous
   "Earth constant" shared across incompatible models.
 - Covariance and Jacobian values identify their parameterization, ordering,
@@ -283,9 +316,20 @@ physical zero-radius collision; caller-selected element charts retain their
 own conversion singularities.
 Complete spacecraft views are composed separately from properties known to be
 valid at the propagated epoch.
-General force evaluation and numerical propagation remain deferred; their design must
-cover coupled translational, rotational, mass, and variational states, explicit
-data, events, and integration. Third-body descriptions remain unavailable until
-their ephemeris, frame, provenance, and acceleration-assembly contracts exist.
+The `tle` crate is an operational-format boundary: it validates and formats
+TLE records without owning propagation. Its optional adapter converts validated
+columns into an epoch-qualified `Sgp4Elements` domain state. The separate
+`dynamics` crate's gated `sgp4` module owns a stateless, non-configurable
+`Propagator<Sgp4Elements, CartesianState>` backed by an unmodified black-box
+dependency configured for WGS-72/AFSPC compatibility. It returns the existing
+typed Cartesian orbit in explicit TEME axes. TLE age policy, frame conversion,
+covariance, maneuvers, and operational accuracy remain outside that propagator.
+General force evaluation remains distinct from the first caller-implemented
+Cartesian acceleration boundary. Numerical propagation currently covers
+adaptive translational Cartesian state with optional immutable dense output
+and bounded event localization; coupled rotational, mass, variational,
+reset/reintegration, and grazing/multiple-root capabilities remain deferred.
+Third-body descriptions remain unavailable until their ephemeris,
+frame, provenance, and acceleration-assembly contracts exist.
 There is no `stations` crate: ground and spacecraft participants belong to the
 measurement topology and estimation workflows.

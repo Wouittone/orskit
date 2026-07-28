@@ -85,13 +85,19 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
   that follow the pinned toolchain without overriding user preferences.
 - [x] **C12 (Wave 1, no dependency):** add a minimal dev-container/Codespaces
   definition with Rust 1.96.1, rustfmt, Clippy, and cargo-nextest.
-- [ ] **C13 (depends on C10):** expand CI to Linux, macOS, and Windows with a
-  cost-conscious matrix and retain the full locked check suite.
-- [ ] **C14 (depends on C13):** add explicit MSRV, dependency-license/advisory,
+- [x] **C13 (depends on C10):** expand CI to Linux, macOS, and Windows with a
+  cost-conscious matrix and retain the full locked check suite. Evidence:
+  `.github/workflows/build.yml`; task 0037. Hosted macOS/Windows execution is
+  verified by CI rather than locally.
+- [x] **C14 (depends on C13):** add explicit MSRV, dependency-license/advisory,
   documentation publication, and coverage jobs with documented failure and
-  secret policies.
-- [ ] **C15 (depends on T10):** run reproducible scheduled benchmarks without
-  treating noisy timing changes as correctness failures.
+  secret policies. Evidence: `.github/workflows/assurance.yml`, `deny.toml`,
+  `docs/ci-policy.md`; task 0038. Hosted execution and Pages enablement remain
+  CI/owner-operated evidence rather than local claims.
+- [x] **C15 (depends on T10):** run reproducible scheduled benchmarks without
+  treating noisy timing changes as correctness failures. Evidence:
+  `.github/workflows/benchmarks.yml`; task 0042. The workflow retains raw
+  metadata and samples but applies no cross-machine timing threshold.
 
 ## D — Architecture, tutorials, and API documentation
 
@@ -104,10 +110,15 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
   using the current Cartesian observation boundary and naming its limitations.
 - [x] **D13 (Wave 1, depends on D10):** write an API guide for implementing a
   custom `Propagator<State>` and `PropagationState<Problem>` pair.
-- [ ] **D14 (depends on D11–D13):** add focused rustdoc examples to public core,
+- [x] **D14 (depends on D11–D13):** add focused rustdoc examples to public core,
   dynamics, orbits, and orbit-determination APIs where usage is non-obvious.
-- [ ] **D15 (depends on stabilized corresponding APIs):** publish an Orekit
+  Evidence: `core::Orbit`, `dynamics_core::Propagator`,
+  `orbits::cartesian::CartesianState`, `OrbitDetermination`; task 0037.
+- [x] **D15 (depends on stabilized corresponding APIs):** publish an Orekit
   migration guide mapping workflows and concepts, not Java classes one-for-one.
+  Evidence: `docs/orekit-migration.md`; task 0049. The guide covers only
+  currently implemented contracts and directs unsupported workflows to the
+  parity ledger.
 
 ## T — Testing, validation, and performance evidence
 
@@ -122,9 +133,14 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
   policy without claiming cross-machine timing thresholds.
 - [ ] **T13 (depends on each format/model slice):** grow provenance-cleared
   real-world conformance and scenario data for formats, propagation, frames,
-  and estimation.
+  and estimation. The OEM KVN slice has an attributed interoperability fixture
+  plus project-authored multi-segment scenario coverage (task 0039); other
+  formats/models and broader real-world datasets remain.
 - [ ] **T14 (depends on parsers):** add bounded fuzz targets for untrusted file
-  formats and preserve every discovered failure as a regression test.
+  formats and preserve every discovered failure as a regression test. The OEM
+  KVN and TLE parsers have isolated hard-limited cargo-fuzz targets and
+  committed regression paths (tasks 0039 and 0041); future parsers require
+  their own targets.
 
 ## Q — Rust API quality audit
 
@@ -140,33 +156,49 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
 - [x] **Q13 (Wave 1, no dependency):** reduce repeated trait bounds with stable
   Rust super-traits or helper traits only where this improves diagnostics.
   Rust trait aliases are unstable and are not an implementation option.
-- [ ] **Q14 (depends on all feature additions):** define and test a deliberate
+- [x] **Q14 (depends on all feature additions):** define and test a deliberate
   feature matrix; avoid attempting every mathematical feature combination.
+  Evidence: `docs/feature-matrix.md`,
+  `scripts/check_feature_matrix.ps1`; task 0037.
 
 ## F — Foundational scientific context
 
-- [ ] **F10 (depends on T11):** validate Hifitime scale round trips and leap
+- [x] **F10 (depends on T11):** validate Hifitime scale round trips and leap
   boundaries against authoritative vectors without wrapping its public API.
-- [ ] **F11 (depends on T13):** implement explicit version/checksum/coverage
+  Evidence: `crates/core/tests/time_scales.rs`, `PROVENANCE.md`, and task 0037;
+  the current inability to retain a distinct civil `23:59:60` is explicit.
+- [x] **F11 (depends on T13):** implement explicit version/checksum/coverage
   contracts for caller-selected scientific datasets and deterministic offline
-  use.
-- [ ] **F12 (depends on F10–F11):** implement Earth-orientation-backed inertial
+  use. Evidence: `crates/data`, ADR-0039, and task 0040. Concrete scientific
+  providers and explicit fetch/cache population remain later slices.
+- [x] **F12 (depends on F10–F11):** implement Earth-orientation-backed inertial
   and terrestrial frame transforms with composition/inverse evidence.
-- [ ] **F13 (depends on F11):** add reference ellipsoids, geodetic conversions,
+  Evidence: `frames::Iers2010EarthOrientation`, ADR-0042, and task 0043.
+  Observed celestial-pole offsets and operational IERS-product ingestion
+  remain explicit later work.
+- [x] **F13 (depends on F11):** add reference ellipsoids, geodetic conversions,
   and local topocentric frames with standard vectors and singularity policy.
-- [ ] **F14 (depends on F11):** add caller-selected physical ephemeris providers
-  with explicit coverage and interpolation errors.
+  Evidence: `crates/bodies/src/geodesy.rs`, `frames::TopocentricFrame`,
+  ADR-0041, and task 0044.
+- [x] **F14 (depends on F11):** add caller-selected physical ephemeris providers
+  with explicit coverage and interpolation errors. Evidence:
+  `crates/ephemeris`, ADR-0043, and task 0045. Operational readers, frame
+  transformations, aberration corrections, and multi-segment providers remain
+  later slices.
 
 ## P — Propagation, force models, events, and attitude
 
 - [x] **P10 (Wave 1 design slice; depends on T11):** specify the minimal
   numerical propagation vertical slice, including coupled-state boundaries,
   typed tolerances, dense output, events, and validation scenarios.
-- [ ] **P11 (depends on P10):** implement an adaptive embedded Runge–Kutta
+- [x] **P11 (depends on P10):** implement an adaptive embedded Runge–Kutta
   integrator and a frame/epoch-qualified numerical propagator with documented
-  local/global error behavior.
-- [ ] **P12 (depends on P11):** implement dense ephemerides, root localization,
+  local/global error behavior. Evidence: `dynamics::numerical`, ADR-0044, and
+  task 0047. Dense output and events were deferred to P12.
+- [x] **P12 (depends on P11):** implement dense ephemerides, root localization,
   event direction, handlers, and deterministic simultaneous-event policy.
+  Evidence: `dynamics::numerical` dense/event APIs, ADR-0047, and task 0051.
+  Grazing roots, hidden multiple roots, and reset/reintegration remain pending.
 - [ ] **P13 (depends on F14 and P11):** add third-body point-mass gravity.
 - [ ] **P14 (depends on F11–F14 and P11):** add harmonics/tides, drag and
   atmosphere, radiation pressure, and relativity as separately evidenced
@@ -180,15 +212,17 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
 
 ## I — Operational formats and data ingestion
 
-- [ ] **I10 (depends on T13–T14):** add CCSDS OEM XML read support while
+- [x] **I10 (depends on T13–T14):** add CCSDS OEM XML read support while
   preserving the current bounded streaming semantics and semantic model.
+  Evidence: `ccsds::OemXmlReader`, ADR-0045, and task 0048. XML writing and
+  lossless KVN/XML round trips remain I11.
 - [ ] **I11 (depends on I10):** add lossless OEM writing and KVN/XML semantic
   round trips.
 - [ ] **I12 (depends on T13–T14):** add OPM, OMM, and OCM incrementally, then
   attitude and tracking message families, each with its own conformance corpus.
-- [ ] **I13 (depends on F10):** add strict TLE parsing/formatting with standard
+- [x] **I13 (depends on F10):** add strict TLE parsing/formatting with standard
   checksum and malformed-input cases.
-- [ ] **I14 (depends on I13 and P10):** implement independently validated SGP4
+- [x] **I14 (depends on I13 and P10):** implement independently validated SGP4
   behavior using published standards and verification cases.
 - [ ] **I15 (depends on F11–F14):** add SP3, RINEX, gravity-field, EOP,
   ephemeris, and space-weather ingestion as separate bounded parser slices.

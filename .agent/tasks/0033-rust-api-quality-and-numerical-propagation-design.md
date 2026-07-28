@@ -83,7 +83,8 @@ Removed `#[non_exhaustive]` where adding a variant would change a deliberately
 closed meaning and downstream exhaustive handling should fail to compile:
 
 - `FrameMotion` (affirmative inertial, non-inertial, or unspecified);
-- `ReferenceDataDescriptorField` (the fields of one concrete descriptor);
+- the original closed reference-data descriptor-field enum (subsequently
+  replaced by validated construction in `orskit-data`, task 0040);
 - `OemSection`, `CartesianCovarianceEntry`, and `OemRecordRef` (closed OEM KVN
   structure/dimensional categories); and
 - `RangeConvention`, `AzimuthElevationConvention`, and

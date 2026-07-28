@@ -83,6 +83,18 @@ impl EllipticKeplerPropagator {
         &self.dynamics
     }
 
+    /// Returns the configured anomaly-solver tolerance.
+    #[must_use]
+    pub fn tolerance(&self) -> Angle {
+        Angle::new::<radian>(self.tolerance_radians)
+    }
+
+    /// Returns the configured maximum anomaly-solver iteration count.
+    #[must_use]
+    pub const fn max_iterations(&self) -> usize {
+        self.max_iterations
+    }
+
     /// Sets the anomaly-solver tolerance.
     pub fn with_tolerance(mut self, tolerance: Angle) -> Result<Self, EllipticKeplerError> {
         let tolerance_radians = tolerance.get::<radian>();

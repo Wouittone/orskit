@@ -2,9 +2,9 @@
 
 //! Celestial-body and body-system identities for orskit.
 //!
-//! This crate deliberately contains identity and classification only. Physical
-//! constants, ephemerides, shapes, and rotation models require separately
-//! sourced data and do not belong in a body identifier.
+//! Body identity remains independent of physical models. Caller-selected
+//! reference ellipsoids and geodetic coordinates are separate values and do
+//! not imply an ephemeris, gravity field, or rotation model.
 //!
 //! ```
 //! use bodies::{Body, BodySystem};
@@ -12,6 +12,12 @@
 //! assert!(BodySystem::EARTH_MOON.contains(Body::EARTH));
 //! assert!(BodySystem::EARTH_MOON.contains(Body::MOON));
 //! ```
+
+mod geodesy;
+
+pub use geodesy::{
+    GeodeticConversionError, GeodeticPosition, ReferenceEllipsoid, ReferenceEllipsoidError,
+};
 
 use std::{fmt, str::FromStr};
 
