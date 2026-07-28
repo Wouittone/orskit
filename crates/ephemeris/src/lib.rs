@@ -194,11 +194,15 @@ impl EphemerisState {
     pub const fn velocity(self) -> VelocityVector {
         self.velocity
     }
-}
 
-impl From<EphemerisState> for FrameKinematics {
-    fn from(state: EphemerisState) -> Self {
-        Self::new(state.position, state.velocity, state.query.frame)
+    /// Returns the position and velocity at this query's frame boundary.
+    ///
+    /// This is deliberately an accessor rather than a `From` conversion:
+    /// callers must retain the query when its target, observer, or epoch is
+    /// needed for an epoch-dependent frame transform.
+    #[must_use]
+    pub fn frame_kinematics(self) -> FrameKinematics {
+        FrameKinematics::new(self.position, self.velocity, self.query.frame)
             .expect("EphemerisState guarantees finite position and velocity")
     }
 }
@@ -585,7 +589,7 @@ mod tests {
     }
 
     #[test]
-    fn ephemeris_state_converts_to_shared_frame_kinematics() {
+    fn ephemeris_state_exposes_shared_frame_kinematics() {
         let query = EphemerisQuery::new(
             Body::MOON,
             Body::EARTH,
@@ -600,7 +604,7 @@ mod tests {
         )
         .expect("finite state");
 
-        let kinematics = FrameKinematics::from(state);
+        let kinematics = state.frame_kinematics();
         assert_eq!(kinematics.frame(), query.frame());
         assert_eq!(kinematics.position(), state.position());
         assert_eq!(kinematics.velocity(), state.velocity());

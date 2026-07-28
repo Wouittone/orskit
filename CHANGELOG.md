@@ -51,7 +51,8 @@ and versioning follows the project's [pre-1.0 release policy](docs/release-polic
 
 - Unified new conversion and transform APIs around existing standard/domain
   traits: TLE and snapshot export use `TryFrom`, Cartesian state values bridge
-  through `FrameKinematics`, and topocentric frames implement the common
+  losslessly through `FrameKinematics`, ephemeris states expose that boundary
+  without discarding query context, and topocentric frames implement the common
   kinematic transform provider.
 - Clarified the README's current OEM covariance support.
 - Hardened numerical propagation against extreme-duration arithmetic and
