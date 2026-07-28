@@ -116,16 +116,16 @@ pub enum Sgp4Error {
     EpochOutOfRange,
     /// Mean motion could not be converted from the Kozai convention.
     #[error("invalid mean motion for SGP4")]
-    KozaiElements(#[source] sgp4::KozaiElementsError),
+    KozaiElements(#[from] sgp4::KozaiElementsError),
     /// Eccentricity was invalid at model initialization.
     #[error("invalid epoch eccentricity for SGP4")]
-    EpochEccentricity(#[source] sgp4::OutOfRangeEpochEccentricity),
+    EpochEccentricity(#[from] sgp4::OutOfRangeEpochEccentricity),
     /// The model diverged at the requested epoch.
     #[error("SGP4 propagation failed")]
-    Propagation(#[source] sgp4::Error),
+    Propagation(#[from] sgp4::Error),
     /// The dependency returned a non-finite Cartesian prediction.
     #[error("SGP4 returned an invalid Cartesian prediction")]
-    CartesianState(#[source] StateError),
+    CartesianState(#[from] StateError),
 }
 
 /// Stateless, non-configurable SGP4/SDP4 propagation using WGS-72.
@@ -194,20 +194,17 @@ impl Propagator<Sgp4Elements, CartesianState> for Sgp4Propagator {
             elements.argument_of_perigee.get::<radian>(),
             elements.mean_anomaly.get::<radian>(),
             elements.mean_motion.get::<radian_per_second>() * 60.0,
-        )
-        .map_err(Sgp4Error::KozaiElements)?;
+        )?;
         let constants = sgp4::Constants::new(
             sgp4::WGS72,
             sgp4::afspc_epoch_to_sidereal_time,
             model_epoch,
             elements.b_star_inverse_earth_radii,
             orbit,
-        )
-        .map_err(Sgp4Error::EpochEccentricity)?;
+        )?;
         let minutes = (target - epoch).to_seconds() / 60.0;
-        let prediction = constants
-            .propagate_afspc_compatibility_mode(sgp4::MinutesSinceEpoch(minutes))
-            .map_err(Sgp4Error::Propagation)?;
+        let prediction =
+            constants.propagate_afspc_compatibility_mode(sgp4::MinutesSinceEpoch(minutes))?;
         let state = CartesianState::new(
             ReferenceFrame::TEME,
             Position::new(
@@ -220,8 +217,7 @@ impl Propagator<Sgp4Elements, CartesianState> for Sgp4Propagator {
                 Velocity::new::<kilometer_per_second>(prediction.velocity[1]),
                 Velocity::new::<kilometer_per_second>(prediction.velocity[2]),
             ),
-        )
-        .map_err(Sgp4Error::CartesianState)?;
+        )?;
         Ok(Orbit::new(target, state))
     }
 }

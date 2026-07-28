@@ -47,7 +47,8 @@ No source implementation or third-party test was copied.
 - Affected crates/layers: `bodies`, `frames`, facade prelude, architecture and
   evidence documentation.
 - Public API: `ReferenceEllipsoid`, `GeodeticPosition`, associated errors,
-  `TopocentricFrame`, and `FrameCatalog::define_topocentric_enu`.
+  `TopocentricFrame` implementing `KinematicFrameTransformProvider`, and
+  `FrameCatalog::define_topocentric_enu`.
 - Rejected alternatives: implicit Earth ellipsoid; public matrix API; hidden
   polar meridian; geodesy-to-frames dependency reversal.
 - ADR required: ADR-0041.
@@ -58,7 +59,8 @@ No source implementation or third-party test was copied.
   invalid ellipsoid/coordinates, center/pole singularities, body and parent
   validation.
 - Invariants/properties: accepted geodetic values are finite and in range;
-  local/parent transforms are inverses within floating-point roundoff.
+  local/parent position and velocity transforms are inverses within
+  floating-point roundoff.
 - Independent reference vectors: EPSG methods 9602 and 9836.
 - Differential/scenario tests: facade and rustdoc compilation.
 - Tolerances and justification: 1 cm for EPSG 9602 rounded centimetre output;

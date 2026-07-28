@@ -67,7 +67,7 @@
 use std::{error::Error, slice};
 
 use bodies::Body;
-use frames::{FrameOrigin, ReferenceFrame};
+use frames::{FrameKinematics, FrameOrigin, ReferenceFrame};
 use hifitime::Epoch;
 use orskit_data::CoverageError;
 pub use orskit_data::{ArtifactDescriptor, VerifiedArtifact};
@@ -193,6 +193,13 @@ impl EphemerisState {
     #[must_use]
     pub const fn velocity(self) -> VelocityVector {
         self.velocity
+    }
+}
+
+impl From<EphemerisState> for FrameKinematics {
+    fn from(state: EphemerisState) -> Self {
+        Self::new(state.position, state.velocity, state.query.frame)
+            .expect("EphemerisState guarantees finite position and velocity")
     }
 }
 
@@ -575,6 +582,28 @@ mod tests {
             FrameOrigin::Body(Body::EARTH),
             frames::FrameOrientation::Icrf,
         )
+    }
+
+    #[test]
+    fn ephemeris_state_converts_to_shared_frame_kinematics() {
+        let query = EphemerisQuery::new(
+            Body::MOON,
+            Body::EARTH,
+            earth_icrf(),
+            Epoch::from_tai_seconds(42.0),
+        )
+        .expect("observer-centered frame");
+        let state = EphemerisState::new(
+            query,
+            Position::from_metres(1.0, 2.0, 3.0),
+            VelocityVector::from_metres_per_second(4.0, 5.0, 6.0),
+        )
+        .expect("finite state");
+
+        let kinematics = FrameKinematics::from(state);
+        assert_eq!(kinematics.frame(), query.frame());
+        assert_eq!(kinematics.position(), state.position());
+        assert_eq!(kinematics.velocity(), state.velocity());
     }
 
     fn horizons_epochs() -> [Epoch; 3] {

@@ -882,37 +882,99 @@ impl TopocentricFrame {
     /// Converts a position in parent axes to local `(east, north, up)`.
     #[must_use]
     pub fn to_topocentric_position(self, parent_position: Position) -> Position {
-        let [x, y, z] = (parent_position - self.origin_offset).to_metres();
-        let longitude = self.origin.longitude().get::<radian>();
-        let latitude = self.origin.latitude().get::<radian>();
-        let (sin_longitude, cos_longitude) = longitude.sin_cos();
-        let (sin_latitude, cos_latitude) = latitude.sin_cos();
-
-        Position::from_metres(
-            -x * sin_longitude + y * cos_longitude,
-            -x * sin_latitude * cos_longitude - y * sin_latitude * sin_longitude + z * cos_latitude,
-            x * cos_latitude * cos_longitude + y * cos_latitude * sin_longitude + z * sin_latitude,
-        )
+        let [east, north, up] =
+            self.rotate_to_topocentric((parent_position - self.origin_offset).to_metres());
+        Position::from_metres(east, north, up)
     }
 
     /// Converts local `(east, north, up)` to a position in parent axes.
     #[must_use]
     pub fn to_parent_position(self, topocentric_position: Position) -> Position {
-        let [east, north, up] = topocentric_position.to_metres();
+        let [x, y, z] = self.rotate_to_parent(topocentric_position.to_metres());
+        let [origin_x, origin_y, origin_z] = self.origin_offset.to_metres();
+        Position::from_metres(origin_x + x, origin_y + y, origin_z + z)
+    }
+
+    fn rotate_to_topocentric(self, [x, y, z]: [f64; 3]) -> [f64; 3] {
         let longitude = self.origin.longitude().get::<radian>();
         let latitude = self.origin.latitude().get::<radian>();
         let (sin_longitude, cos_longitude) = longitude.sin_cos();
         let (sin_latitude, cos_latitude) = latitude.sin_cos();
-        let [origin_x, origin_y, origin_z] = self.origin_offset.to_metres();
 
-        Position::from_metres(
-            origin_x - east * sin_longitude - north * sin_latitude * cos_longitude
-                + up * cos_latitude * cos_longitude,
-            origin_y + east * cos_longitude - north * sin_latitude * sin_longitude
-                + up * cos_latitude * sin_longitude,
-            origin_z + north * cos_latitude + up * sin_latitude,
-        )
+        [
+            -x * sin_longitude + y * cos_longitude,
+            -x * sin_latitude * cos_longitude - y * sin_latitude * sin_longitude + z * cos_latitude,
+            x * cos_latitude * cos_longitude + y * cos_latitude * sin_longitude + z * sin_latitude,
+        ]
     }
+
+    fn rotate_to_parent(self, [east, north, up]: [f64; 3]) -> [f64; 3] {
+        let longitude = self.origin.longitude().get::<radian>();
+        let latitude = self.origin.latitude().get::<radian>();
+        let (sin_longitude, cos_longitude) = longitude.sin_cos();
+        let (sin_latitude, cos_latitude) = latitude.sin_cos();
+
+        [
+            -east * sin_longitude - north * sin_latitude * cos_longitude
+                + up * cos_latitude * cos_longitude,
+            east * cos_longitude - north * sin_latitude * sin_longitude
+                + up * cos_latitude * sin_longitude,
+            north * cos_latitude + up * sin_latitude,
+        ]
+    }
+}
+
+impl KinematicFrameTransformProvider for TopocentricFrame {
+    type Error = TopocentricTransformError;
+
+    fn transform(
+        &self,
+        _epoch: Epoch,
+        kinematics: FrameKinematics,
+        target: ReferenceFrame,
+    ) -> Result<FrameKinematics, Self::Error> {
+        let source = kinematics.frame();
+        if source == target {
+            return Ok(kinematics);
+        }
+
+        let (position, velocity) = if source == self.parent && target == self.reference_frame {
+            let position = self.to_topocentric_position(kinematics.position());
+            let velocity = self.rotate_to_topocentric(kinematics.velocity().to_metres_per_second());
+            (
+                position,
+                VelocityVector::from_metres_per_second(velocity[0], velocity[1], velocity[2]),
+            )
+        } else if source == self.reference_frame && target == self.parent {
+            let position = self.to_parent_position(kinematics.position());
+            let velocity = self.rotate_to_parent(kinematics.velocity().to_metres_per_second());
+            (
+                position,
+                VelocityVector::from_metres_per_second(velocity[0], velocity[1], velocity[2]),
+            )
+        } else {
+            return Err(TopocentricTransformError::UnsupportedTransform {
+                frames: Box::new((source, target)),
+            });
+        };
+
+        Ok(FrameKinematics::new(position, velocity, target)?)
+    }
+}
+
+/// Failure while applying a catalog-issued topocentric transform.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum TopocentricTransformError {
+    /// The requested frames are not this definition's parent/local pair.
+    #[error("unsupported topocentric transform {frames:?}")]
+    UnsupportedTransform {
+        /// Requested input and output frames.
+        frames: Box<(ReferenceFrame, ReferenceFrame)>,
+    },
+    /// Rotated kinematics became non-finite.
+    #[error("topocentric transform produced invalid kinematics")]
+    InvalidKinematics(#[from] FrameKinematicsError),
 }
 
 impl fmt::Display for ReferenceFrame {
@@ -1783,6 +1845,44 @@ mod tests {
         let round_trip = frame.to_parent_position(local).to_metres();
         for (actual, expected) in round_trip.into_iter().zip(parent_position.to_metres()) {
             assert!((actual - expected).abs() < 1.0e-9);
+        }
+
+        let parent_kinematics = FrameKinematics::new(
+            parent_position,
+            VelocityVector::from_metres_per_second(10.0, 20.0, 30.0),
+            frame.parent(),
+        )
+        .expect("finite parent kinematics");
+        let local_kinematics = frame
+            .transform(
+                Epoch::from_tai_seconds(42.0),
+                parent_kinematics,
+                frame.reference_frame(),
+            )
+            .expect("parent-to-topocentric transform");
+        let restored = frame
+            .transform(
+                Epoch::from_tai_seconds(84.0),
+                local_kinematics,
+                frame.parent(),
+            )
+            .expect("topocentric-to-parent transform");
+        assert_eq!(restored.frame(), frame.parent());
+        for (actual, expected) in restored
+            .position()
+            .to_metres()
+            .into_iter()
+            .zip(parent_kinematics.position().to_metres())
+        {
+            assert!((actual - expected).abs() < 1.0e-9);
+        }
+        for (actual, expected) in restored
+            .velocity()
+            .to_metres_per_second()
+            .into_iter()
+            .zip(parent_kinematics.velocity().to_metres_per_second())
+        {
+            assert!((actual - expected).abs() < 1.0e-12);
         }
     }
 

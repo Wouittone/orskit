@@ -47,8 +47,9 @@ pub mod prelude {
         ArtifactCoverage, ArtifactDescriptor, Sha256Digest, TimeCoverage, VerifiedArtifact,
     };
     pub use crate::frames::{
-        FrameCatalog, FrameNamespace, GeodeticPosition, ReferenceEllipsoid, ReferenceFrame,
-        TopocentricFrame,
+        FrameCatalog, FrameKinematics, FrameNamespace, GeodeticPosition,
+        KinematicFrameTransformProvider, ReferenceEllipsoid, ReferenceFrame, TopocentricFrame,
+        TopocentricTransformError,
     };
     pub use crate::units::{Length, Position, VelocityVector};
 

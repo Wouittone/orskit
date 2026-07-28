@@ -39,7 +39,7 @@
 //!         VelocityVector::from_metres_per_second(0.0, 7_500.0, 0.0),
 //!     )?,
 //! );
-//! let snapshot = OrbitSnapshot::try_from_orbit(&orbit, &context)?;
+//! let snapshot = OrbitSnapshot::try_from((&orbit, &context))?;
 //!
 //! assert_eq!(snapshot.schema, "orskit.orbit");
 //! assert_eq!(snapshot.state.position_m, [7_000_000.0, 0.0, 0.0]);
@@ -521,23 +521,26 @@ pub struct OrbitSnapshot<S> {
     pub state: S,
 }
 
-impl<S> OrbitSnapshot<S> {
-    /// Exports an orbit while preserving its selected state representation.
-    pub fn try_from_orbit<State>(
-        orbit: &Orbit<State>,
-        context: &ExportContext,
-    ) -> Result<Self, ExportError>
-    where
-        State: ExportableState<Snapshot = S>,
-    {
-        Ok(OrbitSnapshot {
+impl<'orbit, 'context, State> TryFrom<(&'orbit Orbit<State>, &'context ExportContext)>
+    for OrbitSnapshot<State::Snapshot>
+where
+    State: ExportableState,
+{
+    type Error = ExportError;
+
+    fn try_from(
+        (orbit, context): (&'orbit Orbit<State>, &'context ExportContext),
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
             schema: ORBIT_SCHEMA.to_owned(),
             schema_version: SCHEMA_VERSION,
             epoch: orbit.epoch().to_string(),
             state: orbit.as_ref().export_snapshot(context)?,
         })
     }
+}
 
+impl<S> OrbitSnapshot<S> {
     /// Imports an orbit after validating schema, epoch, and state values.
     pub fn try_into_orbit<State>(self, context: &ImportContext) -> Result<Orbit<State>, ImportError>
     where
@@ -882,12 +885,12 @@ pub struct EllipticKeplerPropagatorSnapshot {
 }
 
 #[cfg(feature = "two-bodies")]
-impl EllipticKeplerPropagatorSnapshot {
-    /// Exports the propagator's physical problem and numerical configuration.
-    pub fn try_from_propagator(
-        propagator: &EllipticKeplerPropagator,
-        context: &ExportContext,
-    ) -> Result<Self, ExportError> {
+impl TryFrom<(&EllipticKeplerPropagator, &ExportContext)> for EllipticKeplerPropagatorSnapshot {
+    type Error = ExportError;
+
+    fn try_from(
+        (propagator, context): (&EllipticKeplerPropagator, &ExportContext),
+    ) -> Result<Self, Self::Error> {
         Ok(Self {
             schema: ELLIPTIC_KEPLER_PROPAGATOR_SCHEMA.to_owned(),
             schema_version: SCHEMA_VERSION,
@@ -901,7 +904,10 @@ impl EllipticKeplerPropagatorSnapshot {
             phase_error_budget_rad: propagator.phase_error_budget().get::<radian>(),
         })
     }
+}
 
+#[cfg(feature = "two-bodies")]
+impl EllipticKeplerPropagatorSnapshot {
     /// Reconstructs a validated propagator using caller-approved gravity.
     pub fn try_into_propagator(
         self,
@@ -1017,7 +1023,7 @@ mod tests {
         );
 
         let snapshot =
-            OrbitSnapshot::try_from_orbit(&orbit, &context).expect("registered application state");
+            OrbitSnapshot::try_from((&orbit, &context)).expect("registered application state");
 
         assert_eq!(snapshot.schema, "orskit.orbit");
         assert_eq!(snapshot.state.frame_id, "application-gcrf");
@@ -1049,7 +1055,7 @@ mod tests {
         context
             .register_reference_frame("gcrf", ReferenceFrame::GCRF)
             .expect("unique registration");
-        let snapshot = OrbitSnapshot::try_from_orbit(&orbit, &context).expect("Cartesian export");
+        let snapshot = OrbitSnapshot::try_from((&orbit, &context)).expect("Cartesian export");
 
         assert_eq!(snapshot.schema, "orskit.orbit");
         assert_eq!(snapshot.epoch, "1900-01-01T00:00:42 TAI");
@@ -1080,7 +1086,7 @@ mod tests {
             .register_reference_frame("gcrf", ReferenceFrame::GCRF)
             .expect("unique registration");
         assert_eq!(
-            OrbitSnapshot::try_from_orbit(&orbit, &context),
+            OrbitSnapshot::try_from((&orbit, &context)),
             Err(ExportError::UnregisteredCentralGravityProvider)
         );
         context
@@ -1089,7 +1095,7 @@ mod tests {
         context
             .register_central_gravity("iers-2010-earth", gravity)
             .expect("unique registration");
-        let snapshot = OrbitSnapshot::try_from_orbit(&orbit, &context).expect("registered export");
+        let snapshot = OrbitSnapshot::try_from((&orbit, &context)).expect("registered export");
         assert_eq!(
             snapshot.state.central_gravity.provider_id,
             "iers-2010-earth"
@@ -1276,8 +1282,7 @@ mod tests {
         macro_rules! assert_round_trip {
             ($state:expr, $state_type:ty) => {{
                 let orbit = Orbit::new(Epoch::from_tai_seconds(1_000.0), $state);
-                let snapshot =
-                    OrbitSnapshot::try_from_orbit(&orbit, &export_context).expect("export");
+                let snapshot = OrbitSnapshot::try_from((&orbit, &export_context)).expect("export");
                 let imported: Orbit<$state_type> = snapshot
                     .try_into_orbit(&import_context)
                     .expect("validated import");
@@ -1444,7 +1449,7 @@ mod tests {
             .register_central_gravity("mission-earth", gravity)
             .expect("unique registration");
 
-        let snapshot = EllipticKeplerPropagatorSnapshot::try_from_propagator(&propagator, &context)
+        let snapshot = EllipticKeplerPropagatorSnapshot::try_from((&propagator, &context))
             .expect("registered export");
         let value: serde_json::Value = serde_json::from_str(
             &json::to_string(&snapshot).expect("finite values serialize to JSON"),
@@ -1516,7 +1521,7 @@ mod tests {
         context
             .register_reference_frame("gcrf", ReferenceFrame::GCRF)
             .expect("unique registration");
-        let snapshot = OrbitSnapshot::try_from_orbit(&orbit, &context).expect("Cartesian export");
+        let snapshot = OrbitSnapshot::try_from((&orbit, &context)).expect("Cartesian export");
         let value: serde_json::Value =
             serde_json::from_str(&json::to_string(&snapshot).expect("finite snapshot"))
                 .expect("valid JSON");

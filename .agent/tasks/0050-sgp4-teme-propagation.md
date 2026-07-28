@@ -45,8 +45,9 @@ code. Acceptance values come only from the published Revision 3 material.
 ## Design
 
 - Keep the project strict parser as the only public TLE format boundary.
-- Keep the TLE conversion at the I/O boundary; the `dynamics` crate's gated
-  `sgp4` module has no `TwoLineElement` dependency.
+- Keep the standard `TryFrom<&TwoLineElement> for Orbit<Sgp4Elements>`
+  conversion at the I/O boundary; the `dynamics` crate's gated `sgp4` module
+  has no `TwoLineElement` dependency.
 - Implement `Propagator<Sgp4Elements, CartesianState>` with no configurable
   force-model or gravity selection; never invoke the dependency's TLE parser.
 - Add no parallel public numeric state type.

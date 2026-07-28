@@ -162,11 +162,12 @@ missing abstraction or an incorrectly placed type.
   The concrete verified IERS 2010 GCRF/ITRF2020 provider can satisfy this
   boundary; displacement, weather, higher-order media integration, turnaround
   delay, and physical correction models remain separate implementations.
-  `GroundStation` owns a parent-relative fixed frame; geodetic conversion,
-  displacement, topocentric-frame construction,
-  clocks, weather inputs, light-time solving, and physical correction-model
-  evaluation remain future contracts. A ground observer is not a separate
-  top-level domain or crate.
+  `GroundStation` owns a parent-relative fixed frame. A catalog-issued
+  `TopocentricFrame` implements the same kinematic-transform provider used by
+  measurement workflows for its static parent/local pair. Displacement,
+  clocks, weather inputs, and physical correction-model evaluation remain
+  future contracts. A ground observer is not a separate top-level domain or
+  crate.
 - **Estimation:** parameters, residuals, least squares, filters, covariance,
   and state-transition/sensitivity machinery.
 

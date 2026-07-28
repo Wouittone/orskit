@@ -46,7 +46,8 @@ specifications are used.
 - Affected crates/layers: workspace manifest, `orskit-export`, analytical
   two-body configuration accessors, and the `orskit` facade.
 - Public API: `ExportContext`, `ExportableState`, versioned state/propagator
-  snapshots, and optional JSON helpers.
+  snapshots with standard context-tuple `TryFrom` export conversions, and
+  optional JSON helpers.
 - Rejected alternatives: deriving Serde traits on domain objects; serializing
   trait-object internals; silently identifying numerically equal providers.
 - ADR required: ADR-0038.

@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use frames::{FrameOrigin, InertialFrame, ReferenceFrame};
+use frames::{FrameKinematics, FrameOrigin, InertialFrame, ReferenceFrame};
 use hifitime::Epoch;
 use thiserror::Error;
 use units::uom::si::{angle::radian, length::meter, ratio::ratio};
@@ -144,6 +144,23 @@ impl From<CartesianState> for CartesianCoordinates {
             FramedVelocity::new(state.velocity, state.frame)
                 .expect("CartesianState guarantees finite velocity"),
         )
+    }
+}
+
+impl From<CartesianState> for FrameKinematics {
+    fn from(state: CartesianState) -> Self {
+        Self::new(state.position, state.velocity, state.frame)
+            .expect("CartesianState guarantees finite position and velocity")
+    }
+}
+
+impl From<FrameKinematics> for CartesianState {
+    fn from(kinematics: FrameKinematics) -> Self {
+        Self {
+            frame: kinematics.frame(),
+            position: kinematics.position(),
+            velocity: kinematics.velocity(),
+        }
     }
 }
 
@@ -1045,6 +1062,20 @@ mod tests {
 
     fn earth_gravity() -> SharedCentralGravity {
         central_gravity(FrameOrigin::Body(frames::Body::EARTH), earth_mu())
+    }
+
+    #[test]
+    fn cartesian_state_and_frame_kinematics_use_standard_conversions() {
+        let state = CartesianState::new(
+            ReferenceFrame::GCRF,
+            Position::from_metres(1.0, 2.0, 3.0),
+            VelocityVector::from_metres_per_second(4.0, 5.0, 6.0),
+        )
+        .expect("finite state");
+
+        let kinematics = FrameKinematics::from(state);
+        assert_eq!(kinematics.frame(), state.frame());
+        assert_eq!(CartesianState::from(kinematics), state);
     }
 
     fn keplerian(inclination: f64, raan: f64, periapsis: f64, anomaly: f64) -> KeplerianState {

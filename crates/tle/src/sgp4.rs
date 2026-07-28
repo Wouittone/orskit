@@ -24,38 +24,39 @@ pub enum Sgp4ConversionError {
     },
     /// Parsed fields do not form valid model elements.
     #[error("TLE fields do not form valid SGP4 elements")]
-    Elements(#[source] Sgp4ElementsError),
+    Elements(#[from] Sgp4ElementsError),
 }
 
-impl TwoLineElement {
-    /// Converts this format record into an epoch-qualified SGP4 domain state.
-    ///
-    /// Parsing and fixed-column policy remain in this crate. Propagation and
-    /// its fixed force model live behind `dynamics`' `sgp4` feature.
-    pub fn to_sgp4_orbit(&self) -> Result<Orbit<Sgp4Elements>, Sgp4ConversionError> {
-        if self.ephemeris_type() != 0 {
+/// Converts a format record into the epoch-qualified SGP4 domain state.
+///
+/// Parsing and fixed-column policy remain in this crate. Propagation and its
+/// fixed force model live behind `dynamics`' `sgp4` feature.
+impl TryFrom<&TwoLineElement> for Orbit<Sgp4Elements> {
+    type Error = Sgp4ConversionError;
+
+    fn try_from(tle: &TwoLineElement) -> Result<Self, Self::Error> {
+        if tle.ephemeris_type() != 0 {
             return Err(Sgp4ConversionError::UnsupportedEphemerisType {
-                found: self.ephemeris_type(),
+                found: tle.ephemeris_type(),
             });
         }
-        let epoch = tle_epoch(self)?;
+        let epoch = tle_epoch(tle);
         let elements = Sgp4Elements::new(
-            Angle::new::<radian>(self.inclination_deg().to_radians()),
-            Angle::new::<radian>(self.right_ascension_of_ascending_node_deg().to_radians()),
-            Ratio::new::<ratio>(self.eccentricity()),
-            Angle::new::<radian>(self.argument_of_perigee_deg().to_radians()),
-            Angle::new::<radian>(self.mean_anomaly_deg().to_radians()),
+            Angle::new::<radian>(tle.inclination_deg().to_radians()),
+            Angle::new::<radian>(tle.right_ascension_of_ascending_node_deg().to_radians()),
+            Ratio::new::<ratio>(tle.eccentricity()),
+            Angle::new::<radian>(tle.argument_of_perigee_deg().to_radians()),
+            Angle::new::<radian>(tle.mean_anomaly_deg().to_radians()),
             AngularVelocity::new::<radian_per_second>(
-                self.mean_motion_rev_per_day() * TAU / 86_400.0,
+                tle.mean_motion_rev_per_day() * TAU / 86_400.0,
             ),
-            self.b_star_inverse_earth_radii(),
-        )
-        .map_err(Sgp4ConversionError::Elements)?;
+            tle.b_star_inverse_earth_radii(),
+        )?;
         Ok(Orbit::new(epoch, elements))
     }
 }
 
-fn tle_epoch(tle: &TwoLineElement) -> Result<Epoch, Sgp4ConversionError> {
+fn tle_epoch(tle: &TwoLineElement) -> Epoch {
     let scaled = tle.epoch_day_scaled;
     let whole_day = (scaled / super::SCALE_8) as u16;
     let fraction = scaled % super::SCALE_8;
@@ -63,7 +64,7 @@ fn tle_epoch(tle: &TwoLineElement) -> Result<Epoch, Sgp4ConversionError> {
     let seconds = nanoseconds / 1_000_000_000;
     let subsecond = (nanoseconds % 1_000_000_000) as u32;
     let (month, day) = month_day(tle.epoch_year(), whole_day);
-    Ok(Epoch::from_gregorian_utc(
+    Epoch::from_gregorian_utc(
         i32::from(tle.epoch_year()),
         month,
         day,
@@ -71,7 +72,7 @@ fn tle_epoch(tle: &TwoLineElement) -> Result<Epoch, Sgp4ConversionError> {
         ((seconds % 3_600) / 60) as u8,
         (seconds % 60) as u8,
         subsecond,
-    ))
+    )
 }
 
 fn month_day(year: u16, ordinal: u16) -> (u8, u8) {
@@ -101,7 +102,7 @@ mod tests {
     #[test]
     fn conversion_preserves_epoch() {
         let tle = TwoLineElement::parse(LINE_1, LINE_2).expect("published TLE");
-        let orbit = tle.to_sgp4_orbit().expect("valid model elements");
+        let orbit = Orbit::<Sgp4Elements>::try_from(&tle).expect("valid model elements");
         assert_eq!(
             orbit.epoch(),
             Epoch::from_gregorian_utc(2000, 6, 27, 18, 50, 19, 733_568_000)
@@ -114,7 +115,7 @@ mod tests {
             let line_one = replace_field_and_checksum(LINE_1, 62..63, &ephemeris_type.to_string());
             let tle = TwoLineElement::parse(&line_one, LINE_2).expect("valid format");
             assert!(matches!(
-                tle.to_sgp4_orbit(),
+                Orbit::<Sgp4Elements>::try_from(&tle),
                 Err(Sgp4ConversionError::UnsupportedEphemerisType { found })
                     if found == ephemeris_type
             ));
