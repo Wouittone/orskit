@@ -9,10 +9,16 @@
 use std::{fmt, sync::Arc};
 
 use dynamics::{
-    ConservativeForceModel, ConservativeForceModelHandle, Force, ForceModel,
+    CartesianDynamics, ConservativeForceModel, ConservativeForceModelHandle, Force, ForceModel,
     SpacecraftStateRequirements, SystemDynamics,
 };
+use frames::{FrameOrigin, InertialFrame};
 use gravity::SharedCentralGravity;
+use hifitime::Epoch;
+use orbits::cartesian::{CartesianState, FramedAcceleration};
+use thiserror::Error;
+use units::uom::si::length::meter;
+use units::AccelerationVector;
 
 mod two_body;
 
@@ -107,6 +113,78 @@ impl SystemDynamics for TwoBodyDynamics {
     }
     fn non_conservative_force_models(&self) -> &[dynamics::NonConservativeForceModelHandle] {
         &[]
+    }
+}
+
+/// Point-mass two-body derivative validation/evaluation failure.
+#[derive(Debug, Clone, Copy, PartialEq, Error)]
+pub enum TwoBodyEvaluationError {
+    /// Numerical translation requires explicitly inertial axes.
+    #[error("two-body numerical propagation requires explicitly inertial axes")]
+    NonInertialFrame,
+    /// State origin differs from the selected central-gravity origin.
+    #[error("frame origin {frame_origin} does not match gravity origin {gravity_origin}")]
+    GravityOriginMismatch {
+        /// Origin supplied by the state frame.
+        frame_origin: FrameOrigin,
+        /// Origin supplied by the gravity provider.
+        gravity_origin: FrameOrigin,
+    },
+    /// Point-mass acceleration is singular at the force center.
+    #[error("point-mass acceleration is singular at zero radius")]
+    CollisionSingularity,
+    /// Point-mass acceleration became non-finite.
+    #[error("point-mass acceleration is not finite")]
+    NonFiniteAcceleration,
+}
+
+impl CartesianDynamics for TwoBodyDynamics {
+    type Error = TwoBodyEvaluationError;
+
+    fn validate(&self, state: &CartesianState) -> Result<(), Self::Error> {
+        InertialFrame::try_from(state.frame())
+            .map_err(|_| TwoBodyEvaluationError::NonInertialFrame)?;
+        let frame_origin = state.frame().origin();
+        let gravity_origin = self.central_gravity().origin();
+        if frame_origin != gravity_origin {
+            return Err(TwoBodyEvaluationError::GravityOriginMismatch {
+                frame_origin,
+                gravity_origin,
+            });
+        }
+        let radius = state.position().norm().get::<meter>();
+        if radius == 0.0 {
+            return Err(TwoBodyEvaluationError::CollisionSingularity);
+        }
+        Ok(())
+    }
+
+    fn acceleration(
+        &self,
+        _epoch: Epoch,
+        state: &CartesianState,
+    ) -> Result<FramedAcceleration, Self::Error> {
+        self.validate(state)?;
+        let position = state.position().to_metres();
+        let radius_squared = position
+            .into_iter()
+            .fold(0.0, |sum, component| component.mul_add(component, sum));
+        let radius = radius_squared.sqrt();
+        let mu = self
+            .central_gravity()
+            .parameter()
+            .as_cubic_metres_per_second_squared();
+        let scale = -mu / (radius_squared * radius);
+        let acceleration = AccelerationVector::from_metres_per_second_squared(
+            scale * position[0],
+            scale * position[1],
+            scale * position[2],
+        );
+        if !acceleration.is_finite() {
+            return Err(TwoBodyEvaluationError::NonFiniteAcceleration);
+        }
+        FramedAcceleration::new(acceleration, state.frame())
+            .map_err(|_| TwoBodyEvaluationError::NonFiniteAcceleration)
     }
 }
 

@@ -18,6 +18,7 @@ flowchart TB
     subgraph LAYER_DYNAMICS["Dynamics"]
         DYNAMICS["dynamics"]
         DYNAMICS_CORE["dynamics-core"]
+        DYNAMICS_NUMERICAL["dynamics-numerical"]
         DYNAMICS_TWO_BODIES["dynamics-two-bodies"]
     end
     subgraph LAYER_PHYSICAL_MODEL["Physical model"]
@@ -38,10 +39,17 @@ flowchart TB
     CORE --> FRAMES
     CORE --> UNITS
     DYNAMICS --> DYNAMICS_CORE
+    DYNAMICS -.->|optional| DYNAMICS_NUMERICAL
     DYNAMICS -.->|optional| DYNAMICS_TWO_BODIES
     DYNAMICS_CORE --> BODIES
     DYNAMICS_CORE --> CORE
+    DYNAMICS_CORE --> ORBITS
     DYNAMICS_CORE --> UNITS
+    DYNAMICS_NUMERICAL --> CORE
+    DYNAMICS_NUMERICAL --> DYNAMICS_CORE
+    DYNAMICS_NUMERICAL --> FRAMES
+    DYNAMICS_NUMERICAL --> ORBITS
+    DYNAMICS_NUMERICAL --> UNITS
     DYNAMICS_TWO_BODIES --> CORE
     DYNAMICS_TWO_BODIES --> DYNAMICS_CORE
     DYNAMICS_TWO_BODIES --> FRAMES

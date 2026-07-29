@@ -15,6 +15,7 @@ name = "dynamics_core"
 hifitime.workspace = true
 bodies = { path = "../../bodies" }
 orskit_core = { package = "core", path = "../../core" }
+orbits = { path = "../../orbits", features = ["cartesian"] }
 units = { path = "../../units" }
 thiserror.workspace = true
 

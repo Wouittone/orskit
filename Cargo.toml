@@ -6,6 +6,7 @@ members = [
     "crates/core",
     "crates/dynamics",
     "crates/dynamics/core",
+    "crates/dynamics/numerical",
     "crates/dynamics/two-bodies",
     "crates/frames",
     "crates/gravity",

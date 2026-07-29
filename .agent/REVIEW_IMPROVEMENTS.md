@@ -162,9 +162,10 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
 - [x] **P10 (Wave 1 design slice; depends on T11):** specify the minimal
   numerical propagation vertical slice, including coupled-state boundaries,
   typed tolerances, dense output, events, and validation scenarios.
-- [ ] **P11 (depends on P10):** implement an adaptive embedded Runge–Kutta
+- [x] **P11 (depends on P10):** implement an adaptive embedded Runge–Kutta
   integrator and a frame/epoch-qualified numerical propagator with documented
-  local/global error behavior.
+  local/global error behavior. Evidence: task 0036 and
+  `crates/dynamics/numerical`.
 - [ ] **P12 (depends on P11):** implement dense ephemerides, root localization,
   event direction, handlers, and deterministic simultaneous-event policy.
 - [ ] **P13 (depends on F14 and P11):** add third-body point-mass gravity.

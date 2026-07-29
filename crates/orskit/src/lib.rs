@@ -39,6 +39,8 @@ pub mod prelude {
 
     #[cfg(feature = "bodies")]
     pub use crate::bodies::{Body, BodySystem};
+    #[cfg(feature = "numerical")]
+    pub use crate::dynamics::{BogackiShampine32, CartesianDynamics, IntegrationConfiguration};
     #[cfg(feature = "dynamics")]
     pub use crate::dynamics::{ComposedDynamics, PropagationState, Propagator};
     #[cfg(feature = "two-bodies")]

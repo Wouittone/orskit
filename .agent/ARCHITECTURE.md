@@ -63,7 +63,10 @@ missing abstraction or an incorrectly placed type.
 - **Dynamics:** `SystemDynamics` separates ordered conservative and
   non-conservative force-model descriptions acting on a spacecraft. Evaluation,
   coupled state layout, model data, derivatives, and numerical resolution
-  remain separate future contracts.
+  remain separate contracts. The first evaluable contract,
+  `CartesianDynamics`, accepts an epoch plus a frame-qualified Cartesian state
+  and returns acceleration carrying the same frame; it does not turn
+  descriptive `ForceModel` values into derivative evaluators.
 - **Forces:** the open `Force` contract identifies a physical interaction while
   the object-safe `ForceModel` contract identifies one implementation of it.
   Models declare only their dependency on spacecraft position, speed,
@@ -74,13 +77,14 @@ missing abstraction or an incorrectly placed type.
   physical problem it advances. `PropagationState<Problem>` lets a concrete
   propagator resolve a caller-selected state into the representation it
   advances and restore it using its owned problem. The current analytical
-  implementation owns `TwoBodyDynamics`, advances epoch-qualified
-  `Orbit<State>` values, and preserves the selected state representation. A
-  translational propagator does not imply that attitude or other
+  analytical implementation owns `TwoBodyDynamics`, advances epoch-qualified
+  `Orbit<State>` values, and preserves the selected state representation. The
+  first numerical implementation owns a `CartesianDynamics` problem and
+  advances only `Orbit<CartesianState>` with typed local-error and step
+  settings. A translational propagator does not imply that attitude or other
   epoch-dependent spacecraft properties were advanced. Analytical, numerical,
-  semi-analytical, and TLE
-  algorithms, dense output, ephemerides, and variational equations remain
-  distinct capabilities.
+  semi-analytical, and TLE algorithms, public dense output, ephemerides, and
+  variational equations remain distinct capabilities.
 - **Events:** detector functions, direction, root localization, handlers, and
   deterministic simultaneous-event policy.
 - **Attitude:** open `Attitude` and `SpacecraftGeometry` contracts compose
@@ -283,9 +287,15 @@ physical zero-radius collision; caller-selected element charts retain their
 own conversion singularities.
 Complete spacecraft views are composed separately from properties known to be
 valid at the propagated epoch.
-General force evaluation and numerical propagation remain deferred; their design must
-cover coupled translational, rotational, mass, and variational states, explicit
-data, events, and integration. Third-body descriptions remain unavailable until
-their ephemeris, frame, provenance, and acceleration-assembly contracts exist.
+`dynamics/core` owns the first evaluable translation contract,
+`dynamics/two-bodies` implements it for its point-mass problem, and the opt-in
+`dynamics/numerical` sub-crate owns the adaptive Bogacki--Shampine 3(2)
+Cartesian propagator. The numerical crate's private six-component SI layout
+and accepted-step cubic Hermite extension do not establish a generic public
+ODE API or public ephemeris. General composed force evaluation and coupled
+rotational, mass, and variational propagation remain deferred; their designs
+must preserve explicit state groups, data, and events. Third-body descriptions
+remain unavailable until their ephemeris, frame, provenance, and
+acceleration-assembly contracts exist.
 There is no `stations` crate: ground and spacecraft participants belong to the
 measurement topology and estimation workflows.

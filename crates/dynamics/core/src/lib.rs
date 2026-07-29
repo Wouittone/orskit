@@ -8,6 +8,9 @@
 
 use std::{fmt, sync::Arc};
 
+use hifitime::Epoch;
+use orbits::cartesian::{CartesianState, FramedAcceleration};
+
 mod propagator;
 
 pub use propagator::{PropagationState, Propagator};
@@ -74,6 +77,27 @@ pub trait SystemDynamics: fmt::Debug + Send + Sync {
     fn conservative_force_models(&self) -> &[ConservativeForceModelHandle];
     /// Returns non-conservative force models in declaration order.
     fn non_conservative_force_models(&self) -> &[NonConservativeForceModelHandle];
+}
+
+/// Evaluable translational dynamics for one Cartesian state.
+///
+/// The input state carries its reference frame and `epoch` identifies the
+/// instant of evaluation. The returned acceleration must carry the same frame.
+/// Implementations own or borrow every immutable provider they require; this
+/// contract performs no ambient data lookup.
+pub trait CartesianDynamics: fmt::Debug + Send + Sync {
+    /// Typed model/provider error.
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    /// Validates the state frame, origin, and model data before integration.
+    fn validate(&self, state: &CartesianState) -> Result<(), Self::Error>;
+
+    /// Evaluates acceleration at `epoch`, expressed in the state's frame.
+    fn acceleration(
+        &self,
+        epoch: Epoch,
+        state: &CartesianState,
+    ) -> Result<FramedAcceleration, Self::Error>;
 }
 
 /// Ordered heterogeneous force-model composition for one dynamical system.

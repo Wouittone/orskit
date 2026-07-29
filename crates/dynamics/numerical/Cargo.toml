@@ -1,0 +1,25 @@
+[package]
+name = "dynamics-numerical"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Adaptive Cartesian numerical propagation for orskit"
+
+[lib]
+name = "dynamics_numerical"
+
+[dependencies]
+dynamics = { package = "dynamics-core", path = "../core" }
+frames = { path = "../../frames" }
+hifitime.workspace = true
+orbits = { path = "../../orbits", features = ["cartesian"] }
+orskit_core = { package = "core", path = "../../core" }
+thiserror.workspace = true
+units = { path = "../../units" }
+
+[dev-dependencies]
+dynamics-two-bodies = { path = "../two-bodies" }
+gravity = { path = "../../gravity", features = ["point-mass"] }
