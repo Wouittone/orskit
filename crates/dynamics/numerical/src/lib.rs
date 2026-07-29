@@ -21,6 +21,7 @@
 //!
 //! ```text
 //! cargo run -p dynamics-numerical --example numerical_two_body
+//! cargo run -p dynamics-numerical --example event_detection
 //! ```
 
 use std::error::Error;
@@ -218,6 +219,355 @@ pub enum IntegrationConfigurationError {
     ZeroRejectionLimit,
 }
 
+/// Boxed failure returned by an application-defined event detector or handler.
+pub type EventCallbackError = Box<dyn Error + Send + Sync + 'static>;
+
+/// Required sign change as propagation advances.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EventDirection {
+    /// Accept rising and falling sign changes.
+    Any,
+    /// Accept negative-to-positive changes in propagation order.
+    Rising,
+    /// Accept positive-to-negative changes in propagation order.
+    Falling,
+}
+
+impl EventDirection {
+    fn accepts(self, crossing: Self) -> bool {
+        self == Self::Any || self == crossing
+    }
+}
+
+/// Action requested after an event occurrence is reported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EventAction {
+    /// Continue from the accepted step without modifying the state.
+    Continue,
+    /// Stop after every occurrence simultaneous with this one is dispatched.
+    Stop,
+}
+
+/// Application-defined switching function evaluated on dense Cartesian states.
+///
+/// The returned [`Ratio`] must be finite and dimensionless. The detector owns
+/// any physical normalization needed to produce it. This slice detects roots
+/// bracketed by a sign change or lying exactly on a checked-step endpoint;
+/// unbracketed grazing roots are not claimed.
+pub trait EventDetector: std::fmt::Debug + Send + Sync {
+    /// Stable human-readable detector name retained in occurrences.
+    fn name(&self) -> &str;
+
+    /// Selects which propagation-order sign changes trigger this detector.
+    fn direction(&self) -> EventDirection {
+        EventDirection::Any
+    }
+
+    /// Evaluates the signed dimensionless switching function.
+    fn value(&self, state: &Orbit<CartesianState>) -> Result<Ratio, EventCallbackError>;
+}
+
+/// Application callback invoked in deterministic occurrence order.
+pub trait EventHandler {
+    /// Handles one localized event.
+    fn handle(&mut self, occurrence: &EventOccurrence) -> Result<EventAction, EventCallbackError>;
+}
+
+impl<F> EventHandler for F
+where
+    F: FnMut(&EventOccurrence) -> Result<EventAction, EventCallbackError>,
+{
+    fn handle(&mut self, occurrence: &EventOccurrence) -> Result<EventAction, EventCallbackError> {
+        self(occurrence)
+    }
+}
+
+/// Bounded event scanning and root-localization settings.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EventConfiguration {
+    maximum_check_interval: Duration,
+    time_tolerance: Duration,
+    max_root_iterations: usize,
+    max_events: usize,
+}
+
+impl EventConfiguration {
+    /// Creates explicit event scanning and localization settings.
+    ///
+    /// Accepted integration steps are capped by `maximum_check_interval`.
+    /// Callers must choose it small enough that each continuous detector has at
+    /// most one sign change per interval. Roots within `time_tolerance` are
+    /// treated as simultaneous and dispatched in detector registration order.
+    pub fn new(
+        maximum_check_interval: Duration,
+        time_tolerance: Duration,
+        max_root_iterations: usize,
+        max_events: usize,
+    ) -> Result<Self, EventConfigurationError> {
+        positive_duration_seconds(
+            maximum_check_interval,
+            IntegrationConfigurationError::InvalidMaximumStep,
+        )
+        .map_err(|_| EventConfigurationError::InvalidMaximumCheckInterval)?;
+        positive_duration_seconds(
+            time_tolerance,
+            IntegrationConfigurationError::InvalidMinimumStep,
+        )
+        .map_err(|_| EventConfigurationError::InvalidTimeTolerance)?;
+        if time_tolerance.to_seconds() > maximum_check_interval.to_seconds() {
+            return Err(EventConfigurationError::ToleranceExceedsCheckInterval);
+        }
+        if max_root_iterations == 0 {
+            return Err(EventConfigurationError::ZeroRootIterations);
+        }
+        if max_events == 0 {
+            return Err(EventConfigurationError::ZeroEventLimit);
+        }
+        Ok(Self {
+            maximum_check_interval,
+            time_tolerance,
+            max_root_iterations,
+            max_events,
+        })
+    }
+
+    /// Returns the maximum interval over which one sign change is assumed.
+    #[must_use]
+    pub const fn maximum_check_interval(self) -> Duration {
+        self.maximum_check_interval
+    }
+
+    /// Returns the time tolerance used for roots and simultaneity.
+    #[must_use]
+    pub const fn time_tolerance(self) -> Duration {
+        self.time_tolerance
+    }
+
+    /// Returns the maximum bisection iterations for one root.
+    #[must_use]
+    pub const fn max_root_iterations(self) -> usize {
+        self.max_root_iterations
+    }
+
+    /// Returns the maximum number of dispatched occurrences.
+    #[must_use]
+    pub const fn max_events(self) -> usize {
+        self.max_events
+    }
+}
+
+/// Invalid event scanning or localization configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum EventConfigurationError {
+    /// Maximum check interval is not positive and finite.
+    #[error("maximum event check interval must be a positive finite duration")]
+    InvalidMaximumCheckInterval,
+    /// Root time tolerance is not positive and finite.
+    #[error("event time tolerance must be a positive finite duration")]
+    InvalidTimeTolerance,
+    /// Root tolerance is larger than the maximum check interval.
+    #[error("event time tolerance must not exceed the maximum check interval")]
+    ToleranceExceedsCheckInterval,
+    /// Bisection iteration limit is zero.
+    #[error("maximum root-localization iterations must be non-zero")]
+    ZeroRootIterations,
+    /// Event occurrence limit is zero.
+    #[error("maximum event occurrences must be non-zero")]
+    ZeroEventLimit,
+}
+
+/// One localized detector occurrence.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EventOccurrence {
+    detector_index: usize,
+    detector_name: Box<str>,
+    epoch: Epoch,
+    state: CartesianState,
+    crossing: EventDirection,
+}
+
+impl EventOccurrence {
+    /// Returns the detector's registration index.
+    #[must_use]
+    pub const fn detector_index(&self) -> usize {
+        self.detector_index
+    }
+
+    /// Returns the detector name captured at propagation time.
+    #[must_use]
+    pub fn detector_name(&self) -> &str {
+        &self.detector_name
+    }
+
+    /// Returns the localized epoch.
+    #[must_use]
+    pub const fn epoch(&self) -> Epoch {
+        self.epoch
+    }
+
+    /// Returns the interpolated Cartesian state.
+    #[must_use]
+    pub const fn state(&self) -> CartesianState {
+        self.state
+    }
+
+    /// Returns the actual sign-change direction in propagation order.
+    #[must_use]
+    pub const fn crossing(&self) -> EventDirection {
+        self.crossing
+    }
+
+    /// Returns the occurrence as an epoch-qualified orbit.
+    #[must_use]
+    pub const fn orbit(&self) -> Orbit<CartesianState> {
+        Orbit::new(self.epoch, self.state)
+    }
+}
+
+/// Immutable dense Cartesian output over one completed propagation arc.
+#[derive(Debug, Clone)]
+pub struct CartesianEphemeris {
+    initial_epoch: Epoch,
+    initial_state: CartesianState,
+    final_epoch: Epoch,
+    segments: Vec<EphemerisSegment>,
+}
+
+impl CartesianEphemeris {
+    /// Returns the epoch at which integration began.
+    #[must_use]
+    pub const fn initial_epoch(&self) -> Epoch {
+        self.initial_epoch
+    }
+
+    /// Returns the final target or stop epoch.
+    #[must_use]
+    pub const fn final_epoch(&self) -> Epoch {
+        self.final_epoch
+    }
+
+    /// Returns the common Cartesian reference frame.
+    #[must_use]
+    pub const fn frame(&self) -> ReferenceFrame {
+        self.initial_state.frame()
+    }
+
+    /// Returns the number of accepted dense segments.
+    #[must_use]
+    pub fn segment_count(&self) -> usize {
+        self.segments.len()
+    }
+
+    /// Evaluates the accepted continuous extension without reintegration.
+    pub fn state_at(&self, epoch: Epoch) -> Result<Orbit<CartesianState>, DenseOutputError> {
+        if epoch == self.initial_epoch {
+            return Ok(Orbit::new(epoch, self.initial_state));
+        }
+        let (coverage_start, coverage_end) = ordered_epochs(self.initial_epoch, self.final_epoch);
+        if epoch < coverage_start || epoch > coverage_end {
+            return Err(DenseOutputError::OutsideCoverage {
+                requested: epoch,
+                coverage_start,
+                coverage_end,
+            });
+        }
+        for segment in &self.segments {
+            if segment.contains(epoch) {
+                return segment.evaluate(epoch);
+            }
+        }
+        Err(DenseOutputError::UnrepresentedEpoch { requested: epoch })
+    }
+}
+
+/// Dense-output query failure.
+#[derive(Debug, Clone, Copy, PartialEq, Error)]
+pub enum DenseOutputError {
+    /// Requested epoch is outside the completed propagation arc.
+    #[error(
+        "requested epoch {requested} is outside dense coverage [{coverage_start}, {coverage_end}]"
+    )]
+    OutsideCoverage {
+        /// Requested epoch.
+        requested: Epoch,
+        /// Earliest covered epoch.
+        coverage_start: Epoch,
+        /// Latest covered epoch.
+        coverage_end: Epoch,
+    },
+    /// A covered epoch could not be associated with a retained segment.
+    #[error("requested epoch {requested} is not represented by a dense segment")]
+    UnrepresentedEpoch {
+        /// Requested epoch.
+        requested: Epoch,
+    },
+    /// Interpolation produced a non-finite Cartesian state.
+    #[error("dense interpolation produced a non-finite Cartesian state")]
+    NonFiniteState,
+}
+
+/// Final state plus dense output for a completed propagation.
+#[derive(Debug, Clone)]
+pub struct DensePropagation {
+    final_orbit: Orbit<CartesianState>,
+    ephemeris: CartesianEphemeris,
+}
+
+impl DensePropagation {
+    /// Returns the final target orbit.
+    #[must_use]
+    pub const fn final_orbit(&self) -> &Orbit<CartesianState> {
+        &self.final_orbit
+    }
+
+    /// Returns the immutable dense ephemeris.
+    #[must_use]
+    pub const fn ephemeris(&self) -> &CartesianEphemeris {
+        &self.ephemeris
+    }
+
+    /// Consumes the result into its final orbit and ephemeris.
+    #[must_use]
+    pub fn into_parts(self) -> (Orbit<CartesianState>, CartesianEphemeris) {
+        (self.final_orbit, self.ephemeris)
+    }
+}
+
+/// Final state, dense output, and event log from event-aware propagation.
+#[derive(Debug, Clone)]
+pub struct EventPropagation {
+    final_orbit: Orbit<CartesianState>,
+    ephemeris: CartesianEphemeris,
+    occurrences: Vec<EventOccurrence>,
+    stopped: bool,
+}
+
+impl EventPropagation {
+    /// Returns the target or handler-stop orbit.
+    #[must_use]
+    pub const fn final_orbit(&self) -> &Orbit<CartesianState> {
+        &self.final_orbit
+    }
+
+    /// Returns dense output truncated at the final orbit.
+    #[must_use]
+    pub const fn ephemeris(&self) -> &CartesianEphemeris {
+        &self.ephemeris
+    }
+
+    /// Returns occurrences in deterministic dispatch order.
+    #[must_use]
+    pub fn occurrences(&self) -> &[EventOccurrence] {
+        &self.occurrences
+    }
+
+    /// Returns whether a handler stopped propagation before the target.
+    #[must_use]
+    pub const fn stopped(&self) -> bool {
+        self.stopped
+    }
+}
+
 /// Adaptive Bogacki--Shampine 3(2) Cartesian propagator.
 ///
 /// This propagator owns one immutable, evaluable physical problem and explicit
@@ -273,8 +623,10 @@ where
             return Ok(Orbit::new(epoch, state));
         }
 
-        let (state, _) = self.integrate(epoch, state, target)?;
-        Ok(Orbit::new(target, state))
+        let result = self.integrate_with(epoch, state, target, None, |_| {
+            Ok(StepObservation::Continue)
+        })?;
+        Ok(Orbit::new(result.epoch, result.state))
     }
 }
 
@@ -282,24 +634,143 @@ impl<P> BogackiShampine32<P>
 where
     P: CartesianDynamics,
 {
+    /// Propagates to `target` and retains every accepted dense-output segment.
+    pub fn propagate_with_ephemeris(
+        &self,
+        initial: Orbit<CartesianState>,
+        target: Epoch,
+    ) -> Result<DensePropagation, NumericalPropagationError<P::Error>> {
+        let OrbitParts { epoch, state } = initial.into();
+        self.problem
+            .validate(&state)
+            .map_err(NumericalPropagationError::Dynamics)?;
+        let initial_state = state;
+        let mut segments = Vec::new();
+        let result = self.integrate_with(epoch, state, target, None, |step| {
+            segments.push(step.segment(1.0));
+            Ok(StepObservation::Continue)
+        })?;
+        let final_orbit = Orbit::new(result.epoch, result.state);
+        let ephemeris = CartesianEphemeris {
+            initial_epoch: epoch,
+            initial_state,
+            final_epoch: result.epoch,
+            segments,
+        };
+        Ok(DensePropagation {
+            final_orbit,
+            ephemeris,
+        })
+    }
+
+    /// Propagates with dense-output event detection and handler dispatch.
+    ///
+    /// Each accepted step is capped by
+    /// [`EventConfiguration::maximum_check_interval`]. Within a step, one
+    /// bracketed root per detector is localized by bisection. Occurrences are
+    /// ordered by propagation time; roots within the configured time tolerance
+    /// are dispatched by detector registration index. If any handler in a
+    /// simultaneous group requests [`EventAction::Stop`], every occurrence in
+    /// that group is dispatched before the ephemeris is truncated at the first
+    /// root in propagation order. State reset is deliberately not supported by
+    /// this first event slice.
+    pub fn propagate_with_events(
+        &self,
+        initial: Orbit<CartesianState>,
+        target: Epoch,
+        detectors: &[&dyn EventDetector],
+        event_configuration: EventConfiguration,
+        handler: &mut dyn EventHandler,
+    ) -> Result<EventPropagation, NumericalPropagationError<P::Error>> {
+        let OrbitParts { epoch, state } = initial.into();
+        self.problem
+            .validate(&state)
+            .map_err(NumericalPropagationError::Dynamics)?;
+        for (detector_index, detector) in detectors.iter().enumerate() {
+            if detector.name().trim().is_empty() {
+                return Err(NumericalPropagationError::InvalidDetectorName { detector_index });
+            }
+        }
+
+        let initial_state = state;
+        let mut segments = Vec::new();
+        let mut occurrences = Vec::new();
+        let mut last_occurrence_epochs = vec![None; detectors.len()];
+        let maximum_step = event_configuration.maximum_check_interval.to_seconds();
+        let result = self.integrate_with(epoch, state, target, Some(maximum_step), |step| {
+            process_events(
+                step,
+                detectors,
+                event_configuration,
+                handler,
+                &mut last_occurrence_epochs,
+                &mut occurrences,
+                &mut segments,
+            )
+        })?;
+        let final_orbit = Orbit::new(result.epoch, result.state);
+        let ephemeris = CartesianEphemeris {
+            initial_epoch: epoch,
+            initial_state,
+            final_epoch: result.epoch,
+            segments,
+        };
+        Ok(EventPropagation {
+            final_orbit,
+            ephemeris,
+            occurrences,
+            stopped: result.stopped,
+        })
+    }
+
+    #[cfg(test)]
     fn integrate(
         &self,
         initial_epoch: Epoch,
         initial_state: CartesianState,
         target: Epoch,
     ) -> Result<(CartesianState, IntegrationStatistics), NumericalPropagationError<P::Error>> {
+        let result = self.integrate_with(initial_epoch, initial_state, target, None, |_| {
+            Ok(StepObservation::Continue)
+        })?;
+        Ok((result.state, result.statistics))
+    }
+
+    fn integrate_with<F>(
+        &self,
+        initial_epoch: Epoch,
+        initial_state: CartesianState,
+        target: Epoch,
+        maximum_step_override: Option<f64>,
+        mut observe_step: F,
+    ) -> Result<IntegrationResult, NumericalPropagationError<P::Error>>
+    where
+        F: FnMut(AcceptedDenseStep) -> Result<StepObservation, NumericalPropagationError<P::Error>>,
+    {
         let total_seconds = (target - initial_epoch).to_seconds();
         if !total_seconds.is_finite() {
             return Err(NumericalPropagationError::NonFiniteDuration);
         }
+        if total_seconds == 0.0 {
+            return Ok(IntegrationResult {
+                state: initial_state,
+                epoch: initial_epoch,
+                #[cfg(test)]
+                statistics: IntegrationStatistics::default(),
+                stopped: false,
+            });
+        }
         let direction = total_seconds.signum();
         let total_magnitude = total_seconds.abs();
         let minimum_step = self.configuration.minimum_step.to_seconds();
-        let maximum_step = self.configuration.maximum_step.to_seconds();
+        let maximum_step = maximum_step_override
+            .unwrap_or(f64::INFINITY)
+            .min(self.configuration.maximum_step.to_seconds());
         let mut step_magnitude = self
             .configuration
             .initial_step
             .to_seconds()
+            .min(maximum_step)
             .min(total_magnitude);
         let mut elapsed = 0.0;
         let mut values = state_to_array(initial_state);
@@ -331,13 +802,39 @@ where
             if error_norm <= 1.0 {
                 let dense = DenseStep::new(values, step.candidate, step.k1, step.k4, signed_step);
                 debug_assert!(dense.endpoint_error() <= 32.0 * f64::EPSILON);
-                values = step.candidate;
-                elapsed = if proposed_magnitude == remaining {
+                let end_elapsed = if proposed_magnitude == remaining {
                     total_magnitude
                 } else {
                     elapsed + proposed_magnitude
                 };
+                let start_epoch = initial_epoch + Duration::from_seconds(direction * elapsed);
+                let end_epoch = if end_elapsed == total_magnitude {
+                    target
+                } else {
+                    initial_epoch + Duration::from_seconds(direction * end_elapsed)
+                };
+                let accepted_step = AcceptedDenseStep {
+                    start_epoch,
+                    end_epoch,
+                    frame,
+                    dense,
+                };
                 statistics.accepted_steps += 1;
+                if let StepObservation::Stop {
+                    epoch: stop_epoch,
+                    values: stop_values,
+                } = observe_step(accepted_step)?
+                {
+                    return Ok(IntegrationResult {
+                        state: array_to_state(frame, stop_values)?,
+                        epoch: stop_epoch,
+                        #[cfg(test)]
+                        statistics,
+                        stopped: true,
+                    });
+                }
+                values = step.candidate;
+                elapsed = end_elapsed;
                 step_magnitude = (proposed_magnitude * factor).clamp(minimum_step, maximum_step);
             } else {
                 statistics.rejected_steps += 1;
@@ -357,7 +854,13 @@ where
             }
         }
 
-        Ok((array_to_state(frame, values)?, statistics))
+        Ok(IntegrationResult {
+            state: array_to_state(frame, values)?,
+            epoch: target,
+            #[cfg(test)]
+            statistics,
+            stopped: false,
+        })
     }
 
     fn step(
@@ -525,6 +1028,24 @@ struct IntegrationStatistics {
     rejected_steps: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct IntegrationResult {
+    state: CartesianState,
+    epoch: Epoch,
+    #[cfg(test)]
+    statistics: IntegrationStatistics,
+    stopped: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum StepObservation {
+    Continue,
+    Stop {
+        epoch: Epoch,
+        values: [f64; COMPONENT_COUNT],
+    },
+}
+
 /// One accepted-step cubic Hermite continuous extension.
 #[derive(Debug, Clone, Copy)]
 struct DenseStep {
@@ -581,6 +1102,270 @@ impl DenseStep {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct AcceptedDenseStep {
+    start_epoch: Epoch,
+    end_epoch: Epoch,
+    frame: ReferenceFrame,
+    dense: DenseStep,
+}
+
+impl AcceptedDenseStep {
+    fn epoch_at_fraction(self, fraction: f64) -> Epoch {
+        if fraction == 0.0 {
+            self.start_epoch
+        } else if fraction == 1.0 {
+            self.end_epoch
+        } else {
+            self.start_epoch + Duration::from_seconds(self.dense.step_seconds * fraction)
+        }
+    }
+
+    fn orbit_at_fraction(self, fraction: f64) -> Result<Orbit<CartesianState>, DenseOutputError> {
+        let values = self.dense.evaluate(fraction);
+        let state = dense_array_to_state(self.frame, values)?;
+        Ok(Orbit::new(self.epoch_at_fraction(fraction), state))
+    }
+
+    fn segment(self, end_fraction: f64) -> EphemerisSegment {
+        EphemerisSegment {
+            start_epoch: self.start_epoch,
+            end_epoch: self.epoch_at_fraction(end_fraction),
+            end_fraction,
+            frame: self.frame,
+            dense: self.dense,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct EphemerisSegment {
+    start_epoch: Epoch,
+    end_epoch: Epoch,
+    end_fraction: f64,
+    frame: ReferenceFrame,
+    dense: DenseStep,
+}
+
+impl EphemerisSegment {
+    fn contains(&self, epoch: Epoch) -> bool {
+        let (start, end) = ordered_epochs(self.start_epoch, self.end_epoch);
+        epoch >= start && epoch <= end
+    }
+
+    fn evaluate(&self, epoch: Epoch) -> Result<Orbit<CartesianState>, DenseOutputError> {
+        let fraction = if epoch == self.start_epoch {
+            0.0
+        } else if epoch == self.end_epoch {
+            self.end_fraction
+        } else {
+            ((epoch - self.start_epoch).to_seconds() / self.dense.step_seconds)
+                .clamp(0.0, self.end_fraction)
+        };
+        let state = dense_array_to_state(self.frame, self.dense.evaluate(fraction))?;
+        Ok(Orbit::new(epoch, state))
+    }
+}
+
+fn ordered_epochs(left: Epoch, right: Epoch) -> (Epoch, Epoch) {
+    if left <= right {
+        (left, right)
+    } else {
+        (right, left)
+    }
+}
+
+fn dense_array_to_state(
+    frame: ReferenceFrame,
+    values: [f64; COMPONENT_COUNT],
+) -> Result<CartesianState, DenseOutputError> {
+    CartesianState::new(
+        frame,
+        Position::from_metres(values[0], values[1], values[2]),
+        VelocityVector::from_metres_per_second(values[3], values[4], values[5]),
+    )
+    .map_err(|_| DenseOutputError::NonFiniteState)
+}
+
+#[derive(Debug, Clone)]
+struct RootCandidate {
+    fraction: f64,
+    occurrence: EventOccurrence,
+    values: [f64; COMPONENT_COUNT],
+}
+
+#[allow(clippy::too_many_arguments)]
+fn process_events<E>(
+    step: AcceptedDenseStep,
+    detectors: &[&dyn EventDetector],
+    configuration: EventConfiguration,
+    handler: &mut dyn EventHandler,
+    last_occurrence_epochs: &mut [Option<Epoch>],
+    occurrences: &mut Vec<EventOccurrence>,
+    segments: &mut Vec<EphemerisSegment>,
+) -> Result<StepObservation, NumericalPropagationError<E>>
+where
+    E: Error + Send + Sync + 'static,
+{
+    let mut roots = Vec::new();
+    for (detector_index, detector) in detectors.iter().enumerate() {
+        let start = evaluate_detector::<E>(*detector, detector_index, step, 0.0)?;
+        let end = evaluate_detector::<E>(*detector, detector_index, step, 1.0)?;
+        let Some(crossing) = crossing_direction(start, end) else {
+            continue;
+        };
+        if !detector.direction().accepts(crossing) {
+            continue;
+        }
+        let fraction =
+            localize_root::<E>(*detector, detector_index, step, start, end, configuration)?;
+        let orbit = step
+            .orbit_at_fraction(fraction)
+            .map_err(NumericalPropagationError::DenseOutput)?;
+        if last_occurrence_epochs[detector_index] == Some(orbit.epoch()) {
+            continue;
+        }
+        roots.push(RootCandidate {
+            fraction,
+            values: state_to_array(*orbit.as_ref()),
+            occurrence: EventOccurrence {
+                detector_index,
+                detector_name: detector.name().into(),
+                epoch: orbit.epoch(),
+                state: *orbit.as_ref(),
+                crossing,
+            },
+        });
+    }
+
+    roots.sort_by(|left, right| left.fraction.total_cmp(&right.fraction));
+    let simultaneous_fraction_tolerance =
+        configuration.time_tolerance.to_seconds() / step.dense.step_seconds.abs();
+    let mut cursor = 0;
+    while cursor < roots.len() {
+        let group_fraction = roots[cursor].fraction;
+        let canonical = roots[cursor].clone();
+        let mut group_end = cursor + 1;
+        while group_end < roots.len()
+            && (roots[group_end].fraction - group_fraction).abs() <= simultaneous_fraction_tolerance
+        {
+            group_end += 1;
+        }
+        roots[cursor..group_end].sort_by_key(|candidate| candidate.occurrence.detector_index);
+
+        let mut stop_requested = false;
+        for candidate in &roots[cursor..group_end] {
+            if occurrences.len() >= configuration.max_events {
+                return Err(NumericalPropagationError::EventLimitExceeded {
+                    maximum: configuration.max_events,
+                });
+            }
+            let action = handler.handle(&candidate.occurrence).map_err(|source| {
+                NumericalPropagationError::EventHandler {
+                    detector_index: candidate.occurrence.detector_index,
+                    source,
+                }
+            })?;
+            last_occurrence_epochs[candidate.occurrence.detector_index] =
+                Some(candidate.occurrence.epoch);
+            occurrences.push(candidate.occurrence.clone());
+            stop_requested |= action == EventAction::Stop;
+        }
+        if stop_requested {
+            segments.push(step.segment(canonical.fraction));
+            return Ok(StepObservation::Stop {
+                epoch: canonical.occurrence.epoch,
+                values: canonical.values,
+            });
+        }
+        cursor = group_end;
+    }
+
+    segments.push(step.segment(1.0));
+    Ok(StepObservation::Continue)
+}
+
+fn evaluate_detector<E>(
+    detector: &dyn EventDetector,
+    detector_index: usize,
+    step: AcceptedDenseStep,
+    fraction: f64,
+) -> Result<f64, NumericalPropagationError<E>>
+where
+    E: Error + Send + Sync + 'static,
+{
+    let orbit = step
+        .orbit_at_fraction(fraction)
+        .map_err(NumericalPropagationError::DenseOutput)?;
+    let value = detector
+        .value(&orbit)
+        .map_err(|source| NumericalPropagationError::EventDetector {
+            detector_index,
+            source,
+        })?
+        .get::<ratio>();
+    if !value.is_finite() {
+        return Err(NumericalPropagationError::NonFiniteEventValue { detector_index });
+    }
+    Ok(value)
+}
+
+fn crossing_direction(start: f64, end: f64) -> Option<EventDirection> {
+    if start == 0.0 && end == 0.0 {
+        None
+    } else if start <= 0.0 && end >= 0.0 {
+        Some(EventDirection::Rising)
+    } else if start >= 0.0 && end <= 0.0 {
+        Some(EventDirection::Falling)
+    } else {
+        None
+    }
+}
+
+fn localize_root<E>(
+    detector: &dyn EventDetector,
+    detector_index: usize,
+    step: AcceptedDenseStep,
+    start_value: f64,
+    end_value: f64,
+    configuration: EventConfiguration,
+) -> Result<f64, NumericalPropagationError<E>>
+where
+    E: Error + Send + Sync + 'static,
+{
+    if start_value == 0.0 {
+        return Ok(0.0);
+    }
+    if end_value == 0.0 {
+        return Ok(1.0);
+    }
+    let fraction_tolerance =
+        configuration.time_tolerance.to_seconds() / step.dense.step_seconds.abs();
+    let mut left = 0.0;
+    let mut right = 1.0;
+    let mut left_value = start_value;
+    for _ in 0..configuration.max_root_iterations {
+        if right - left <= fraction_tolerance {
+            return Ok(0.5 * (left + right));
+        }
+        let middle = 0.5 * (left + right);
+        let middle_value = evaluate_detector::<E>(detector, detector_index, step, middle)?;
+        if middle_value == 0.0 {
+            return Ok(middle);
+        }
+        if left_value.is_sign_negative() == middle_value.is_sign_negative() {
+            left = middle;
+            left_value = middle_value;
+        } else {
+            right = middle;
+        }
+    }
+    Err(NumericalPropagationError::EventRootNotConverged {
+        detector_index,
+        iterations: configuration.max_root_iterations,
+    })
+}
+
 /// Adaptive propagation failure.
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -635,6 +1420,53 @@ where
     RejectionLimitExceeded {
         /// Number of rejected steps.
         rejected: usize,
+    },
+    /// An application detector has no usable diagnostic identity.
+    #[error("event detector {detector_index} has a blank name")]
+    InvalidDetectorName {
+        /// Detector registration index.
+        detector_index: usize,
+    },
+    /// Dense interpolation failed during propagation or event localization.
+    #[error("dense-output evaluation failed")]
+    DenseOutput(#[source] DenseOutputError),
+    /// An application detector returned an error.
+    #[error("event detector {detector_index} evaluation failed")]
+    EventDetector {
+        /// Detector registration index.
+        detector_index: usize,
+        /// Application error.
+        #[source]
+        source: EventCallbackError,
+    },
+    /// An application detector returned NaN or infinity.
+    #[error("event detector {detector_index} returned a non-finite switching value")]
+    NonFiniteEventValue {
+        /// Detector registration index.
+        detector_index: usize,
+    },
+    /// Bisection did not meet the configured time tolerance.
+    #[error("event detector {detector_index} root did not converge in {iterations} iterations")]
+    EventRootNotConverged {
+        /// Detector registration index.
+        detector_index: usize,
+        /// Completed bisection iterations.
+        iterations: usize,
+    },
+    /// An application event handler returned an error.
+    #[error("handler for event detector {detector_index} failed")]
+    EventHandler {
+        /// Detector registration index.
+        detector_index: usize,
+        /// Application error.
+        #[source]
+        source: EventCallbackError,
+    },
+    /// The bounded event log is full.
+    #[error("maximum event occurrence count {maximum} exhausted")]
+    EventLimitExceeded {
+        /// Configured maximum event count.
+        maximum: usize,
     },
 }
 
@@ -1144,6 +1976,569 @@ mod tests {
             problem.validate(&wrong_origin),
             Err(TwoBodyEvaluationError::GravityOriginMismatch { .. })
         ));
+    }
+
+    #[derive(Debug)]
+    struct TimeDetector {
+        name: &'static str,
+        root: Epoch,
+        direction: EventDirection,
+    }
+
+    impl EventDetector for TimeDetector {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        fn direction(&self) -> EventDirection {
+            self.direction
+        }
+
+        fn value(&self, state: &Orbit<CartesianState>) -> Result<Ratio, EventCallbackError> {
+            Ok(Ratio::new::<ratio>(
+                (state.epoch() - self.root).to_seconds(),
+            ))
+        }
+    }
+
+    #[derive(Debug)]
+    struct PositionXDetector {
+        name: &'static str,
+        threshold_metres: f64,
+        direction: EventDirection,
+    }
+
+    impl EventDetector for PositionXDetector {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        fn direction(&self) -> EventDirection {
+            self.direction
+        }
+
+        fn value(&self, state: &Orbit<CartesianState>) -> Result<Ratio, EventCallbackError> {
+            Ok(Ratio::new::<ratio>(
+                state.as_ref().position().to_metres()[0] - self.threshold_metres,
+            ))
+        }
+    }
+
+    #[derive(Debug)]
+    struct GrazingTimeDetector {
+        root: Epoch,
+    }
+
+    impl EventDetector for GrazingTimeDetector {
+        fn name(&self) -> &str {
+            "grazing"
+        }
+
+        fn value(&self, state: &Orbit<CartesianState>) -> Result<Ratio, EventCallbackError> {
+            let offset = (state.epoch() - self.root).to_seconds();
+            Ok(Ratio::new::<ratio>(offset * offset))
+        }
+    }
+
+    #[derive(Debug)]
+    struct InvalidEventDetector {
+        name: &'static str,
+        fails: bool,
+    }
+
+    impl EventDetector for InvalidEventDetector {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        fn value(&self, _state: &Orbit<CartesianState>) -> Result<Ratio, EventCallbackError> {
+            if self.fails {
+                Err(Box::new(FixtureModelError))
+            } else {
+                Ok(Ratio::new::<ratio>(f64::NAN))
+            }
+        }
+    }
+
+    fn event_configuration(
+        maximum_check_seconds: f64,
+        tolerance_seconds: f64,
+        max_root_iterations: usize,
+        max_events: usize,
+    ) -> EventConfiguration {
+        EventConfiguration::new(
+            Duration::from_seconds(maximum_check_seconds),
+            Duration::from_seconds(tolerance_seconds),
+            max_root_iterations,
+            max_events,
+        )
+        .expect("valid event configuration")
+    }
+
+    fn inertial_propagator() -> BogackiShampine32<ConstantAcceleration> {
+        BogackiShampine32::new(
+            ConstantAcceleration {
+                value: AccelerationVector::from_metres_per_second_squared(0.0, 0.0, 0.0),
+            },
+            configuration(1.0e-9, 1.0e-12, 1.0e-12, 1.0e-6, 20.0, 7.0),
+        )
+    }
+
+    #[test]
+    fn dense_ephemeris_reproduces_endpoints_and_analytic_interior() {
+        let propagator = BogackiShampine32::new(
+            ConstantAcceleration {
+                value: AccelerationVector::from_metres_per_second_squared(2.0, -1.0, 0.5),
+            },
+            configuration(1.0e-9, 1.0e-12, 1.0e-12, 1.0e-6, 20.0, 7.0),
+        );
+        let epoch = Epoch::from_tai_seconds(1_000.0);
+        let initial_state = state([10.0, -4.0, 8.0], [3.0, 2.0, -1.0]);
+        let target = epoch + Duration::from_seconds(100.0);
+        let result = propagator
+            .propagate_with_ephemeris(Orbit::new(epoch, initial_state), target)
+            .expect("dense propagation");
+        assert!(result.ephemeris().segment_count() > 1);
+        assert_eq!(
+            result.ephemeris().state_at(epoch).expect("initial sample"),
+            Orbit::new(epoch, initial_state)
+        );
+        assert_eq!(
+            result.ephemeris().state_at(target).expect("final sample"),
+            result.final_orbit().clone()
+        );
+
+        let midpoint = result
+            .ephemeris()
+            .state_at(epoch + Duration::from_seconds(50.0))
+            .expect("interior sample");
+        assert_vector_close(
+            midpoint.as_ref().position().to_metres(),
+            [2_660.0, -1_154.0, 583.0],
+            3.0e-10,
+        );
+        assert_vector_close(
+            midpoint.as_ref().velocity().to_metres_per_second(),
+            [103.0, -48.0, 24.0],
+            3.0e-12,
+        );
+        assert!(matches!(
+            result
+                .ephemeris()
+                .state_at(epoch - Duration::from_seconds(1.0)),
+            Err(DenseOutputError::OutsideCoverage { .. })
+        ));
+    }
+
+    #[test]
+    fn reverse_dense_ephemeris_uses_chronological_coverage() {
+        let propagator = inertial_propagator();
+        let initial_epoch = Epoch::from_tai_seconds(10.0);
+        let target = Epoch::from_tai_seconds(0.0);
+        let result = propagator
+            .propagate_with_ephemeris(
+                Orbit::new(initial_epoch, state([10.0, 0.0, 0.0], [1.0, 0.0, 0.0])),
+                target,
+            )
+            .expect("reverse dense propagation");
+        let middle = result
+            .ephemeris()
+            .state_at(Epoch::from_tai_seconds(5.0))
+            .expect("reverse interior sample");
+        assert_vector_close(
+            middle.as_ref().position().to_metres(),
+            [5.0, 0.0, 0.0],
+            1.0e-12,
+        );
+        assert_eq!(result.ephemeris().initial_epoch(), initial_epoch);
+        assert_eq!(result.ephemeris().final_epoch(), target);
+    }
+
+    #[test]
+    fn event_localization_uses_dense_state_and_stops_with_truncated_coverage() {
+        let propagator = inertial_propagator();
+        let epoch = Epoch::from_tai_seconds(0.0);
+        let detector = PositionXDetector {
+            name: "x=5m",
+            threshold_metres: 5.0,
+            direction: EventDirection::Rising,
+        };
+        let mut dispatched = Vec::new();
+        let mut handler =
+            |occurrence: &EventOccurrence| -> Result<EventAction, EventCallbackError> {
+                dispatched.push(occurrence.clone());
+                Ok(EventAction::Stop)
+            };
+        let result = propagator
+            .propagate_with_events(
+                Orbit::new(epoch, state([0.0, 0.0, 0.0], [1.0, 0.0, 0.0])),
+                epoch + Duration::from_seconds(10.0),
+                &[&detector],
+                event_configuration(2.0, 1.0e-9, 64, 10),
+                &mut handler,
+            )
+            .expect("event-aware propagation");
+        assert!(result.stopped());
+        assert_eq!(result.occurrences(), dispatched);
+        assert_eq!(result.occurrences().len(), 1);
+        assert!(
+            (result.final_orbit().epoch() - (epoch + Duration::from_seconds(5.0)))
+                .to_seconds()
+                .abs()
+                <= 1.0e-9
+        );
+        assert_vector_close(
+            result.final_orbit().as_ref().position().to_metres(),
+            [5.0, 0.0, 0.0],
+            1.0e-9,
+        );
+        assert!(matches!(
+            result
+                .ephemeris()
+                .state_at(epoch + Duration::from_seconds(6.0)),
+            Err(DenseOutputError::OutsideCoverage { .. })
+        ));
+    }
+
+    #[test]
+    fn direction_is_defined_in_forward_and_reverse_propagation_order() {
+        let propagator = inertial_propagator();
+        let root = Epoch::from_tai_seconds(5.0);
+        let rising = TimeDetector {
+            name: "rising",
+            root,
+            direction: EventDirection::Rising,
+        };
+        let falling = TimeDetector {
+            name: "falling",
+            root,
+            direction: EventDirection::Falling,
+        };
+        let mut continue_handler =
+            |_occurrence: &EventOccurrence| -> Result<EventAction, EventCallbackError> {
+                Ok(EventAction::Continue)
+            };
+
+        let forward = propagator
+            .propagate_with_events(
+                Orbit::new(
+                    Epoch::from_tai_seconds(0.0),
+                    state([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+                ),
+                Epoch::from_tai_seconds(10.0),
+                &[&rising, &falling],
+                event_configuration(2.0, 1.0e-9, 64, 10),
+                &mut continue_handler,
+            )
+            .expect("forward events");
+        assert_eq!(forward.occurrences().len(), 1);
+        assert_eq!(forward.occurrences()[0].detector_name(), "rising");
+        assert_eq!(forward.occurrences()[0].crossing(), EventDirection::Rising);
+
+        let reverse = propagator
+            .propagate_with_events(
+                Orbit::new(
+                    Epoch::from_tai_seconds(10.0),
+                    state([10.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+                ),
+                Epoch::from_tai_seconds(0.0),
+                &[&rising, &falling],
+                event_configuration(2.0, 1.0e-9, 64, 10),
+                &mut continue_handler,
+            )
+            .expect("reverse events");
+        assert_eq!(reverse.occurrences().len(), 1);
+        assert_eq!(reverse.occurrences()[0].detector_name(), "falling");
+        assert_eq!(reverse.occurrences()[0].crossing(), EventDirection::Falling);
+    }
+
+    #[test]
+    fn simultaneous_events_dispatch_in_registration_order_before_stop() {
+        let propagator = inertial_propagator();
+        let epoch = Epoch::from_tai_seconds(0.0);
+        let first = TimeDetector {
+            name: "first",
+            root: epoch + Duration::from_seconds(5.0),
+            direction: EventDirection::Any,
+        };
+        let second = TimeDetector {
+            name: "second",
+            root: epoch + Duration::from_seconds(5.0),
+            direction: EventDirection::Any,
+        };
+        let mut dispatch_order = Vec::new();
+        let mut handler =
+            |occurrence: &EventOccurrence| -> Result<EventAction, EventCallbackError> {
+                dispatch_order.push(occurrence.detector_index());
+                Ok(if occurrence.detector_index() == 0 {
+                    EventAction::Stop
+                } else {
+                    EventAction::Continue
+                })
+            };
+        let result = propagator
+            .propagate_with_events(
+                Orbit::new(epoch, state([0.0, 0.0, 0.0], [1.0, 0.0, 0.0])),
+                epoch + Duration::from_seconds(10.0),
+                &[&first, &second],
+                event_configuration(3.0, 1.0e-9, 64, 10),
+                &mut handler,
+            )
+            .expect("simultaneous events");
+        assert_eq!(dispatch_order, vec![0, 1]);
+        assert_eq!(
+            result
+                .occurrences()
+                .iter()
+                .map(EventOccurrence::detector_index)
+                .collect::<Vec<_>>(),
+            vec![0, 1]
+        );
+        assert!(result.stopped());
+    }
+
+    #[test]
+    fn events_follow_propagation_time_before_registration_order() {
+        let propagator = inertial_propagator();
+        let early = TimeDetector {
+            name: "early",
+            root: Epoch::from_tai_seconds(3.0),
+            direction: EventDirection::Any,
+        };
+        let late = TimeDetector {
+            name: "late",
+            root: Epoch::from_tai_seconds(7.0),
+            direction: EventDirection::Any,
+        };
+        let mut handler =
+            |_occurrence: &EventOccurrence| -> Result<EventAction, EventCallbackError> {
+                Ok(EventAction::Continue)
+            };
+        let forward = propagator
+            .propagate_with_events(
+                Orbit::new(
+                    Epoch::from_tai_seconds(0.0),
+                    state([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+                ),
+                Epoch::from_tai_seconds(10.0),
+                &[&late, &early],
+                event_configuration(10.0, 1.0e-9, 64, 10),
+                &mut handler,
+            )
+            .expect("forward ordering");
+        assert_eq!(
+            forward
+                .occurrences()
+                .iter()
+                .map(EventOccurrence::detector_name)
+                .collect::<Vec<_>>(),
+            vec!["early", "late"]
+        );
+
+        let reverse = propagator
+            .propagate_with_events(
+                Orbit::new(
+                    Epoch::from_tai_seconds(10.0),
+                    state([10.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+                ),
+                Epoch::from_tai_seconds(0.0),
+                &[&early, &late],
+                event_configuration(10.0, 1.0e-9, 64, 10),
+                &mut handler,
+            )
+            .expect("reverse ordering");
+        assert_eq!(
+            reverse
+                .occurrences()
+                .iter()
+                .map(EventOccurrence::detector_name)
+                .collect::<Vec<_>>(),
+            vec!["late", "early"]
+        );
+    }
+
+    #[test]
+    fn shared_step_boundary_root_is_reported_once() {
+        let propagator = inertial_propagator();
+        let detector = TimeDetector {
+            name: "boundary",
+            root: Epoch::from_tai_seconds(2.0),
+            direction: EventDirection::Any,
+        };
+        let mut handler =
+            |_occurrence: &EventOccurrence| -> Result<EventAction, EventCallbackError> {
+                Ok(EventAction::Continue)
+            };
+        let result = propagator
+            .propagate_with_events(
+                Orbit::new(
+                    Epoch::from_tai_seconds(0.0),
+                    state([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+                ),
+                Epoch::from_tai_seconds(6.0),
+                &[&detector],
+                event_configuration(2.0, 1.0e-9, 64, 10),
+                &mut handler,
+            )
+            .expect("boundary event");
+        assert_eq!(result.occurrences().len(), 1);
+        assert_eq!(result.occurrences()[0].epoch(), detector.root);
+    }
+
+    #[test]
+    fn unbracketed_grazing_root_is_not_claimed() {
+        let propagator = inertial_propagator();
+        let detector = GrazingTimeDetector {
+            root: Epoch::from_tai_seconds(5.0),
+        };
+        let mut handler =
+            |_occurrence: &EventOccurrence| -> Result<EventAction, EventCallbackError> {
+                Ok(EventAction::Continue)
+            };
+        let result = propagator
+            .propagate_with_events(
+                Orbit::new(
+                    Epoch::from_tai_seconds(0.0),
+                    state([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+                ),
+                Epoch::from_tai_seconds(10.0),
+                &[&detector],
+                event_configuration(2.0, 1.0e-9, 64, 10),
+                &mut handler,
+            )
+            .expect("grazing scan");
+        assert!(result.occurrences().is_empty());
+        assert!(!result.stopped());
+    }
+
+    #[test]
+    fn event_configuration_and_callback_failures_are_typed() {
+        assert_eq!(
+            EventConfiguration::new(
+                Duration::from_seconds(1.0),
+                Duration::from_seconds(2.0),
+                1,
+                1,
+            ),
+            Err(EventConfigurationError::ToleranceExceedsCheckInterval)
+        );
+        let propagator = inertial_propagator();
+        let epoch = Epoch::from_tai_seconds(0.0);
+        let initial = Orbit::new(epoch, state([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]));
+        let failing = InvalidEventDetector {
+            name: "failing",
+            fails: true,
+        };
+        let mut handler =
+            |_occurrence: &EventOccurrence| -> Result<EventAction, EventCallbackError> {
+                Ok(EventAction::Continue)
+            };
+        let error = propagator
+            .propagate_with_events(
+                initial.clone(),
+                epoch + Duration::from_seconds(1.0),
+                &[&failing],
+                event_configuration(1.0, 1.0e-6, 32, 10),
+                &mut handler,
+            )
+            .expect_err("detector must fail");
+        assert!(matches!(
+            error,
+            NumericalPropagationError::EventDetector {
+                detector_index: 0,
+                ..
+            }
+        ));
+        assert!(std::error::Error::source(&error).is_some());
+
+        let non_finite = InvalidEventDetector {
+            name: "non-finite",
+            fails: false,
+        };
+        let result = propagator.propagate_with_events(
+            initial,
+            epoch + Duration::from_seconds(1.0),
+            &[&non_finite],
+            event_configuration(1.0, 1.0e-6, 32, 10),
+            &mut handler,
+        );
+        assert!(matches!(
+            result,
+            Err(NumericalPropagationError::NonFiniteEventValue { detector_index: 0 })
+        ));
+    }
+
+    #[test]
+    fn root_iteration_event_limit_and_handler_errors_are_bounded() {
+        let propagator = inertial_propagator();
+        let epoch = Epoch::from_tai_seconds(0.0);
+        let root = TimeDetector {
+            name: "non-midpoint",
+            root: epoch + Duration::from_seconds(0.3),
+            direction: EventDirection::Any,
+        };
+        let mut continue_handler =
+            |_occurrence: &EventOccurrence| -> Result<EventAction, EventCallbackError> {
+                Ok(EventAction::Continue)
+            };
+        let result = propagator.propagate_with_events(
+            Orbit::new(epoch, state([0.0, 0.0, 0.0], [1.0, 0.0, 0.0])),
+            epoch + Duration::from_seconds(1.0),
+            &[&root],
+            event_configuration(1.0, 1.0e-9, 1, 10),
+            &mut continue_handler,
+        );
+        assert!(matches!(
+            result,
+            Err(NumericalPropagationError::EventRootNotConverged {
+                detector_index: 0,
+                iterations: 1
+            })
+        ));
+
+        let first = TimeDetector {
+            name: "first",
+            root: epoch + Duration::from_seconds(0.25),
+            direction: EventDirection::Any,
+        };
+        let second = TimeDetector {
+            name: "second",
+            root: epoch + Duration::from_seconds(0.75),
+            direction: EventDirection::Any,
+        };
+        let result = propagator.propagate_with_events(
+            Orbit::new(epoch, state([0.0, 0.0, 0.0], [1.0, 0.0, 0.0])),
+            epoch + Duration::from_seconds(1.0),
+            &[&first, &second],
+            event_configuration(1.0, 1.0e-9, 64, 1),
+            &mut continue_handler,
+        );
+        assert!(matches!(
+            result,
+            Err(NumericalPropagationError::EventLimitExceeded { maximum: 1 })
+        ));
+
+        let mut failing_handler =
+            |_occurrence: &EventOccurrence| -> Result<EventAction, EventCallbackError> {
+                Err(Box::new(FixtureModelError))
+            };
+        let error = propagator
+            .propagate_with_events(
+                Orbit::new(epoch, state([0.0, 0.0, 0.0], [1.0, 0.0, 0.0])),
+                epoch + Duration::from_seconds(1.0),
+                &[&first],
+                event_configuration(1.0, 1.0e-9, 64, 10),
+                &mut failing_handler,
+            )
+            .expect_err("handler must fail");
+        assert!(matches!(
+            error,
+            NumericalPropagationError::EventHandler {
+                detector_index: 0,
+                ..
+            }
+        ));
+        assert!(std::error::Error::source(&error).is_some());
     }
 
     #[test]

@@ -166,8 +166,9 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
   integrator and a frame/epoch-qualified numerical propagator with documented
   local/global error behavior. Evidence: task 0036 and
   `crates/dynamics/numerical`.
-- [ ] **P12 (depends on P11):** implement dense ephemerides, root localization,
+- [x] **P12 (depends on P11):** implement dense ephemerides, root localization,
   event direction, handlers, and deterministic simultaneous-event policy.
+  Evidence: task 0037 and `crates/dynamics/numerical`.
 - [ ] **P13 (depends on F14 and P11):** add third-body point-mass gravity.
 - [ ] **P14 (depends on F11–F14 and P11):** add harmonics/tides, drag and
   atmosphere, radiation pressure, and relativity as separately evidenced

@@ -81,12 +81,17 @@ missing abstraction or an incorrectly placed type.
   `Orbit<State>` values, and preserves the selected state representation. The
   first numerical implementation owns a `CartesianDynamics` problem and
   advances only `Orbit<CartesianState>` with typed local-error and step
-  settings. A translational propagator does not imply that attitude or other
-  epoch-dependent spacecraft properties were advanced. Analytical, numerical,
-  semi-analytical, and TLE algorithms, public dense output, ephemerides, and
-  variational equations remain distinct capabilities.
-- **Events:** detector functions, direction, root localization, handlers, and
-  deterministic simultaneous-event policy.
+  settings. Its immutable Cartesian ephemeris evaluates retained accepted-step
+  Hermite extensions without reintegration. A translational propagator does
+  not imply that attitude or other epoch-dependent spacecraft properties were
+  advanced. Analytical, numerical, semi-analytical, and TLE algorithms,
+  ephemerides, and variational equations remain distinct capabilities.
+- **Events:** open detectors return a finite dimensionless switching value and
+  select propagation-order rising, falling, or any crossings. A typed maximum
+  check interval bounds scanning; bisection localizes bracketed roots on dense
+  states. Occurrences order by propagation time, then detector registration
+  within the time tolerance. Handlers continue or stop after all simultaneous
+  occurrences; reset/discontinuity semantics remain deferred.
 - **Attitude:** open `Attitude` and `SpacecraftGeometry` contracts compose
   caller-selected representations into a `SpacecraftView`; optional built-in
   quaternion attitude and standard geometry implementations are separately
@@ -291,11 +296,11 @@ valid at the propagated epoch.
 `dynamics/two-bodies` implements it for its point-mass problem, and the opt-in
 `dynamics/numerical` sub-crate owns the adaptive Bogacki--Shampine 3(2)
 Cartesian propagator. The numerical crate's private six-component SI layout
-and accepted-step cubic Hermite extension do not establish a generic public
-ODE API or public ephemeris. General composed force evaluation and coupled
-rotational, mass, and variational propagation remain deferred; their designs
-must preserve explicit state groups, data, and events. Third-body descriptions
-remain unavailable until their ephemeris, frame, provenance, and
-acceleration-assembly contracts exist.
+backs public immutable Cartesian ephemerides and bracketed event evaluation
+without establishing a generic public ODE API. General composed force
+evaluation and coupled rotational, mass, and variational propagation remain
+deferred; their designs must preserve explicit state groups, data, and events.
+Third-body descriptions remain unavailable until their ephemeris, frame,
+provenance, and acceleration-assembly contracts exist.
 There is no `stations` crate: ground and spacecraft participants belong to the
 measurement topology and estimation workflows.
