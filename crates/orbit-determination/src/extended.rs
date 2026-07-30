@@ -3,7 +3,10 @@ use nalgebra::Cholesky;
 use orbits::cartesian::CartesianState;
 
 use crate::{
-    covariance::{symmetrize, validate_positive_definite},
+    covariance::{
+        cartesian_covariance_from_raw, cartesian_covariance_raw, symmetrize,
+        validate_positive_definite,
+    },
     numerical::{position_jacobian, propagate_with_transition, raw_position, RawCovariance},
     CartesianCovariance, CartesianObservation, CartesianStateEstimate, CorrectionEvent,
     EstimationObserver, KalmanFilter, OrbitDetermination, OrbitDeterminationError, PredictionEvent,
@@ -69,13 +72,15 @@ impl<P> ExtendedKalmanFilter<P> {
             return Err(OrbitDeterminationError::FrameMismatch);
         }
         let predicted_covariance = symmetrize(
-            transition * self.estimate.covariance().raw() * transition.transpose()
-                + self.process_noise.raw(),
+            transition
+                * cartesian_covariance_raw(self.estimate.covariance())
+                * transition.transpose()
+                + cartesian_covariance_raw(&self.process_noise),
         );
         validate_positive_definite(&predicted_covariance, "predicted Cartesian covariance")?;
         let predicted = CartesianStateEstimate::new(
             predicted_orbit,
-            CartesianCovariance::from_raw(observation.frame(), predicted_covariance)?,
+            cartesian_covariance_from_raw(observation.frame(), predicted_covariance)?,
         )?;
         if let Some(observer) = &mut observer {
             observer.on_prediction(PredictionEvent {
@@ -86,19 +91,19 @@ impl<P> ExtendedKalmanFilter<P> {
         let innovation = observation.position() - predicted.orbit().as_ref().position();
         let jacobian = position_jacobian();
         let innovation_covariance = symmetrize(
-            jacobian * predicted.covariance().raw() * jacobian.transpose()
+            jacobian * cartesian_covariance_raw(predicted.covariance()) * jacobian.transpose()
                 + observation.covariance().raw(),
         );
         let factor = Cholesky::new(innovation_covariance)
             .ok_or(OrbitDeterminationError::SingularInnovationCovariance)?;
         let gain = factor
-            .solve(&(jacobian * predicted.covariance().raw()))
+            .solve(&(jacobian * cartesian_covariance_raw(predicted.covariance())))
             .transpose();
         let corrected_raw = crate::numerical::raw_state(predicted.orbit().as_ref())
             + gain * raw_position(innovation);
         let projection = RawCovariance::identity() - gain * jacobian;
         let corrected_covariance = symmetrize(
-            projection * predicted.covariance().raw() * projection.transpose()
+            projection * cartesian_covariance_raw(predicted.covariance()) * projection.transpose()
                 + gain * observation.covariance().raw() * gain.transpose(),
         );
         let corrected_orbit = crate::numerical::orbit_from_raw(
@@ -108,7 +113,7 @@ impl<P> ExtendedKalmanFilter<P> {
         )?;
         let posterior = CartesianStateEstimate::new(
             corrected_orbit,
-            CartesianCovariance::from_raw(observation.frame(), corrected_covariance)?,
+            cartesian_covariance_from_raw(observation.frame(), corrected_covariance)?,
         )?;
         if let Some(observer) = &mut observer {
             observer.on_correction(CorrectionEvent {

@@ -16,10 +16,12 @@
 //! ```
 
 mod astronomy;
+mod derivative;
 mod variance;
 mod vector;
 
 pub use astronomy::{GravitationalConstant, GravitationalParameter, QuantityError};
+pub use derivative::{InverseTime, InverseTimeSquared};
 pub use uom;
 pub use uom::si::f64::{
     Acceleration, Angle, AngularAcceleration, AngularVelocity, Area, Force, Frequency, Length,

@@ -3,7 +3,10 @@ use nalgebra::Cholesky;
 use orbits::cartesian::CartesianState;
 
 use crate::{
-    covariance::{symmetrize, validate_positive_definite},
+    covariance::{
+        cartesian_covariance_from_raw, cartesian_covariance_raw, symmetrize,
+        validate_positive_definite,
+    },
     numerical::{
         orbit_from_raw, position_from_raw, raw_position, raw_state, RawCovariance, RawPosition,
         RawState,
@@ -128,7 +131,7 @@ impl<P> UnscentedKalmanFilter<P> {
         let scale = (6.0 + lambda).sqrt();
         let sigma_points = sigma_points(
             raw_state(self.estimate.orbit().as_ref()),
-            self.estimate.covariance().raw(),
+            cartesian_covariance_raw(self.estimate.covariance()),
             scale,
         )?;
         let mut propagated = Vec::with_capacity(sigma_points.len());
@@ -147,12 +150,12 @@ impl<P> UnscentedKalmanFilter<P> {
             predicted_raw,
             central_covariance_weight,
             state_weight,
-            self.process_noise.raw(),
+            cartesian_covariance_raw(&self.process_noise),
         );
         validate_positive_definite(&predicted_covariance, "predicted Cartesian covariance")?;
         let predicted = CartesianStateEstimate::new(
             orbit_from_raw(observation.epoch(), observation.frame(), predicted_raw)?,
-            CartesianCovariance::from_raw(observation.frame(), predicted_covariance)?,
+            cartesian_covariance_from_raw(observation.frame(), predicted_covariance)?,
         )?;
         if let Some(observer) = &mut observer {
             observer.on_prediction(PredictionEvent {
@@ -190,7 +193,7 @@ impl<P> UnscentedKalmanFilter<P> {
             symmetrize(predicted_covariance - gain * innovation_covariance * gain.transpose());
         let posterior = CartesianStateEstimate::new(
             orbit_from_raw(observation.epoch(), observation.frame(), corrected_raw)?,
-            CartesianCovariance::from_raw(observation.frame(), corrected_covariance)?,
+            cartesian_covariance_from_raw(observation.frame(), corrected_covariance)?,
         )?;
         if let Some(observer) = &mut observer {
             observer.on_correction(CorrectionEvent {

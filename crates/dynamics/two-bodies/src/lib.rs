@@ -9,7 +9,8 @@
 use std::{fmt, sync::Arc};
 
 use dynamics::{
-    CartesianDynamics, ConservativeForceModel, ConservativeForceModelHandle, Force, ForceModel,
+    CartesianAccelerationJacobian, CartesianDynamics, CartesianVariationalDynamics,
+    ConservativeForceModel, ConservativeForceModelHandle, Force, ForceModel,
     SpacecraftStateRequirements, SystemDynamics,
 };
 use frames::{FrameOrigin, InertialFrame};
@@ -18,7 +19,7 @@ use hifitime::Epoch;
 use orbits::cartesian::{CartesianState, FramedAcceleration};
 use thiserror::Error;
 use units::uom::si::length::meter;
-use units::AccelerationVector;
+use units::{AccelerationVector, InverseTime, InverseTimeSquared};
 
 mod two_body;
 
@@ -184,6 +185,38 @@ impl CartesianDynamics for TwoBodyDynamics {
             return Err(TwoBodyEvaluationError::NonFiniteAcceleration);
         }
         FramedAcceleration::new(acceleration, state.frame())
+            .map_err(|_| TwoBodyEvaluationError::NonFiniteAcceleration)
+    }
+}
+
+impl CartesianVariationalDynamics for TwoBodyDynamics {
+    fn acceleration_jacobian(
+        &self,
+        _epoch: Epoch,
+        state: &CartesianState,
+    ) -> Result<CartesianAccelerationJacobian, Self::Error> {
+        self.validate(state)?;
+        let position = state.position().to_metres();
+        let radius_squared = position
+            .into_iter()
+            .fold(0.0, |sum, component| component.mul_add(component, sum));
+        let radius = radius_squared.sqrt();
+        let mu = self
+            .central_gravity()
+            .parameter()
+            .as_cubic_metres_per_second_squared();
+        let inverse_radius_cubed = 1.0 / (radius_squared * radius);
+        let position_partials = std::array::from_fn(|row| {
+            std::array::from_fn(|column| {
+                let identity = if row == column { 1.0 } else { 0.0 };
+                InverseTimeSquared::from_per_square_second(
+                    mu * inverse_radius_cubed
+                        * (3.0 * position[row] * position[column] / radius_squared - identity),
+                )
+            })
+        });
+        let velocity_partials = [[InverseTime::from_per_second(0.0); 3]; 3];
+        CartesianAccelerationJacobian::new(position_partials, velocity_partials)
             .map_err(|_| TwoBodyEvaluationError::NonFiniteAcceleration)
     }
 }

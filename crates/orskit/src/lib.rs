@@ -42,10 +42,11 @@ pub mod prelude {
     #[cfg(feature = "numerical")]
     pub use crate::dynamics::{
         BogackiShampine32, CartesianDynamics, CartesianEphemeris, CartesianMassState,
-        ConstantThrustManeuver, EventAction, EventConfiguration, EventDetector, EventDirection,
-        EventHandler, EventOccurrence, ImpulsiveManeuver, IntegrationConfiguration,
-        ManeuverExecution, ManeuverExecutionKind, ManeuverPropagation, ManeuverSchedule,
-        ThrustVector,
+        CartesianStateTransition, ConstantThrustManeuver, CovariancePropagation, EventAction,
+        EventConfiguration, EventDetector, EventDirection, EventHandler, EventOccurrence,
+        ImpulsiveManeuver, IntegrationConfiguration, ManeuverExecution, ManeuverExecutionKind,
+        ManeuverPropagation, ManeuverSchedule, ThrustVector, VariationalConfiguration,
+        VariationalPropagation,
     };
     #[cfg(feature = "dynamics")]
     pub use crate::dynamics::{ComposedDynamics, PropagationState, Propagator};

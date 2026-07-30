@@ -20,6 +20,7 @@ orskit_core = { package = "core", path = "../core" }
 frames = { path = "../frames" }
 gravity = { path = "../gravity" }
 hifitime.workspace = true
+nalgebra.workspace = true
 thiserror.workspace = true
 units = { path = "../units" }
 

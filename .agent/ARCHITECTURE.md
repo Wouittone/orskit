@@ -98,6 +98,11 @@ missing abstraction or an incorrectly placed type.
   Finite burns use exact constant-rate mass evolution and instantaneous
   `thrust / mass` stage acceleration; impulses apply explicit velocity and
   mass jumps. Attitude steering and event-driven resets remain separate.
+- **Variational propagation:** dynamics opt in through typed Cartesian
+  acceleration partials. Numerical propagation advances the state and STM as
+  one error-controlled augmented system; public STM blocks retain their
+  dimension, frame, and endpoint epochs. A shared orbit-domain Cartesian
+  covariance maps through `Phi P Phi^T`; process noise is never implicit.
 - **Attitude:** open `Attitude` and `SpacecraftGeometry` contracts compose
   caller-selected representations into a `SpacecraftView`; optional built-in
   quaternion attitude and standard geometry implementations are separately
@@ -191,6 +196,10 @@ missing abstraction or an incorrectly placed type.
   The provider is selected by the application or a feature in the dedicated
   `gravity` crate; lower-level
   format coordinates may remain separate until validated into that state.
+  `orbits::cartesian::CartesianCovariance` is the shared frame-qualified
+  position/velocity covariance domain object; estimation and propagation use
+  this same typed block representation rather than publishing numerical
+  matrices.
 - File formats that omit physical properties yield values such as
   `CoordinateSample<CartesianCoordinates>`, not fabricated complete states.
   Callers enrich them into an explicit `Spacecraft` at the workflow boundary.
@@ -307,8 +316,11 @@ without establishing a generic public ODE API. Its first maneuver workflow
 segments that propagation at scheduled discontinuities and overlays an exact
 constant-flow mass law for constant-frame finite thrust. General composed force
 evaluation and generic error-controlled rotational, mass, and variational
-state groups remain deferred; their designs must preserve explicit component
-identity, data, and event/reset semantics.
+state groups remain deferred. The variational extension integrates a
+42-component Cartesian state/STM layout only when dynamics supplies typed
+acceleration partials; it does not establish a generic public ODE vector.
+Future state groups must preserve explicit component identity, data, and
+event/reset semantics.
 Third-body descriptions remain unavailable until their ephemeris, frame,
 provenance, and acceleration-assembly contracts exist.
 There is no `stations` crate: ground and spacecraft participants belong to the

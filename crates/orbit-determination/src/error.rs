@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use orbits::cartesian::StateError;
+use orbits::cartesian::{CartesianCovarianceError, StateError};
 use thiserror::Error;
 
 /// Error from OD validation, propagation, or Kalman correction.
@@ -25,6 +25,9 @@ pub enum OrbitDeterminationError {
     /// Unscented-transform scaling parameters are invalid.
     #[error("unscented-transform parameters must define a positive finite scaling")]
     InvalidUnscentedConfiguration,
+    /// A typed Cartesian covariance was invalid.
+    #[error("invalid Cartesian covariance")]
+    CartesianCovariance(#[source] CartesianCovarianceError),
     /// An internally reconstructed Cartesian state was invalid.
     #[error("propagation produced an invalid Cartesian state")]
     InvalidCartesianState(#[source] StateError),

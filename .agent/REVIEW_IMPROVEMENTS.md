@@ -178,8 +178,9 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
   `crates/dynamics/numerical`.
 - [ ] **P16 (depends on attitude providers and P11):** add attitude dynamics,
   interpolation, and attitude-dependent force evaluation.
-- [ ] **P17 (depends on P11):** add variational equations, STM, and covariance
+- [x] **P17 (depends on P11):** add variational equations, STM, and covariance
   propagation with finite-difference or analytic sensitivity evidence.
+  Evidence: task 0039, ADR-0039, and `crates/dynamics/numerical`.
 
 ## I — Operational formats and data ingestion
 

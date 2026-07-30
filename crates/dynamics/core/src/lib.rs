@@ -10,6 +10,8 @@ use std::{fmt, sync::Arc};
 
 use hifitime::Epoch;
 use orbits::cartesian::{CartesianState, FramedAcceleration};
+use thiserror::Error;
+use units::{InverseTime, InverseTimeSquared};
 
 mod propagator;
 
@@ -98,6 +100,68 @@ pub trait CartesianDynamics: fmt::Debug + Send + Sync {
         epoch: Epoch,
         state: &CartesianState,
     ) -> Result<FramedAcceleration, Self::Error>;
+}
+
+/// Cartesian acceleration partial derivatives for variational equations.
+///
+/// `position[row][column]` is `d acceleration_row / d position_column`
+/// in reciprocal square seconds. `velocity[row][column]` is
+/// `d acceleration_row / d velocity_column` in reciprocal seconds.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CartesianAccelerationJacobian {
+    position: [[InverseTimeSquared; 3]; 3],
+    velocity: [[InverseTime; 3]; 3],
+}
+
+impl CartesianAccelerationJacobian {
+    /// Creates finite, frame-basis Cartesian acceleration partials.
+    pub fn new(
+        position: [[InverseTimeSquared; 3]; 3],
+        velocity: [[InverseTime; 3]; 3],
+    ) -> Result<Self, CartesianAccelerationJacobianError> {
+        if position
+            .iter()
+            .flatten()
+            .any(|value| !value.as_per_square_second().is_finite())
+            || velocity
+                .iter()
+                .flatten()
+                .any(|value| !value.as_per_second().is_finite())
+        {
+            return Err(CartesianAccelerationJacobianError::NonFinite);
+        }
+        Ok(Self { position, velocity })
+    }
+
+    /// Returns acceleration partials with respect to position.
+    #[must_use]
+    pub const fn position(self) -> [[InverseTimeSquared; 3]; 3] {
+        self.position
+    }
+
+    /// Returns acceleration partials with respect to velocity.
+    #[must_use]
+    pub const fn velocity(self) -> [[InverseTime; 3]; 3] {
+        self.velocity
+    }
+}
+
+/// Evaluable Cartesian dynamics with first state partial derivatives.
+pub trait CartesianVariationalDynamics: CartesianDynamics {
+    /// Evaluates the acceleration Jacobian at one epoch-qualified state.
+    fn acceleration_jacobian(
+        &self,
+        epoch: Epoch,
+        state: &CartesianState,
+    ) -> Result<CartesianAccelerationJacobian, Self::Error>;
+}
+
+/// Invalid Cartesian acceleration Jacobian.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum CartesianAccelerationJacobianError {
+    /// At least one partial derivative is NaN or infinite.
+    #[error("Cartesian acceleration Jacobian entries must be finite")]
+    NonFinite,
 }
 
 /// Ordered heterogeneous force-model composition for one dynamical system.

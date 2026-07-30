@@ -7,6 +7,8 @@
 //! implementation-neutral contract.
 
 #[cfg(feature = "cartesian")]
+mod covariance;
+#[cfg(feature = "cartesian")]
 mod kinematics;
 #[cfg(feature = "cartesian")]
 mod state;
@@ -14,6 +16,7 @@ mod state;
 /// Cartesian position/velocity state and coordinate types.
 #[cfg(feature = "cartesian")]
 pub mod cartesian {
+    pub use crate::covariance::{CartesianCovariance, CartesianCovarianceError};
     pub use crate::kinematics::{
         CartesianCoordinates, FramedAcceleration, FramedPosition, FramedVelocity, KinematicError,
     };

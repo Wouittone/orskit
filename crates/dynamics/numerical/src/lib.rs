@@ -24,6 +24,7 @@
 //! cargo run -p dynamics-numerical --example numerical_two_body
 //! cargo run -p dynamics-numerical --example event_detection
 //! cargo run -p dynamics-numerical --example maneuver_propagation
+//! cargo run -p dynamics-numerical --example variational_propagation
 //! ```
 
 use std::error::Error;
@@ -39,11 +40,16 @@ use units::uom::si::{length::meter, ratio::ratio, velocity::meter_per_second};
 use units::{Length, Position, Ratio, Velocity, VelocityVector};
 
 mod maneuver;
+mod variational;
 
 pub use maneuver::{
     CartesianMassState, ConstantThrustManeuver, ImpulsiveManeuver, ManeuverConfigurationError,
     ManeuverDynamicsError, ManeuverExecution, ManeuverExecutionKind, ManeuverPropagation,
     ManeuverPropagationError, ManeuverSchedule, ThrustVector,
+};
+pub use variational::{
+    CartesianStateTransition, CovariancePropagation, VariationalConfiguration,
+    VariationalConfigurationError, VariationalPropagation, VariationalPropagationError,
 };
 
 const COMPONENT_COUNT: usize = 6;

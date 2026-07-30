@@ -659,6 +659,7 @@ dependencies = [
  "frames",
  "gravity",
  "hifitime",
+ "nalgebra",
  "thiserror",
  "units",
 ]

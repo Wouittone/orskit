@@ -4,9 +4,12 @@ use frames::ReferenceFrame;
 use nalgebra::{Cholesky, Matrix3, SMatrix};
 use orbits::cartesian::CartesianState;
 use orskit_core::{Orbit, SpacecraftState};
-use units::{Position, VelocityVector};
+use units::uom::si::area::square_meter;
+use units::{Area, Position, PositionVelocityCovariance, VelocityVariance};
 
 use crate::{numerical::RawCovariance, OrbitDeterminationError};
+
+pub use orbits::cartesian::CartesianCovariance;
 
 /// A covariance representation associated with one spacecraft-state type.
 pub trait StateCovariance<S: SpacecraftState>: fmt::Debug + Clone + Send + Sync {
@@ -43,77 +46,53 @@ impl<S: SpacecraftState, C: StateCovariance<S>> StateEstimate<S, C> {
     }
 }
 
-/// Full covariance of a Cartesian position/velocity state.
-///
-/// Numerical matrices remain internal. The current constructor accepts
-/// component-wise typed standard deviations and constructs a diagonal
-/// covariance; correlated covariance ingestion will use a future typed domain
-/// object rather than exposing a raw matrix.
-#[derive(Debug, Clone, PartialEq)]
-pub struct CartesianCovariance {
-    frame: ReferenceFrame,
-    entries: RawCovariance,
-}
-
-impl CartesianCovariance {
-    /// Creates a diagonal covariance from typed Cartesian standard deviations.
-    pub fn from_standard_deviations(
-        frame: ReferenceFrame,
-        position: Position,
-        velocity: VelocityVector,
-    ) -> Result<Self, OrbitDeterminationError> {
-        let position = position.to_metres();
-        let velocity = velocity.to_metres_per_second();
-        let standard_deviations = [
-            position[0],
-            position[1],
-            position[2],
-            velocity[0],
-            velocity[1],
-            velocity[2],
-        ];
-        if standard_deviations.iter().any(|value| !value.is_finite()) {
-            return Err(OrbitDeterminationError::NonFinite {
-                what: "Cartesian standard deviation",
-            });
-        }
-        if standard_deviations.iter().any(|value| *value <= 0.0) {
-            return Err(OrbitDeterminationError::NotPositiveDefinite {
-                what: "Cartesian standard deviation",
-            });
-        }
-        let entries = RawCovariance::from_diagonal(&nalgebra::SVector::from_iterator(
-            standard_deviations.into_iter().map(|value| value * value),
-        ));
-        Self::from_raw(frame, entries)
-    }
-
-    /// Returns the expression frame.
-    #[must_use]
-    pub const fn frame(&self) -> ReferenceFrame {
-        self.frame
-    }
-
-    pub(crate) fn raw(&self) -> RawCovariance {
-        self.entries
-    }
-
-    pub(crate) fn from_raw(
-        frame: ReferenceFrame,
-        entries: RawCovariance,
-    ) -> Result<Self, OrbitDeterminationError> {
-        validate_positive_definite(&entries, "Cartesian covariance")?;
-        Ok(Self {
-            frame,
-            entries: symmetrize(entries),
-        })
-    }
-}
-
 impl StateCovariance<CartesianState> for CartesianCovariance {
     fn frame(&self) -> ReferenceFrame {
-        self.frame
+        CartesianCovariance::frame(self)
     }
+}
+
+pub(crate) fn cartesian_covariance_raw(covariance: &CartesianCovariance) -> RawCovariance {
+    RawCovariance::from_fn(|row, column| match (row < 3, column < 3) {
+        (true, true) => covariance.position_position()[row][column].get::<square_meter>(),
+        (true, false) => {
+            covariance.position_velocity()[row][column - 3].as_square_metres_per_second()
+        }
+        (false, true) => {
+            covariance.position_velocity()[column][row - 3].as_square_metres_per_second()
+        }
+        (false, false) => {
+            covariance.velocity_velocity()[row - 3][column - 3].as_square_metres_per_square_second()
+        }
+    })
+}
+
+pub(crate) fn cartesian_covariance_from_raw(
+    frame: ReferenceFrame,
+    entries: RawCovariance,
+) -> Result<CartesianCovariance, OrbitDeterminationError> {
+    validate_positive_definite(&entries, "Cartesian covariance")?;
+    let entries = symmetrize(entries);
+    let position_position = std::array::from_fn(|row| {
+        std::array::from_fn(|column| Area::new::<square_meter>(entries[(row, column)]))
+    });
+    let position_velocity = std::array::from_fn(|row| {
+        std::array::from_fn(|column| {
+            PositionVelocityCovariance::from_square_metres_per_second(entries[(row, column + 3)])
+        })
+    });
+    let velocity_velocity = std::array::from_fn(|row| {
+        std::array::from_fn(|column| {
+            VelocityVariance::from_square_metres_per_square_second(entries[(row + 3, column + 3)])
+        })
+    });
+    CartesianCovariance::from_blocks(
+        frame,
+        position_position,
+        position_velocity,
+        velocity_velocity,
+    )
+    .map_err(OrbitDeterminationError::CartesianCovariance)
 }
 
 /// Cartesian estimate used by the supplied Kalman implementations.
