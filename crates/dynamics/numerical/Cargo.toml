@@ -11,7 +11,12 @@ description = "Adaptive Cartesian numerical propagation for orskit"
 [lib]
 name = "dynamics_numerical"
 
+[features]
+default = []
+attitude = ["dep:attitude"]
+
 [dependencies]
+attitude = { path = "../../attitude", optional = true }
 dynamics = { package = "dynamics-core", path = "../core" }
 frames = { path = "../../frames" }
 hifitime.workspace = true
@@ -23,3 +28,7 @@ units = { path = "../../units" }
 [dev-dependencies]
 dynamics-two-bodies = { path = "../two-bodies" }
 gravity = { path = "../../gravity", features = ["point-mass"] }
+
+[[example]]
+name = "body_fixed_maneuver"
+required-features = ["attitude"]

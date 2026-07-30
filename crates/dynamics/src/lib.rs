@@ -8,6 +8,8 @@
 
 pub use dynamics_core::*;
 
+#[cfg(feature = "attitude")]
+pub use dynamics_numerical::{AttitudeManeuverDynamicsError, AttitudeManeuverPropagationError};
 #[cfg(feature = "numerical")]
 pub use dynamics_numerical::{
     BogackiShampine32, CartesianEphemeris, CartesianMassState, CartesianStateTransition,
@@ -16,8 +18,9 @@ pub use dynamics_numerical::{
     EventHandler, EventOccurrence, EventPropagation, ImpulsiveManeuver, IntegrationConfiguration,
     IntegrationConfigurationError, ManeuverConfigurationError, ManeuverDynamicsError,
     ManeuverExecution, ManeuverExecutionKind, ManeuverPropagation, ManeuverPropagationError,
-    ManeuverSchedule, NumericalPropagationError, ThrustVector, VariationalConfiguration,
-    VariationalConfigurationError, VariationalPropagation, VariationalPropagationError,
+    ManeuverSchedule, NumericalPropagationError, ThrustFrame, ThrustVector,
+    VariationalConfiguration, VariationalConfigurationError, VariationalPropagation,
+    VariationalPropagationError,
 };
 #[cfg(feature = "two-bodies")]
 pub use dynamics_two_bodies::{
@@ -28,6 +31,8 @@ pub use dynamics_two_bodies::{
 pub mod numerical {
     //! Adaptive Cartesian numerical propagation.
 
+    #[cfg(feature = "attitude")]
+    pub use dynamics_numerical::{AttitudeManeuverDynamicsError, AttitudeManeuverPropagationError};
     pub use dynamics_numerical::{
         BogackiShampine32, CartesianEphemeris, CartesianMassState, CartesianStateTransition,
         ConstantThrustManeuver, CovariancePropagation, DenseOutputError, DensePropagation,
@@ -36,7 +41,7 @@ pub mod numerical {
         ImpulsiveManeuver, IntegrationConfiguration, IntegrationConfigurationError,
         ManeuverConfigurationError, ManeuverDynamicsError, ManeuverExecution,
         ManeuverExecutionKind, ManeuverPropagation, ManeuverPropagationError, ManeuverSchedule,
-        NumericalPropagationError, ThrustVector, VariationalConfiguration,
+        NumericalPropagationError, ThrustFrame, ThrustVector, VariationalConfiguration,
         VariationalConfigurationError, VariationalPropagation, VariationalPropagationError,
     };
 }

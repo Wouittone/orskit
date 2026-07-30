@@ -2,16 +2,17 @@ use std::sync::Arc;
 
 use frames::{FrameMotion, FrameOrientation, FrameOrigin, ReferenceFrame};
 use hifitime::Epoch;
-use nalgebra::{Matrix3, Quaternion, UnitQuaternion};
+use nalgebra::{Matrix3, Quaternion, UnitQuaternion, Vector3};
 use thiserror::Error;
 #[cfg(feature = "standard-shapes")]
 use units::uom::si::length::meter;
 use units::uom::si::{
-    angle::radian, mass::kilogram, moment_of_inertia::kilogram_square_meter, ratio::ratio,
+    angle::radian, force::newton, mass::kilogram, moment_of_inertia::kilogram_square_meter,
+    ratio::ratio,
 };
 #[cfg(feature = "standard-shapes")]
 use units::Length;
-use units::{Angle, AngularVelocity, AngularVelocityVector, Mass, MomentOfInertia, Ratio};
+use units::{Angle, AngularVelocity, AngularVelocityVector, Force, Mass, MomentOfInertia, Ratio};
 
 use crate::{Orbit, SpacecraftState};
 
@@ -34,6 +35,38 @@ pub struct OrientationQuaternion {
     pub target_frame: ReferenceFrame,
     /// Normalized scalar/i/j/k quaternion components.
     pub components: [Ratio; 4],
+}
+
+/// Finite force components expressed in one declared frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FramedForce {
+    components: [Force; 3],
+    frame: ReferenceFrame,
+}
+
+impl FramedForce {
+    /// Constructs a finite frame-qualified force.
+    pub fn new(components: [Force; 3], frame: ReferenceFrame) -> Result<Self, FramedForceError> {
+        if components
+            .iter()
+            .any(|component| !component.get::<newton>().is_finite())
+        {
+            return Err(FramedForceError::NonFinite);
+        }
+        Ok(Self { components, frame })
+    }
+
+    /// Returns the typed x/y/z force components.
+    #[must_use]
+    pub const fn components(self) -> [Force; 3] {
+        self.components
+    }
+
+    /// Returns the frame in which the components are expressed.
+    #[must_use]
+    pub const fn frame(self) -> ReferenceFrame {
+        self.frame
+    }
 }
 
 impl TryFrom<OrientationQuaternion> for Orientation {
@@ -111,6 +144,95 @@ impl Orientation {
             Angle::new::<radian>(yaw),
         ]
     }
+
+    /// Interpolates the shortest unit-quaternion arc to `end`.
+    ///
+    /// `fraction` must lie in the closed interval `[0, 1]`. Both
+    /// orientations must map between the same source and target frames.
+    /// Quaternion sign is representation-only: equivalent `q` and `-q`
+    /// endpoints follow the same shortest physical rotation.
+    pub fn slerp(
+        &self,
+        end: &Self,
+        fraction: Ratio,
+    ) -> Result<Self, OrientationInterpolationError> {
+        if self.from_frame != end.from_frame {
+            return Err(OrientationInterpolationError::SourceFrameMismatch);
+        }
+        if self.to_frame != end.to_frame {
+            return Err(OrientationInterpolationError::TargetFrameMismatch);
+        }
+        let fraction = fraction.get::<ratio>();
+        if !fraction.is_finite() || !(0.0..=1.0).contains(&fraction) {
+            return Err(OrientationInterpolationError::InvalidFraction);
+        }
+        let rotation = self
+            .rotation
+            .try_slerp(&end.rotation, fraction, f64::EPSILON)
+            .ok_or(OrientationInterpolationError::AmbiguousArc)?;
+        Ok(Self {
+            rotation,
+            from_frame: self.from_frame,
+            to_frame: self.to_frame,
+        })
+    }
+
+    /// Rotates a typed force from the source into the target frame.
+    pub fn rotate_force(&self, force: FramedForce) -> Result<FramedForce, OrientationForceError> {
+        if force.frame != self.from_frame {
+            return Err(OrientationForceError::SourceFrameMismatch);
+        }
+        let values = force.components.map(|component| component.get::<newton>());
+        let rotated = self.rotation.transform_vector(&Vector3::from(values));
+        FramedForce::new(
+            [
+                Force::new::<newton>(rotated.x),
+                Force::new::<newton>(rotated.y),
+                Force::new::<newton>(rotated.z),
+            ],
+            self.to_frame,
+        )
+        .map_err(OrientationForceError::InvalidResult)
+    }
+}
+
+/// Invalid interpolation between framed orientations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum OrientationInterpolationError {
+    /// The two rotations consume components from different frames.
+    #[error("orientation interpolation source frames must match")]
+    SourceFrameMismatch,
+    /// The two rotations produce components in different frames.
+    #[error("orientation interpolation target frames must match")]
+    TargetFrameMismatch,
+    /// The interpolation fraction is non-finite or outside `[0, 1]`.
+    #[error("orientation interpolation fraction must be finite and lie in [0, 1]")]
+    InvalidFraction,
+    /// The quaternion endpoints do not select a numerically unique great-circle arc.
+    #[error("orientation interpolation arc is numerically ambiguous")]
+    AmbiguousArc,
+}
+
+/// Invalid frame-qualified force.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum FramedForceError {
+    /// At least one force component is NaN or infinite.
+    #[error("force components must be finite")]
+    NonFinite,
+}
+
+/// Failure rotating a force through a framed orientation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum OrientationForceError {
+    /// The input force is not expressed in the orientation source frame.
+    #[error("force frame must match the orientation source frame")]
+    SourceFrameMismatch,
+    /// Quaternion rotation produced an invalid force.
+    #[error("rotated force failed validation")]
+    InvalidResult(#[source] FramedForceError),
 }
 
 /// Body angular velocity relative to a reference frame, expressed in body axes.

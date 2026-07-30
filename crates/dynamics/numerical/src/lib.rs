@@ -25,6 +25,7 @@
 //! cargo run -p dynamics-numerical --example event_detection
 //! cargo run -p dynamics-numerical --example maneuver_propagation
 //! cargo run -p dynamics-numerical --example variational_propagation
+//! cargo run -p dynamics-numerical --features attitude --example body_fixed_maneuver
 //! ```
 
 use std::error::Error;
@@ -42,10 +43,12 @@ use units::{Length, Position, Ratio, Velocity, VelocityVector};
 mod maneuver;
 mod variational;
 
+#[cfg(feature = "attitude")]
+pub use maneuver::{AttitudeManeuverDynamicsError, AttitudeManeuverPropagationError};
 pub use maneuver::{
     CartesianMassState, ConstantThrustManeuver, ImpulsiveManeuver, ManeuverConfigurationError,
     ManeuverDynamicsError, ManeuverExecution, ManeuverExecutionKind, ManeuverPropagation,
-    ManeuverPropagationError, ManeuverSchedule, ThrustVector,
+    ManeuverPropagationError, ManeuverSchedule, ThrustFrame, ThrustVector,
 };
 pub use variational::{
     CartesianStateTransition, CovariancePropagation, VariationalConfiguration,

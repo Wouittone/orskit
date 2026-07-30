@@ -16,6 +16,8 @@ pub use frames;
 pub use orskit_core as core;
 pub use units;
 
+#[cfg(feature = "attitude")]
+pub use attitude;
 #[cfg(feature = "bodies")]
 pub use bodies;
 #[cfg(feature = "ccsds")]
@@ -37,8 +39,16 @@ pub mod prelude {
     pub use crate::frames::{FrameCatalog, FrameNamespace, ReferenceFrame};
     pub use crate::units::{Length, Position, VelocityVector};
 
+    #[cfg(feature = "attitude")]
+    pub use crate::attitude::{
+        AttitudeProvider, AttitudeSample, FixedAttitudeProvider, TabulatedAttitudeProvider,
+    };
     #[cfg(feature = "bodies")]
     pub use crate::bodies::{Body, BodySystem};
+    #[cfg(feature = "attitude-maneuvers")]
+    pub use crate::dynamics::{
+        AttitudeManeuverDynamicsError, AttitudeManeuverPropagationError, ThrustFrame,
+    };
     #[cfg(feature = "numerical")]
     pub use crate::dynamics::{
         BogackiShampine32, CartesianDynamics, CartesianEphemeris, CartesianMassState,

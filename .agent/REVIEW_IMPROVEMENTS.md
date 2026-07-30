@@ -178,6 +178,12 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
   `crates/dynamics/numerical`.
 - [ ] **P16 (depends on attitude providers and P11):** add attitude dynamics,
   interpolation, and attitude-dependent force evaluation.
+  - [x] **P16A:** add fixed/tabulated prescribed-attitude providers,
+    shortest-arc quaternion interpolation, and body-fixed finite thrust
+    evaluated at every numerical stage. Evidence: task 0040, ADR-0040,
+    `crates/attitude`, and `crates/dynamics/numerical`.
+  - [ ] **P16B:** add torque-driven quaternion/angular-rate propagation,
+    rotational error control, and dense attitude ephemerides.
 - [x] **P17 (depends on P11):** add variational equations, STM, and covariance
   propagation with finite-difference or analytic sensitivity evidence.
   Evidence: task 0039, ADR-0039, and `crates/dynamics/numerical`.

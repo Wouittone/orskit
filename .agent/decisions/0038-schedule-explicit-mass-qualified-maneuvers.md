@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-07-30
 - Owners: orskit maintainers
+- Extended by: ADR-0040 prescribed attitude and body-fixed finite thrust
 - Affected parity rows: maneuvers, mass, and finite/impulsive burns;
   numerical integration and dense ephemerides
 

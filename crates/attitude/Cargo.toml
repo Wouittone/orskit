@@ -1,0 +1,15 @@
+[package]
+name = "attitude"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Epoch- and frame-explicit spacecraft attitude providers for orskit"
+
+[dependencies]
+hifitime.workspace = true
+orskit_core = { package = "core", path = "../core", default-features = false, features = ["quaternion-attitude"] }
+thiserror.workspace = true
+units = { path = "../units" }

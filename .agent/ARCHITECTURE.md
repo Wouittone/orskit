@@ -106,7 +106,11 @@ missing abstraction or an incorrectly placed type.
 - **Attitude:** open `Attitude` and `SpacecraftGeometry` contracts compose
   caller-selected representations into a `SpacecraftView`; optional built-in
   quaternion attitude and standard geometry implementations are separately
-  feature-gated in `core`.
+  feature-gated in `core`. The focused `attitude` crate owns the
+  epoch/orbit-aware provider contract plus fixed and bounded tabulated
+  providers. Tables use framed shortest-arc quaternion interpolation with
+  explicit closed coverage; no provider hides an ephemeris, transform, or
+  network lookup.
 - **Measurements:** an object-safe `Measurement` trait composes heterogeneous
   observations without erasing their dimensions. Concrete range, range-rate,
   azimuth/elevation, and Doppler implementations each retain an explicit
@@ -314,8 +318,11 @@ Cartesian propagator. The numerical crate's private six-component SI layout
 backs public immutable Cartesian ephemerides and bracketed event evaluation
 without establishing a generic public ODE API. Its first maneuver workflow
 segments that propagation at scheduled discontinuities and overlays an exact
-constant-flow mass law for constant-frame finite thrust. General composed force
-evaluation and generic error-controlled rotational, mass, and variational
+constant-flow mass law for constant-frame finite thrust. An opt-in
+attitude-aware adapter samples a prescribed `AttitudeProvider` at every
+Runge--Kutta stage and rotates spacecraft-body-fixed thrust into the Cartesian
+frame; it does not imply that attitude itself was integrated. General composed
+force evaluation and generic error-controlled rotational, mass, and variational
 state groups remain deferred. The variational extension integrates a
 42-component Cartesian state/STM layout only when dynamics supplies typed
 acceleration partials; it does not establish a generic public ODE vector.

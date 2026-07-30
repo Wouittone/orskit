@@ -2,10 +2,14 @@
 
 use std::error::Error;
 
+#[cfg(feature = "attitude")]
+use attitude::AttitudeProvider;
 use frames::ReferenceFrame;
 use hifitime::{Duration, Epoch};
 use orbits::cartesian::{CartesianState, FramedAcceleration};
-use orskit_core::Orbit;
+#[cfg(feature = "attitude")]
+use orskit_core::{Attitude, FramedForce, OrientationForceError};
+use orskit_core::{Orbit, SpacecraftBodyFrame};
 use thiserror::Error;
 use units::uom::si::{
     f64::{Force, MassRate},
@@ -22,6 +26,32 @@ use dynamics::Propagator;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ThrustVector {
     components: [Force; 3],
+}
+
+/// Axes in which a finite-burn thrust vector remains constant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ThrustFrame {
+    /// Components are already expressed in the propagated Cartesian frame.
+    Reference(ReferenceFrame),
+    /// Components are fixed in one spacecraft-owned body frame.
+    Body(SpacecraftBodyFrame),
+}
+
+impl ThrustFrame {
+    /// Returns the frame identity attached to the thrust components.
+    #[must_use]
+    pub const fn reference_frame(&self) -> ReferenceFrame {
+        match self {
+            Self::Reference(frame) => *frame,
+            Self::Body(frame) => frame.reference_frame(),
+        }
+    }
+
+    /// Returns whether the thrust requires an attitude provider.
+    #[must_use]
+    pub const fn is_body_fixed(&self) -> bool {
+        matches!(self, Self::Body(_))
+    }
 }
 
 impl ThrustVector {
@@ -172,10 +202,12 @@ impl ImpulsiveManeuver {
 
 /// Constant frame-resolved thrust and propellant flow over `[start, end]`.
 ///
-/// The thrust components remain constant in `frame`; this model does not infer
-/// attitude or steer a body-fixed direction. Mass follows the exact linear law
-/// `dm/dt = -mass_flow_rate`, while translational acceleration uses `thrust /
-/// mass(epoch)` at every numerical stage.
+/// The thrust components remain constant in the selected reference or body
+/// frame. Body-fixed thrust requires
+/// [`BogackiShampine32::propagate_with_attitude_maneuvers`] and is rotated at
+/// every numerical stage using the caller-selected attitude provider. Mass
+/// follows the exact linear law `dm/dt = -mass_flow_rate`, while translational
+/// acceleration uses `thrust / mass(epoch)` at every numerical stage.
 ///
 /// The force and variable-mass relation follows D. M. Goebel and I. Katz,
 /// [*Fundamentals of Electric Propulsion: Ion and Hall
@@ -186,7 +218,7 @@ pub struct ConstantThrustManeuver {
     name: Box<str>,
     start: Epoch,
     end: Epoch,
-    frame: ReferenceFrame,
+    thrust_frame: ThrustFrame,
     thrust: ThrustVector,
     mass_flow_rate: MassRate,
 }
@@ -220,10 +252,31 @@ impl ConstantThrustManeuver {
             name,
             start,
             end,
-            frame,
+            thrust_frame: ThrustFrame::Reference(frame),
             thrust,
             mass_flow_rate,
         })
+    }
+
+    /// Creates one finite burn whose thrust is constant in spacecraft body axes.
+    pub fn body_fixed(
+        name: impl Into<Box<str>>,
+        start: Epoch,
+        end: Epoch,
+        body_frame: SpacecraftBodyFrame,
+        thrust: ThrustVector,
+        mass_flow_rate: MassRate,
+    ) -> Result<Self, ManeuverConfigurationError> {
+        let mut burn = Self::new(
+            name,
+            start,
+            end,
+            body_frame.reference_frame(),
+            thrust,
+            mass_flow_rate,
+        )?;
+        burn.thrust_frame = ThrustFrame::Body(body_frame);
+        Ok(burn)
     }
 
     /// Returns the stable diagnostic name.
@@ -247,7 +300,13 @@ impl ConstantThrustManeuver {
     /// Returns the frame in which thrust is constant.
     #[must_use]
     pub const fn frame(&self) -> ReferenceFrame {
-        self.frame
+        self.thrust_frame.reference_frame()
+    }
+
+    /// Returns whether thrust is reference-frame or spacecraft-body fixed.
+    #[must_use]
+    pub const fn thrust_frame(&self) -> &ThrustFrame {
+        &self.thrust_frame
     }
 
     /// Returns the constant thrust vector.
@@ -522,6 +581,220 @@ where
     }
 }
 
+#[cfg(feature = "attitude")]
+impl<P> BogackiShampine32<P>
+where
+    P: CartesianDynamics,
+{
+    /// Propagates maneuvers with body-fixed thrust resolved by `attitude_provider`.
+    ///
+    /// Reference-frame burns retain their existing behavior. For every
+    /// numerical stage inside a body-fixed burn, the provider is evaluated at
+    /// that stage's complete epoch-qualified Cartesian orbit, and its
+    /// body-to-reference orientation rotates the thrust before `F / m` is
+    /// added to the base acceleration. Provider errors retain their source.
+    pub fn propagate_with_attitude_maneuvers<A>(
+        &self,
+        initial: CartesianMassState,
+        target: Epoch,
+        schedule: &ManeuverSchedule,
+        attitude_provider: &A,
+    ) -> Result<ManeuverPropagation, AttitudeManeuverPropagationError<P::Error, A::Error>>
+    where
+        A: AttitudeProvider<CartesianState>,
+    {
+        let (mut orbit, mut mass) = initial.into_parts();
+        let initial_epoch = orbit.epoch();
+        if target == initial_epoch {
+            return Ok(ManeuverPropagation {
+                final_state: CartesianMassState { orbit, mass },
+                executions: Vec::new(),
+            });
+        }
+        self.problem()
+            .validate(orbit.as_ref())
+            .map_err(AttitudeManeuverPropagationError::Dynamics)?;
+        let direction = if target > initial_epoch { 1.0 } else { -1.0 };
+        let frame = orbit.as_ref().frame();
+        validate_attitude_schedule_frame(schedule, frame)?;
+        let boundaries = schedule.boundary_epochs(initial_epoch, target);
+        let mut executions = Vec::new();
+        let mut current_epoch = initial_epoch;
+
+        for next_epoch in boundaries {
+            apply_attitude_impulses(
+                schedule,
+                current_epoch,
+                direction,
+                &mut orbit,
+                &mut mass,
+                &mut executions,
+            )?;
+            if next_epoch == current_epoch {
+                continue;
+            }
+
+            let active_burn = schedule.active_burn(current_epoch, next_epoch);
+            let mass_before = mass;
+            let next_mass =
+                attitude_mass_after_interval(mass, current_epoch, next_epoch, active_burn)?;
+            let dynamics = AttitudeManeuverDynamics {
+                base: self.problem(),
+                burn: active_burn,
+                attitude_provider,
+                reference_epoch: current_epoch,
+                reference_mass: mass,
+            };
+            let segment_propagator = BogackiShampine32::new(dynamics, self.configuration());
+            orbit = segment_propagator
+                .propagate(orbit, next_epoch)
+                .map_err(AttitudeManeuverPropagationError::Numerical)?;
+            mass = next_mass;
+            if let Some(burn) = active_burn {
+                executions.push(ManeuverExecution {
+                    name: burn.name.clone(),
+                    kind: ManeuverExecutionKind::FiniteBurnArc,
+                    start: current_epoch,
+                    end: next_epoch,
+                    mass_before,
+                    mass_after: mass,
+                });
+            }
+            current_epoch = next_epoch;
+        }
+
+        apply_attitude_impulses(
+            schedule,
+            target,
+            direction,
+            &mut orbit,
+            &mut mass,
+            &mut executions,
+        )?;
+        Ok(ManeuverPropagation {
+            final_state: CartesianMassState { orbit, mass },
+            executions,
+        })
+    }
+}
+
+#[cfg(feature = "attitude")]
+fn apply_attitude_impulses<E, A>(
+    schedule: &ManeuverSchedule,
+    epoch: Epoch,
+    direction: f64,
+    orbit: &mut Orbit<CartesianState>,
+    mass: &mut Mass,
+    executions: &mut Vec<ManeuverExecution>,
+) -> Result<(), AttitudeManeuverPropagationError<E, A>>
+where
+    E: Error + Send + Sync + 'static,
+    A: Error + Send + Sync + 'static,
+{
+    for impulse in schedule
+        .impulses
+        .iter()
+        .filter(|impulse| impulse.epoch == epoch)
+    {
+        let mass_before = *mass;
+        let propellant = impulse.propellant_mass.get::<kilogram>();
+        let mass_after_kg = mass_before.get::<kilogram>() - direction * propellant;
+        if !mass_after_kg.is_finite() || mass_after_kg <= 0.0 {
+            return Err(AttitudeManeuverPropagationError::MassExhausted {
+                maneuver: impulse.name.clone(),
+                epoch,
+            });
+        }
+        let velocity = orbit.as_ref().velocity();
+        let signed_delta = impulse.delta_velocity.to_metres_per_second().map(|value| {
+            if direction > 0.0 {
+                value
+            } else {
+                -value
+            }
+        });
+        let [vx, vy, vz] = velocity.to_metres_per_second();
+        let state = CartesianState::new(
+            orbit.as_ref().frame(),
+            orbit.as_ref().position(),
+            VelocityVector::from_metres_per_second(
+                vx + signed_delta[0],
+                vy + signed_delta[1],
+                vz + signed_delta[2],
+            ),
+        )
+        .map_err(|_| AttitudeManeuverPropagationError::NonFiniteManeuverState)?;
+        *mass = Mass::new::<kilogram>(mass_after_kg);
+        *orbit = Orbit::new(epoch, state);
+        executions.push(ManeuverExecution {
+            name: impulse.name.clone(),
+            kind: ManeuverExecutionKind::Impulse,
+            start: epoch,
+            end: epoch,
+            mass_before,
+            mass_after: *mass,
+        });
+    }
+    Ok(())
+}
+
+#[cfg(feature = "attitude")]
+fn attitude_mass_after_interval<E, A>(
+    mass: Mass,
+    start: Epoch,
+    end: Epoch,
+    burn: Option<&ConstantThrustManeuver>,
+) -> Result<Mass, AttitudeManeuverPropagationError<E, A>>
+where
+    E: Error + Send + Sync + 'static,
+    A: Error + Send + Sync + 'static,
+{
+    let Some(burn) = burn else {
+        return Ok(mass);
+    };
+    let mass_kg = mass.get::<kilogram>()
+        - burn.mass_flow_rate.get::<kilogram_per_second>() * (end - start).to_seconds();
+    if !mass_kg.is_finite() || mass_kg <= 0.0 {
+        return Err(AttitudeManeuverPropagationError::MassExhausted {
+            maneuver: burn.name.clone(),
+            epoch: end,
+        });
+    }
+    Ok(Mass::new::<kilogram>(mass_kg))
+}
+
+#[cfg(feature = "attitude")]
+fn validate_attitude_schedule_frame<E, A>(
+    schedule: &ManeuverSchedule,
+    frame: ReferenceFrame,
+) -> Result<(), AttitudeManeuverPropagationError<E, A>>
+where
+    E: Error + Send + Sync + 'static,
+    A: Error + Send + Sync + 'static,
+{
+    for impulse in &schedule.impulses {
+        if impulse.frame != frame {
+            return Err(AttitudeManeuverPropagationError::FrameMismatch {
+                maneuver: impulse.name.clone(),
+                maneuver_frame: Box::new(impulse.frame),
+                state_frame: Box::new(frame),
+            });
+        }
+    }
+    for burn in &schedule.finite_burns {
+        if let ThrustFrame::Reference(burn_frame) = &burn.thrust_frame {
+            if *burn_frame != frame {
+                return Err(AttitudeManeuverPropagationError::FrameMismatch {
+                    maneuver: burn.name.clone(),
+                    maneuver_frame: Box::new(*burn_frame),
+                    state_frame: Box::new(frame),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 fn apply_impulses<E>(
     schedule: &ManeuverSchedule,
     epoch: Epoch,
@@ -620,12 +893,20 @@ where
         }
     }
     for burn in &schedule.finite_burns {
-        if burn.frame != frame {
-            return Err(ManeuverPropagationError::FrameMismatch {
-                maneuver: burn.name.clone(),
-                maneuver_frame: Box::new(burn.frame),
-                state_frame: Box::new(frame),
-            });
+        match &burn.thrust_frame {
+            ThrustFrame::Reference(burn_frame) if *burn_frame != frame => {
+                return Err(ManeuverPropagationError::FrameMismatch {
+                    maneuver: burn.name.clone(),
+                    maneuver_frame: Box::new(*burn_frame),
+                    state_frame: Box::new(frame),
+                });
+            }
+            ThrustFrame::Body(_) => {
+                return Err(ManeuverPropagationError::AttitudeProviderRequired {
+                    maneuver: burn.name.clone(),
+                });
+            }
+            ThrustFrame::Reference(_) => {}
         }
     }
     Ok(())
@@ -650,7 +931,7 @@ where
             .validate(state)
             .map_err(ManeuverDynamicsError::Dynamics)?;
         if let Some(burn) = self.burn {
-            if burn.frame != state.frame() {
+            if burn.frame() != state.frame() {
                 return Err(ManeuverDynamicsError::FrameMismatch);
             }
         }
@@ -689,6 +970,108 @@ where
             state.frame(),
         )
         .map_err(|_| ManeuverDynamicsError::NonFiniteAcceleration)
+    }
+}
+
+#[cfg(feature = "attitude")]
+#[derive(Debug)]
+struct AttitudeManeuverDynamics<'a, P, A> {
+    base: &'a P,
+    burn: Option<&'a ConstantThrustManeuver>,
+    attitude_provider: &'a A,
+    reference_epoch: Epoch,
+    reference_mass: Mass,
+}
+
+#[cfg(feature = "attitude")]
+impl<P, A> CartesianDynamics for AttitudeManeuverDynamics<'_, P, A>
+where
+    P: CartesianDynamics,
+    A: AttitudeProvider<CartesianState>,
+{
+    type Error = AttitudeManeuverDynamicsError<P::Error, A::Error>;
+
+    fn validate(&self, state: &CartesianState) -> Result<(), Self::Error> {
+        self.base
+            .validate(state)
+            .map_err(AttitudeManeuverDynamicsError::Dynamics)?;
+        if let Some(ConstantThrustManeuver {
+            thrust_frame: ThrustFrame::Reference(frame),
+            ..
+        }) = self.burn
+        {
+            if *frame != state.frame() {
+                return Err(AttitudeManeuverDynamicsError::FrameMismatch);
+            }
+        }
+        Ok(())
+    }
+
+    fn acceleration(
+        &self,
+        epoch: Epoch,
+        state: &CartesianState,
+    ) -> Result<FramedAcceleration, Self::Error> {
+        let base = self
+            .base
+            .acceleration(epoch, state)
+            .map_err(AttitudeManeuverDynamicsError::Dynamics)?;
+        if base.frame() != state.frame() {
+            return Err(AttitudeManeuverDynamicsError::BaseAccelerationFrameMismatch);
+        }
+        let Some(burn) = self.burn else {
+            return Ok(base);
+        };
+        let mass_kg = self.reference_mass.get::<kilogram>()
+            - burn.mass_flow_rate.get::<kilogram_per_second>()
+                * (epoch - self.reference_epoch).to_seconds();
+        if !mass_kg.is_finite() || mass_kg <= 0.0 {
+            return Err(AttitudeManeuverDynamicsError::NonPositiveMass);
+        }
+
+        let thrust = match &burn.thrust_frame {
+            ThrustFrame::Reference(frame) => {
+                if *frame != state.frame() {
+                    return Err(AttitudeManeuverDynamicsError::FrameMismatch);
+                }
+                burn.thrust.components()
+            }
+            ThrustFrame::Body(body_frame) => {
+                let stage_orbit = Orbit::new(epoch, *state);
+                let attitude = self
+                    .attitude_provider
+                    .attitude(&stage_orbit)
+                    .map_err(AttitudeManeuverDynamicsError::AttitudeProvider)?;
+                if attitude.angular_velocity().body_frame_capability() != body_frame
+                    || attitude.orientation().source_frame() != body_frame.reference_frame()
+                {
+                    return Err(AttitudeManeuverDynamicsError::ProviderBodyFrameMismatch);
+                }
+                if attitude.orientation().target_frame() != state.frame() {
+                    return Err(AttitudeManeuverDynamicsError::ProviderReferenceFrameMismatch);
+                }
+                let body_force =
+                    FramedForce::new(burn.thrust.components(), body_frame.reference_frame())
+                        .map_err(|_| AttitudeManeuverDynamicsError::NonFiniteAcceleration)?;
+                attitude
+                    .orientation()
+                    .rotate_force(body_force)
+                    .map_err(AttitudeManeuverDynamicsError::ForceRotation)?
+                    .components()
+            }
+        };
+
+        let [base_x, base_y, base_z] = base.value().to_metres_per_second_squared();
+        let [thrust_x, thrust_y, thrust_z] = thrust.map(|component| component.get::<newton>());
+        FramedAcceleration::new(
+            AccelerationVector::from_metres_per_second_squared(
+                base_x + thrust_x / mass_kg,
+                base_y + thrust_y / mass_kg,
+                base_z + thrust_z / mass_kg,
+            ),
+            state.frame(),
+        )
+        .map_err(|_| AttitudeManeuverDynamicsError::NonFiniteAcceleration)
     }
 }
 
@@ -780,6 +1163,44 @@ where
     NonFiniteAcceleration,
 }
 
+/// Failure while evaluating base dynamics plus attitude-resolved thrust.
+#[cfg(feature = "attitude")]
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum AttitudeManeuverDynamicsError<E, A>
+where
+    E: Error + Send + Sync + 'static,
+    A: Error + Send + Sync + 'static,
+{
+    /// The caller-selected base dynamics failed.
+    #[error("base Cartesian dynamics evaluation failed")]
+    Dynamics(#[source] E),
+    /// The attitude provider failed at a numerical stage.
+    #[error("attitude-provider evaluation failed during finite burn")]
+    AttitudeProvider(#[source] A),
+    /// A reference-frame burn and Cartesian state use different frames.
+    #[error("finite-burn frame does not match the Cartesian state frame")]
+    FrameMismatch,
+    /// The provider returned another spacecraft's body axes.
+    #[error("attitude-provider body frame does not match the body-fixed thrust frame")]
+    ProviderBodyFrameMismatch,
+    /// The provider returned an orientation relative to another frame.
+    #[error("attitude-provider reference frame does not match the Cartesian state frame")]
+    ProviderReferenceFrameMismatch,
+    /// The provider orientation could not rotate the body-qualified force.
+    #[error("body-fixed thrust rotation failed")]
+    ForceRotation(#[source] OrientationForceError),
+    /// Base dynamics returned acceleration in another frame during a burn.
+    #[error("base acceleration frame does not match the Cartesian state frame")]
+    BaseAccelerationFrameMismatch,
+    /// A numerical stage reached zero or negative spacecraft mass.
+    #[error("finite-burn stage reached non-positive spacecraft mass")]
+    NonPositiveMass,
+    /// Adding rotated thrust to base dynamics produced non-finite acceleration.
+    #[error("combined base and attitude-resolved thrust acceleration is non-finite")]
+    NonFiniteAcceleration,
+}
+
 /// Maneuver-aware propagation failure.
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -800,6 +1221,12 @@ where
         /// Propagated Cartesian frame.
         state_frame: Box<ReferenceFrame>,
     },
+    /// A body-fixed finite burn was evaluated without an attitude provider.
+    #[error("body-fixed finite burn {maneuver} requires an attitude provider")]
+    AttitudeProviderRequired {
+        /// Maneuver diagnostic name.
+        maneuver: Box<str>,
+    },
     /// Forward execution would consume all remaining mass.
     #[error("maneuver {maneuver} exhausts spacecraft mass at {epoch}")]
     MassExhausted {
@@ -816,11 +1243,62 @@ where
     Numerical(#[source] NumericalPropagationError<ManeuverDynamicsError<E>>),
 }
 
+/// Attitude-resolved maneuver propagation failure.
+#[cfg(feature = "attitude")]
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum AttitudeManeuverPropagationError<E, A>
+where
+    E: Error + Send + Sync + 'static,
+    A: Error + Send + Sync + 'static,
+{
+    /// Initial base-dynamics validation failed.
+    #[error("Cartesian dynamics validation failed")]
+    Dynamics(#[source] E),
+    /// A reference-frame maneuver is expressed in another frame.
+    #[error("maneuver {maneuver} frame {maneuver_frame} does not match state frame {state_frame}")]
+    FrameMismatch {
+        /// Maneuver diagnostic name.
+        maneuver: Box<str>,
+        /// Frame of its delta-velocity or thrust.
+        maneuver_frame: Box<ReferenceFrame>,
+        /// Propagated Cartesian frame.
+        state_frame: Box<ReferenceFrame>,
+    },
+    /// Forward execution would consume all remaining mass.
+    #[error("maneuver {maneuver} exhausts spacecraft mass at {epoch}")]
+    MassExhausted {
+        /// Maneuver diagnostic name.
+        maneuver: Box<str>,
+        /// First detected non-positive-mass epoch.
+        epoch: Epoch,
+    },
+    /// Applying an impulse produced a non-finite Cartesian state.
+    #[error("impulsive maneuver produced a non-finite Cartesian state")]
+    NonFiniteManeuverState,
+    /// The adaptive attitude-resolved segment propagator failed.
+    #[error("attitude-resolved maneuver propagation segment failed")]
+    Numerical(#[source] NumericalPropagationError<AttitudeManeuverDynamicsError<E, A>>),
+}
+
 #[cfg(test)]
 mod tests {
     use std::convert::Infallible;
+    #[cfg(feature = "attitude")]
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
+    #[cfg(feature = "attitude")]
+    use attitude::{
+        AttitudeProvider, AttitudeSample, FixedAttitudeProvider, FixedAttitudeProviderError,
+        TabulatedAttitudeProvider, TabulatedAttitudeProviderError,
+    };
     use hifitime::Unit;
+    #[cfg(feature = "attitude")]
+    use orskit_core::frames::{CustomFrameId, FrameMotion, FrameOrientation, FrameOrigin};
+    #[cfg(feature = "attitude")]
+    use orskit_core::{
+        BodyAngularVelocity, Orientation, OrientationQuaternion, QuaternionAttitude,
+    };
     use units::uom::si::{mass::kilogram, mass_rate::kilogram_per_second, ratio::ratio};
     use units::{Length, Position, Ratio, Velocity};
 
@@ -881,6 +1359,58 @@ mod tests {
             Mass::new::<kilogram>(mass_kg),
         )
         .expect("positive mass")
+    }
+
+    #[cfg(feature = "attitude")]
+    fn body(id: u64, spacecraft_id: &str) -> SpacecraftBodyFrame {
+        let id = CustomFrameId::new(id);
+        SpacecraftBodyFrame::new(
+            spacecraft_id.to_owned(),
+            ReferenceFrame::new(
+                FrameOrigin::Custom(id),
+                FrameOrientation::custom(id, FrameMotion::NonInertial),
+            ),
+        )
+        .expect("spacecraft-owned body frame")
+    }
+
+    #[cfg(feature = "attitude")]
+    fn quaternion_attitude(
+        body: &SpacecraftBodyFrame,
+        components: [f64; 4],
+        target: ReferenceFrame,
+    ) -> QuaternionAttitude {
+        let orientation = Orientation::try_from(OrientationQuaternion {
+            source_frame: body.reference_frame(),
+            target_frame: target,
+            components: components.map(Ratio::new::<ratio>),
+        })
+        .expect("valid orientation");
+        let rate = BodyAngularVelocity::new(
+            units::AngularVelocityVector::from_radians_per_second(0.0, 0.0, 0.0),
+            body.clone(),
+            target,
+        )
+        .expect("valid body rate");
+        QuaternionAttitude::new(orientation, rate).expect("consistent attitude")
+    }
+
+    #[cfg(feature = "attitude")]
+    #[derive(Debug)]
+    struct CountingProvider {
+        fixed: FixedAttitudeProvider,
+        calls: AtomicUsize,
+    }
+
+    #[cfg(feature = "attitude")]
+    impl AttitudeProvider<CartesianState> for CountingProvider {
+        type Attitude = QuaternionAttitude;
+        type Error = FixedAttitudeProviderError;
+
+        fn attitude(&self, orbit: &Orbit<CartesianState>) -> Result<Self::Attitude, Self::Error> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            self.fixed.attitude(orbit)
+        }
     }
 
     #[test]
@@ -1153,6 +1683,143 @@ mod tests {
                 &schedule,
             ),
             Err(ManeuverPropagationError::FrameMismatch { .. })
+        ));
+    }
+
+    #[cfg(feature = "attitude")]
+    #[test]
+    fn body_fixed_thrust_is_rotated_at_numerical_stages() {
+        let epoch = Epoch::from_tai_seconds(6_000.0);
+        let body = body(60, "body-burn");
+        let provider = CountingProvider {
+            fixed: FixedAttitudeProvider::new(quaternion_attitude(
+                &body,
+                [
+                    std::f64::consts::FRAC_1_SQRT_2,
+                    0.0,
+                    0.0,
+                    std::f64::consts::FRAC_1_SQRT_2,
+                ],
+                ReferenceFrame::GCRF,
+            ))
+            .expect("zero-rate fixed attitude"),
+            calls: AtomicUsize::new(0),
+        };
+        let burn = ConstantThrustManeuver::body_fixed(
+            "body +x",
+            epoch,
+            epoch + 10.0 * Unit::Second,
+            body,
+            ThrustVector::from_newtons(100.0, 0.0, 0.0),
+            MassRate::new::<kilogram_per_second>(1.0),
+        )
+        .expect("valid body-fixed burn");
+        let schedule = ManeuverSchedule::new(vec![], vec![burn]).expect("valid schedule");
+
+        let result = propagator()
+            .propagate_with_attitude_maneuvers(
+                initial(epoch, 100.0),
+                epoch + 10.0 * Unit::Second,
+                &schedule,
+                &provider,
+            )
+            .expect("attitude-resolved propagation");
+        let [vx, vy, vz] = result
+            .final_state()
+            .orbit()
+            .as_ref()
+            .velocity()
+            .to_metres_per_second();
+        let expected = 100.0 * (100.0_f64 / 90.0).ln();
+        assert!(vx.abs() < 2.0e-12);
+        assert!((vy - expected).abs() < 2.0e-8);
+        assert!(vz.abs() < 2.0e-12);
+        assert!(
+            provider.calls.load(Ordering::Relaxed) > 4,
+            "provider must be sampled across Runge--Kutta stages"
+        );
+
+        let backward = propagator()
+            .propagate_with_attitude_maneuvers(
+                result.final_state().clone(),
+                epoch,
+                &schedule,
+                &provider,
+            )
+            .expect("reverse attitude-resolved propagation");
+        let recovered_velocity = backward
+            .final_state()
+            .orbit()
+            .as_ref()
+            .velocity()
+            .to_metres_per_second();
+        assert!(recovered_velocity
+            .into_iter()
+            .all(|value| value.abs() < 5.0e-9));
+        assert_eq!(backward.final_state().mass(), Mass::new::<kilogram>(100.0));
+    }
+
+    #[cfg(feature = "attitude")]
+    #[test]
+    fn body_fixed_thrust_requires_the_attitude_aware_entry_point() {
+        let epoch = Epoch::from_tai_seconds(7_000.0);
+        let body = body(70, "provider-required");
+        let burn = ConstantThrustManeuver::body_fixed(
+            "body burn",
+            epoch,
+            epoch + 1.0 * Unit::Second,
+            body,
+            ThrustVector::from_newtons(1.0, 0.0, 0.0),
+            MassRate::new::<kilogram_per_second>(0.1),
+        )
+        .expect("valid body burn");
+        let schedule = ManeuverSchedule::new(vec![], vec![burn]).expect("valid schedule");
+
+        assert!(matches!(
+            propagator().propagate_with_maneuvers(
+                initial(epoch, 10.0),
+                epoch + 1.0 * Unit::Second,
+                &schedule
+            ),
+            Err(ManeuverPropagationError::AttitudeProviderRequired { .. })
+        ));
+    }
+
+    #[cfg(feature = "attitude")]
+    #[test]
+    fn tabulated_provider_coverage_failure_retains_its_typed_source() {
+        let epoch = Epoch::from_tai_seconds(8_000.0);
+        let body = body(80, "coverage");
+        let provider = TabulatedAttitudeProvider::new(vec![AttitudeSample::new(
+            epoch,
+            quaternion_attitude(&body, [1.0, 0.0, 0.0, 0.0], ReferenceFrame::GCRF),
+        )])
+        .expect("one-point table");
+        let burn = ConstantThrustManeuver::body_fixed(
+            "outlive attitude",
+            epoch,
+            epoch + 1.0 * Unit::Second,
+            body,
+            ThrustVector::from_newtons(1.0, 0.0, 0.0),
+            MassRate::new::<kilogram_per_second>(0.1),
+        )
+        .expect("valid body burn");
+        let schedule = ManeuverSchedule::new(vec![], vec![burn]).expect("valid schedule");
+
+        assert!(matches!(
+            propagator().propagate_with_attitude_maneuvers(
+                initial(epoch, 10.0),
+                epoch + 1.0 * Unit::Second,
+                &schedule,
+                &provider,
+            ),
+            Err(AttitudeManeuverPropagationError::Numerical(
+                NumericalPropagationError::Dynamics(
+                    AttitudeManeuverDynamicsError::AttitudeProvider(
+                        TabulatedAttitudeProviderError::OutsideCoverage { .. }
+                    )
+                )
+            ))
         ));
     }
 }

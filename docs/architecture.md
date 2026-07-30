@@ -24,6 +24,7 @@ flowchart TB
     subgraph LAYER_PHYSICAL_MODEL["Physical model"]
         CORE["core (lib: orskit_core)"]
         ORBITS["orbits"]
+        ATTITUDE["attitude"]
         GRAVITY["gravity"]
         FRAMES["frames"]
         BODIES["bodies"]
@@ -32,6 +33,8 @@ flowchart TB
         UTILS["utils"]
         UNITS["units"]
     end
+    ATTITUDE --> CORE
+    ATTITUDE --> UNITS
     CCSDS --> CORE
     CCSDS --> FRAMES
     CCSDS --> ORBITS
@@ -45,6 +48,7 @@ flowchart TB
     DYNAMICS_CORE --> CORE
     DYNAMICS_CORE --> ORBITS
     DYNAMICS_CORE --> UNITS
+    DYNAMICS_NUMERICAL -.->|optional| ATTITUDE
     DYNAMICS_NUMERICAL --> CORE
     DYNAMICS_NUMERICAL --> DYNAMICS_CORE
     DYNAMICS_NUMERICAL --> FRAMES
@@ -72,6 +76,7 @@ flowchart TB
     ORBITS --> FRAMES
     ORBITS --> GRAVITY
     ORBITS --> UNITS
+    ORSKIT -.->|optional| ATTITUDE
     ORSKIT -.->|optional| BODIES
     ORSKIT -.->|optional| CCSDS
     ORSKIT --> CORE

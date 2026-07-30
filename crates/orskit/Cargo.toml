@@ -10,11 +10,13 @@ description = "Public Rust facade for orskit astrodynamics"
 
 [features]
 default = []
+attitude = ["dep:attitude", "quaternion-attitude"]
 bodies = ["dep:bodies"]
 ccsds = ["dep:ccsds", "cartesian"]
 cartesian = ["dep:orbits", "orbits/cartesian"]
 dynamics = ["dep:dynamics"]
 numerical = ["cartesian", "dynamics", "two-bodies", "dynamics/numerical"]
+attitude-maneuvers = ["attitude", "numerical", "dynamics/attitude"]
 orbit-determination = ["dep:orbit_determination"]
 point-mass-gravity = ["dep:gravity", "gravity/point-mass"]
 two-bodies = ["cartesian", "dynamics", "point-mass-gravity", "dynamics/point-mass"]
@@ -52,6 +54,7 @@ measurement-geometric-fdoa = ["measurement-estimation", "measurements/geometric-
 measurement-geometric-phase = ["measurement-estimation", "measurements/geometric-phase"]
 
 [dependencies]
+attitude = { path = "../attitude", optional = true }
 bodies = { path = "../bodies", optional = true }
 ccsds = { path = "../ccsds", optional = true }
 orskit_core = { package = "core", path = "../core", default-features = false }

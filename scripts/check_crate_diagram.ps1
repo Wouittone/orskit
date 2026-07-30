@@ -11,7 +11,7 @@ $layers = @(
     [pscustomobject]@{ Name = 'Public facade'; Packages = @('orskit') }
     [pscustomobject]@{ Name = 'Workflows and I/O'; Packages = @('ccsds', 'orbit-determination', 'measurements') }
     [pscustomobject]@{ Name = 'Dynamics'; Packages = @('dynamics', 'dynamics-core', 'dynamics-numerical', 'dynamics-two-bodies') }
-    [pscustomobject]@{ Name = 'Physical model'; Packages = @('core', 'orbits', 'gravity', 'frames', 'bodies') }
+    [pscustomobject]@{ Name = 'Physical model'; Packages = @('core', 'orbits', 'attitude', 'gravity', 'frames', 'bodies') }
     [pscustomobject]@{ Name = 'Foundations'; Packages = @('utils', 'units') }
 )
 
