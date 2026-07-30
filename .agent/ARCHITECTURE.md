@@ -92,6 +92,12 @@ missing abstraction or an incorrectly placed type.
   states. Occurrences order by propagation time, then detector registration
   within the time tolerance. Handlers continue or stop after all simultaneous
   occurrences; reset/discontinuity semantics remain deferred.
+- **Maneuvers:** `CartesianMassState` qualifies a Cartesian orbit with positive
+  typed mass. A validated schedule splits numerical propagation at
+  frame-explicit impulses and non-overlapping constant-thrust intervals.
+  Finite burns use exact constant-rate mass evolution and instantaneous
+  `thrust / mass` stage acceleration; impulses apply explicit velocity and
+  mass jumps. Attitude steering and event-driven resets remain separate.
 - **Attitude:** open `Attitude` and `SpacecraftGeometry` contracts compose
   caller-selected representations into a `SpacecraftView`; optional built-in
   quaternion attitude and standard geometry implementations are separately
@@ -297,9 +303,12 @@ valid at the propagated epoch.
 `dynamics/numerical` sub-crate owns the adaptive Bogacki--Shampine 3(2)
 Cartesian propagator. The numerical crate's private six-component SI layout
 backs public immutable Cartesian ephemerides and bracketed event evaluation
-without establishing a generic public ODE API. General composed force
-evaluation and coupled rotational, mass, and variational propagation remain
-deferred; their designs must preserve explicit state groups, data, and events.
+without establishing a generic public ODE API. Its first maneuver workflow
+segments that propagation at scheduled discontinuities and overlays an exact
+constant-flow mass law for constant-frame finite thrust. General composed force
+evaluation and generic error-controlled rotational, mass, and variational
+state groups remain deferred; their designs must preserve explicit component
+identity, data, and event/reset semantics.
 Third-body descriptions remain unavailable until their ephemeris, frame,
 provenance, and acceleration-assembly contracts exist.
 There is no `stations` crate: ground and spacecraft participants belong to the

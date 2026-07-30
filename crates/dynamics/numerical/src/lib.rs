@@ -6,8 +6,9 @@
 //! Runge--Kutta pair for non-stiff translational dynamics. The propagated
 //! solution is third order and the second-order companion supplies a local
 //! error estimate. Accepted steps also construct a cubic Hermite continuous
-//! extension from their endpoint states and derivatives; public ephemerides
-//! and event handling remain outside this crate.
+//! extension from their endpoint states and derivatives. The same accepted
+//! steps support public dense ephemerides, bracketed events, and scheduled
+//! constant-frame thrust maneuvers with explicit mass evolution.
 //!
 //! The pair and its coefficients are from P. Bogacki and L. F. Shampine,
 //! ["A 3(2) pair of Runge--Kutta formulas"](https://doi.org/10.1016/0893-9659(89)90079-7),
@@ -22,6 +23,7 @@
 //! ```text
 //! cargo run -p dynamics-numerical --example numerical_two_body
 //! cargo run -p dynamics-numerical --example event_detection
+//! cargo run -p dynamics-numerical --example maneuver_propagation
 //! ```
 
 use std::error::Error;
@@ -35,6 +37,14 @@ use orskit_core::{Orbit, OrbitParts};
 use thiserror::Error;
 use units::uom::si::{length::meter, ratio::ratio, velocity::meter_per_second};
 use units::{Length, Position, Ratio, Velocity, VelocityVector};
+
+mod maneuver;
+
+pub use maneuver::{
+    CartesianMassState, ConstantThrustManeuver, ImpulsiveManeuver, ManeuverConfigurationError,
+    ManeuverDynamicsError, ManeuverExecution, ManeuverExecutionKind, ManeuverPropagation,
+    ManeuverPropagationError, ManeuverSchedule, ThrustVector,
+};
 
 const COMPONENT_COUNT: usize = 6;
 const SAFETY_FACTOR: f64 = 0.9;

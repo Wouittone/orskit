@@ -173,8 +173,9 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
 - [ ] **P14 (depends on F11–F14 and P11):** add harmonics/tides, drag and
   atmosphere, radiation pressure, and relativity as separately evidenced
   vertical slices.
-- [ ] **P15 (depends on P11–P12):** add spacecraft mass evolution and
-  impulsive/finite maneuvers.
+- [x] **P15 (depends on P11–P12):** add spacecraft mass evolution and
+  impulsive/finite maneuvers. Evidence: task 0038, ADR-0038, and
+  `crates/dynamics/numerical`.
 - [ ] **P16 (depends on attitude providers and P11):** add attitude dynamics,
   interpolation, and attitude-dependent force evaluation.
 - [ ] **P17 (depends on P11):** add variational equations, STM, and covariance

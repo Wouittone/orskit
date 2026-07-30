@@ -10,10 +10,13 @@ pub use dynamics_core::*;
 
 #[cfg(feature = "numerical")]
 pub use dynamics_numerical::{
-    BogackiShampine32, CartesianEphemeris, DenseOutputError, DensePropagation, EventAction,
-    EventCallbackError, EventConfiguration, EventConfigurationError, EventDetector, EventDirection,
-    EventHandler, EventOccurrence, EventPropagation, IntegrationConfiguration,
-    IntegrationConfigurationError, NumericalPropagationError,
+    BogackiShampine32, CartesianEphemeris, CartesianMassState, ConstantThrustManeuver,
+    DenseOutputError, DensePropagation, EventAction, EventCallbackError, EventConfiguration,
+    EventConfigurationError, EventDetector, EventDirection, EventHandler, EventOccurrence,
+    EventPropagation, ImpulsiveManeuver, IntegrationConfiguration, IntegrationConfigurationError,
+    ManeuverConfigurationError, ManeuverDynamicsError, ManeuverExecution, ManeuverExecutionKind,
+    ManeuverPropagation, ManeuverPropagationError, ManeuverSchedule, NumericalPropagationError,
+    ThrustVector,
 };
 #[cfg(feature = "two-bodies")]
 pub use dynamics_two_bodies::{
@@ -25,10 +28,13 @@ pub mod numerical {
     //! Adaptive Cartesian numerical propagation.
 
     pub use dynamics_numerical::{
-        BogackiShampine32, CartesianEphemeris, DenseOutputError, DensePropagation, EventAction,
-        EventCallbackError, EventConfiguration, EventConfigurationError, EventDetector,
-        EventDirection, EventHandler, EventOccurrence, EventPropagation, IntegrationConfiguration,
-        IntegrationConfigurationError, NumericalPropagationError,
+        BogackiShampine32, CartesianEphemeris, CartesianMassState, ConstantThrustManeuver,
+        DenseOutputError, DensePropagation, EventAction, EventCallbackError, EventConfiguration,
+        EventConfigurationError, EventDetector, EventDirection, EventHandler, EventOccurrence,
+        EventPropagation, ImpulsiveManeuver, IntegrationConfiguration,
+        IntegrationConfigurationError, ManeuverConfigurationError, ManeuverDynamicsError,
+        ManeuverExecution, ManeuverExecutionKind, ManeuverPropagation, ManeuverPropagationError,
+        ManeuverSchedule, NumericalPropagationError, ThrustVector,
     };
 }
 

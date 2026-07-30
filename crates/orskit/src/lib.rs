@@ -41,8 +41,11 @@ pub mod prelude {
     pub use crate::bodies::{Body, BodySystem};
     #[cfg(feature = "numerical")]
     pub use crate::dynamics::{
-        BogackiShampine32, CartesianDynamics, CartesianEphemeris, EventAction, EventConfiguration,
-        EventDetector, EventDirection, EventHandler, EventOccurrence, IntegrationConfiguration,
+        BogackiShampine32, CartesianDynamics, CartesianEphemeris, CartesianMassState,
+        ConstantThrustManeuver, EventAction, EventConfiguration, EventDetector, EventDirection,
+        EventHandler, EventOccurrence, ImpulsiveManeuver, IntegrationConfiguration,
+        ManeuverExecution, ManeuverExecutionKind, ManeuverPropagation, ManeuverSchedule,
+        ThrustVector,
     };
     #[cfg(feature = "dynamics")]
     pub use crate::dynamics::{ComposedDynamics, PropagationState, Propagator};
