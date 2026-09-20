@@ -1,0 +1,26 @@
+[package]
+name = "dynamics-harmonics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Point-mass-plus-J2 oblateness Cartesian dynamics for orskit"
+
+[lib]
+name = "dynamics_harmonics"
+
+[dependencies]
+dynamics = { package = "dynamics-core", path = "../core" }
+dynamics-two-bodies = { path = "../two-bodies" }
+frames = { path = "../../frames" }
+gravity = { path = "../../gravity", features = ["zonal"] }
+hifitime.workspace = true
+orbits = { path = "../../orbits", features = ["cartesian"] }
+thiserror.workspace = true
+units = { path = "../../units" }
+
+[dev-dependencies]
+dynamics-numerical = { path = "../numerical" }
+orskit_core = { package = "core", path = "../../core" }

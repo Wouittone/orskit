@@ -4,6 +4,12 @@ The roadmap orders risk; it is not a promise of dates. Milestones should ship
 small vertical slices rather than constructing every type before any workflow
 works.
 
+Actionable work, status, priority, dependencies, milestones, and target dates
+are tracked in the public
+[orskit GitHub Project roadmap](https://github.com/users/Wouittone/projects/4).
+GitHub Issues are the source of truth for progress; this document retains only
+the durable release intent and exit gates.
+
 The actionable follow-up to the July 2026 external repository review is tracked
 in [`REVIEW_IMPROVEMENTS.md`](REVIEW_IMPROVEMENTS.md). That checklist corrects
 stale observations in the review, records dependencies between work items, and

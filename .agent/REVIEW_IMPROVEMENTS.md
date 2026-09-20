@@ -1,8 +1,9 @@
 # External review improvement roadmap
 
-This checklist turns the July 2026 external review into ordered, verifiable
-work. It complements the capability milestones in `ROADMAP.md`; it does not
-replace the evidence requirements in `PARITY.md`.
+This document is a historical snapshot of the July 2026 external review, not
+an active progress tracker. Actionable follow-up belongs in GitHub Issues and
+the [orskit roadmap project](https://github.com/users/Wouittone/projects/4);
+the evidence requirements in `PARITY.md` still apply.
 
 ## Status rules
 

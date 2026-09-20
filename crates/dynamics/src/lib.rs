@@ -8,6 +8,8 @@
 
 pub use dynamics_core::*;
 
+#[cfg(feature = "harmonics")]
+pub use dynamics_harmonics::{J2Dynamics, J2EvaluationError, J2GravityModel, J2OblatenessForce};
 #[cfg(feature = "attitude")]
 pub use dynamics_numerical::{AttitudeManeuverDynamicsError, AttitudeManeuverPropagationError};
 #[cfg(feature = "numerical")]
@@ -52,5 +54,14 @@ pub mod two_bodies {
 
     pub use dynamics_two_bodies::{
         EllipticKeplerPropagator, PointMassGravityModel, TwoBodyDynamics, TwoBodyEvaluationError,
+    };
+}
+
+#[cfg(feature = "harmonics")]
+pub mod harmonics {
+    //! Point-mass-plus-`J2` oblateness gravity dynamics capability.
+
+    pub use dynamics_harmonics::{
+        J2Dynamics, J2EvaluationError, J2GravityModel, J2OblatenessForce,
     };
 }

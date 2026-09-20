@@ -12,8 +12,11 @@ boundaries matter more than preserving the current scaffold.
    `ENGINEERING.md`.
 4. Inspect the repository and its tests. Never infer current behavior from the
    roadmap or README.
-5. Write a task brief using `templates/task.md` when work spans more than one
-   module, changes a public API, or introduces a numerical model.
+5. Create or locate a GitHub Issue using the repository issue templates when
+   work spans more than one module, changes a public API, or introduces a
+   numerical model. Add it to the
+   [orskit roadmap project](https://github.com/users/Wouittone/projects/4)
+   with explicit priority, milestone, status, dependencies, and target date.
 
 ## Non-negotiable rules
 

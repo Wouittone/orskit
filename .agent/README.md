@@ -13,13 +13,17 @@ issues, sessions, and contributors.
 5. [`FORCE_MODELS.md`](FORCE_MODELS.md) — dynamics effect and dependency inventory.
 6. [`ENGINEERING.md`](ENGINEERING.md) — implementation and validation bar.
 7. [`PARITY.md`](PARITY.md) — capability inventory and evidence ledger.
-8. [`ROADMAP.md`](ROADMAP.md) — delivery order and release gates.
+8. [GitHub Project roadmap](https://github.com/users/Wouittone/projects/4) —
+   issues, priorities, milestones, target dates, and current progress;
+   [`ROADMAP.md`](ROADMAP.md) retains durable release intent and exit gates.
 9. [`WORKFLOW.md`](WORKFLOW.md) — repeatable task lifecycle.
 
-Accepted cross-cutting choices live in [`decisions/`](decisions/).
+Accepted cross-cutting choices live in [`decisions/`](decisions/). Existing
+files in `tasks/` are historical records; create new actionable work as GitHub
+Issues and track it in the project rather than adding task Markdown files.
 
-The templates in [`templates/`](templates/) are starting points for scoped
-work and architecture decisions.
+The templates in [`templates/`](templates/) are starting points for
+architecture decisions.
 
 ## Sources of truth
 
@@ -31,7 +35,7 @@ work and architecture decisions.
 | Which force and torque families should dynamics cover? | `FORCE_MODELS.md` |
 | What quality is required? | `ENGINEERING.md` |
 | Is a capability complete? | `PARITY.md` plus linked evidence |
-| What comes next? | `ROADMAP.md` |
+| What comes next? | [GitHub Project roadmap](https://github.com/users/Wouittone/projects/4) |
 | How should an agent execute a task? | `WORKFLOW.md` |
 
 When the documents disagree, stop and repair the inconsistency in the same

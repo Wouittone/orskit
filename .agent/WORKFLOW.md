@@ -5,7 +5,11 @@
 - Read `AGENTS.md`, inspect the current code/tests, and check the working tree.
 - Select one capability row in `PARITY.md` and define a vertical outcome.
 - Identify affected layers and verify dependency direction in `ARCHITECTURE.md`.
-- Create a task brief from `templates/task.md` for non-trivial work.
+- Create or locate a GitHub Issue from the repository templates for
+  non-trivial work and add it to the
+  [orskit roadmap project](https://github.com/users/Wouittone/projects/4).
+  Record its priority, milestone, dependencies, status, and target date in
+  project fields rather than a repository checklist.
 
 ## 2. Research without contaminating implementation
 
@@ -56,7 +60,10 @@ Run all applicable commands in `ENGINEERING.md`. State skipped checks and why.
 ## 6. Close the loop
 
 - Update the `PARITY.md` row and link concrete evidence.
-- Update public docs/examples and the roadmap if sequencing changed.
+- Update public docs/examples and the GitHub Project fields if sequencing
+  changed.
+- Close the GitHub Issue only after its implementation and validation are
+  persistent; keep unmerged work `In Progress`.
 - Record new cross-cutting decisions and provenance.
 - Summarize what is supported, the validated regime, known gaps, and exact
   checks run.
@@ -65,7 +72,7 @@ Run all applicable commands in `ENGINEERING.md`. State skipped checks and why.
 
 One task should have one clear owner and one parity outcome. Split research,
 implementation, or review only when their file ownership and deliverables do
-not overlap. A handoff must include the task brief, decisions, source policy,
+not overlap. A handoff must include the GitHub Issue, decisions, source policy,
 changed files, failed experiments, and remaining checks.
 
 Never leave placeholder methods that return physically plausible dummy values.

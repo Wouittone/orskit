@@ -14,7 +14,9 @@ name = "gravity"
 [features]
 default = []
 point-mass = []
+zonal = ["dep:thiserror"]
 
 [dependencies]
 frames = { path = "../frames" }
+thiserror = { workspace = true, optional = true }
 units = { path = "../units" }

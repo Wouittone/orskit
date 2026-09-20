@@ -57,8 +57,10 @@ force models, events, attitudes, measurements, estimation, mission geometry,
 operational data formats, and Rust/Python/JVM APIs.
 
 The project handbook in [`.agent/`](.agent/) defines the architecture,
-clean-room provenance policy, quality standard, capability ledger, and staged
-roadmap. Start with [`.agent/README.md`](.agent/README.md).
+clean-room provenance policy, quality standard, and capability ledger. Active
+work, priorities, milestones, and target dates live in the public
+[GitHub Project roadmap](https://github.com/users/Wouittone/projects/4).
+Start with [`.agent/README.md`](.agent/README.md).
 
 ## Current workspace
 

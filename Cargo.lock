@@ -257,6 +257,7 @@ name = "dynamics"
 version = "0.0.0"
 dependencies = [
  "dynamics-core",
+ "dynamics-harmonics",
  "dynamics-numerical",
  "dynamics-two-bodies",
 ]
@@ -268,6 +269,22 @@ dependencies = [
  "bodies",
  "core",
  "frames",
+ "hifitime",
+ "orbits",
+ "thiserror",
+ "units",
+]
+
+[[package]]
+name = "dynamics-harmonics"
+version = "0.0.0"
+dependencies = [
+ "core",
+ "dynamics-core",
+ "dynamics-numerical",
+ "dynamics-two-bodies",
+ "frames",
+ "gravity",
  "hifitime",
  "orbits",
  "thiserror",
@@ -390,6 +407,7 @@ name = "gravity"
 version = "0.0.0"
 dependencies = [
  "frames",
+ "thiserror",
  "units",
 ]
 
