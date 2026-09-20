@@ -16,6 +16,8 @@ pub use frames;
 pub use orskit_core as core;
 pub use units;
 
+#[cfg(feature = "atmosphere")]
+pub use atmosphere;
 #[cfg(feature = "attitude")]
 pub use attitude;
 #[cfg(feature = "bodies")]
@@ -39,6 +41,11 @@ pub mod prelude {
     pub use crate::frames::{FrameCatalog, FrameNamespace, ReferenceFrame};
     pub use crate::units::{Length, Position, VelocityVector};
 
+    #[cfg(feature = "atmosphere")]
+    pub use crate::atmosphere::{
+        AtmosphereDataContext, AtmosphereDensity, AtmosphereDensityInput,
+        AtmosphereDensityProvider, SharedAtmosphereDensityProvider,
+    };
     #[cfg(feature = "attitude")]
     pub use crate::attitude::{
         AttitudeProvider, AttitudeSample, FixedAttitudeProvider, TabulatedAttitudeProvider,
@@ -82,7 +89,9 @@ pub mod prelude {
     };
     #[cfg(feature = "cartesian")]
     pub use crate::orbits::{
-        cartesian::CartesianState, circular::CircularState, equinoctial::EquinoctialState,
+        cartesian::{BodyEphemerisProvider, BodyState, CartesianState},
+        circular::CircularState,
+        equinoctial::EquinoctialState,
         keplerian::KeplerianState,
     };
 }

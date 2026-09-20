@@ -1,0 +1,22 @@
+[package]
+name = "dynamics-third-bodies"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Differential third-body Cartesian force models for orskit"
+
+[lib]
+name = "dynamics_third_bodies"
+
+[dependencies]
+bodies = { path = "../../bodies" }
+dynamics = { package = "dynamics-core", path = "../core" }
+frames = { path = "../../frames" }
+gravity = { path = "../../gravity" }
+hifitime.workspace = true
+orbits = { path = "../../orbits", features = ["cartesian"] }
+thiserror.workspace = true
+units = { path = "../../units" }

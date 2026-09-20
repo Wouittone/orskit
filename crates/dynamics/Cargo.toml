@@ -18,9 +18,17 @@ attitude = ["numerical", "dynamics_numerical/attitude"]
 two-bodies = ["dep:dynamics_two_bodies"]
 point-mass = ["two-bodies", "dynamics_two_bodies/point-mass"]
 harmonics = ["two-bodies", "dep:dynamics_harmonics"]
+third-bodies = ["dep:dynamics_third_bodies"]
+drag = ["dep:dynamics_drag"]
+srp = ["dep:dynamics_srp"]
+spherical-harmonics = ["dep:dynamics_spherical_harmonics"]
 
 [dependencies]
 dynamics_core = { package = "dynamics-core", path = "core" }
+dynamics_drag = { package = "dynamics-drag", path = "drag", optional = true }
 dynamics_harmonics = { package = "dynamics-harmonics", path = "harmonics", optional = true }
 dynamics_numerical = { package = "dynamics-numerical", path = "numerical", optional = true }
+dynamics_spherical_harmonics = { package = "dynamics-spherical-harmonics", path = "spherical-harmonics", optional = true }
+dynamics_srp = { package = "dynamics-srp", path = "srp", optional = true }
+dynamics_third_bodies = { package = "dynamics-third-bodies", path = "third-bodies", optional = true }
 dynamics_two_bodies = { package = "dynamics-two-bodies", path = "two-bodies", optional = true }

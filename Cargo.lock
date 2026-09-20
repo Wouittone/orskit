@@ -48,6 +48,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "atmosphere"
+version = "0.0.0"
+dependencies = [
+ "frames",
+ "hifitime",
+ "thiserror",
+ "units",
+]
+
+[[package]]
 name = "attitude"
 version = "0.0.0"
 dependencies = [
@@ -257,8 +267,12 @@ name = "dynamics"
 version = "0.0.0"
 dependencies = [
  "dynamics-core",
+ "dynamics-drag",
  "dynamics-harmonics",
  "dynamics-numerical",
+ "dynamics-spherical-harmonics",
+ "dynamics-srp",
+ "dynamics-third-bodies",
  "dynamics-two-bodies",
 ]
 
@@ -268,6 +282,19 @@ version = "0.0.0"
 dependencies = [
  "bodies",
  "core",
+ "frames",
+ "hifitime",
+ "orbits",
+ "thiserror",
+ "units",
+]
+
+[[package]]
+name = "dynamics-drag"
+version = "0.0.0"
+dependencies = [
+ "atmosphere",
+ "dynamics-core",
  "frames",
  "hifitime",
  "orbits",
@@ -299,6 +326,45 @@ dependencies = [
  "core",
  "dynamics-core",
  "dynamics-two-bodies",
+ "frames",
+ "gravity",
+ "hifitime",
+ "orbits",
+ "thiserror",
+ "units",
+]
+
+[[package]]
+name = "dynamics-spherical-harmonics"
+version = "0.0.0"
+dependencies = [
+ "dynamics-core",
+ "frames",
+ "hifitime",
+ "orbits",
+ "thiserror",
+ "units",
+]
+
+[[package]]
+name = "dynamics-srp"
+version = "0.0.0"
+dependencies = [
+ "bodies",
+ "dynamics-core",
+ "frames",
+ "hifitime",
+ "orbits",
+ "thiserror",
+ "units",
+]
+
+[[package]]
+name = "dynamics-third-bodies"
+version = "0.0.0"
+dependencies = [
+ "bodies",
+ "dynamics-core",
  "frames",
  "gravity",
  "hifitime",
@@ -684,6 +750,7 @@ dependencies = [
 name = "orbits"
 version = "0.0.0"
 dependencies = [
+ "bodies",
  "core",
  "frames",
  "gravity",
@@ -697,6 +764,7 @@ dependencies = [
 name = "orskit"
 version = "0.0.0"
 dependencies = [
+ "atmosphere",
  "attitude",
  "bodies",
  "ccsds",

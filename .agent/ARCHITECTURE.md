@@ -50,13 +50,20 @@ missing abstraction or an incorrectly placed type.
   of stable data-artifact descriptors with non-blank identities and supplies
   fully resolved kinematics to a validating transform adapter; implementations
   own Earth orientation, ephemerides, coverage, interpolation, caching, and
-  convention selection. Caches may retain derived values but cannot silently
-  replace selected scientific data.
-  Transform-provider
+  convention selection. `BodyFixedTransformProvider` is the narrower
+  object-safe prerequisite for inertial/body-fixed rotation: requests name the
+  epoch and time scale, same-origin inertial and non-inertial body-fixed
+  frames, direction, and the returned rotation includes the body angular
+  velocity needed for velocity conversion. Caches may retain derived values but
+  cannot silently replace selected scientific data. Transform-provider
   contracts therefore admit optional external adapters without a global data
-  context or a public matrix API.
+  context; the only public matrix type is the validated direction-cosine
+  matrix needed to carry this explicit rotation boundary.
 - **Orbits:** frame- and epoch-qualified states, element sets, conversions,
-  Jacobians, interpolation, and covariance representations.
+  Jacobians, interpolation, covariance representations, and an object-safe
+  caller-supplied body ephemeris contract. Each ephemeris request and result
+  names its body, epoch, and complete frame; implementations own data,
+  interpolation, coverage, caching, and provenance without ambient lookup.
 
 ### Dynamics and observation
 
@@ -328,7 +335,9 @@ state groups remain deferred. The variational extension integrates a
 acceleration partials; it does not establish a generic public ODE vector.
 Future state groups must preserve explicit component identity, data, and
 event/reset semantics.
-Third-body descriptions remain unavailable until their ephemeris, frame,
-provenance, and acceleration-assembly contracts exist.
+Third-body descriptions remain unavailable until their acceleration-assembly
+and composed-evaluation contracts exist. The Cartesian orbit layer now
+provides only the explicit body/epoch/frame ephemeris-provider prerequisite;
+it supplies no ephemeris implementation or force model.
 There is no `stations` crate: ground and spacecraft participants belong to the
 measurement topology and estimation workflows.

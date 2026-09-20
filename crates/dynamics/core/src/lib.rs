@@ -5,6 +5,11 @@
 //! This crate contains no concrete force or propagation implementation.
 //! Applications assemble force models through [`ComposedDynamics`] and select
 //! a solver and state implementation from dedicated crates.
+//!
+//! [`ComposedCartesianDynamics`] and [`ComposedCartesianVariationalDynamics`]
+//! additionally evaluate an ordered collection of [`EvaluableCartesianForceModel`]
+//! contributions directly, summing accelerations (and, where every model
+//! supports it, acceleration Jacobians) in deterministic declaration order.
 
 use std::{fmt, sync::Arc};
 
@@ -13,8 +18,15 @@ use orbits::cartesian::{CartesianState, FramedAcceleration};
 use thiserror::Error;
 use units::{InverseTime, InverseTimeSquared};
 
+mod evaluable;
 mod propagator;
 
+pub use evaluable::{
+    CartesianDynamicsForceModel, CartesianForceModelError, ComposedCartesianDynamics,
+    ComposedCartesianDynamicsError, ComposedCartesianVariationalDynamics,
+    EvaluableCartesianForceModel, EvaluableCartesianForceModelHandle,
+    EvaluableCartesianVariationalForceModel, EvaluableCartesianVariationalForceModelHandle,
+};
 pub use propagator::{PropagationState, Propagator};
 
 /// Spacecraft-state components required to evaluate a force model.

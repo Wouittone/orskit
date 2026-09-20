@@ -11,6 +11,7 @@ description = "Public Rust facade for orskit astrodynamics"
 [features]
 default = []
 attitude = ["dep:attitude", "quaternion-attitude"]
+atmosphere = ["dep:atmosphere"]
 bodies = ["dep:bodies"]
 ccsds = ["dep:ccsds", "cartesian"]
 cartesian = ["dep:orbits", "orbits/cartesian"]
@@ -55,6 +56,7 @@ measurement-geometric-phase = ["measurement-estimation", "measurements/geometric
 
 [dependencies]
 attitude = { path = "../attitude", optional = true }
+atmosphere = { path = "../atmosphere", optional = true }
 bodies = { path = "../bodies", optional = true }
 ccsds = { path = "../ccsds", optional = true }
 orskit_core = { package = "core", path = "../core", default-features = false }

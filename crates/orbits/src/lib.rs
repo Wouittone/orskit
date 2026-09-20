@@ -9,6 +9,8 @@
 #[cfg(feature = "cartesian")]
 mod covariance;
 #[cfg(feature = "cartesian")]
+mod ephemeris;
+#[cfg(feature = "cartesian")]
 mod kinematics;
 #[cfg(feature = "cartesian")]
 mod state;
@@ -17,6 +19,7 @@ mod state;
 #[cfg(feature = "cartesian")]
 pub mod cartesian {
     pub use crate::covariance::{CartesianCovariance, CartesianCovarianceError};
+    pub use crate::ephemeris::{BodyEphemerisError, BodyEphemerisProvider, BodyState};
     pub use crate::kinematics::{
         CartesianCoordinates, FramedAcceleration, FramedPosition, FramedVelocity, KinematicError,
     };

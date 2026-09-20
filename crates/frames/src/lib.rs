@@ -20,9 +20,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::{fmt, str::FromStr};
 
 pub use bodies::{Body, BodySystem, CustomBodyId};
-use hifitime::Epoch;
+use hifitime::{Epoch, TimeScale};
 use thiserror::Error;
-use units::{Position, VelocityVector};
+use units::{AngularVelocityVector, Position, VelocityVector};
 
 /// Typed identifier reserved for application-defined frame components.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -338,6 +338,668 @@ pub enum FrameKinematicsError {
     /// A velocity component is NaN or infinite.
     #[error("frame kinematics velocity components must be finite")]
     NonFiniteVelocity,
+}
+
+/// Direction of an epoch-dependent body-fixed rotation.
+///
+/// The direction names the axes mapped by the stored direction-cosine matrix:
+/// [`Self::InertialToBodyFixed`] maps components from inertial axes into
+/// body-fixed axes, and [`Self::BodyFixedToInertial`] maps body-fixed
+/// components into inertial axes. Angular velocity is always the body-fixed
+/// frame's angular velocity relative to the inertial frame, expressed in the
+/// body-fixed axes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BodyFixedTransformDirection {
+    /// Matrix maps inertial components into body-fixed components.
+    InertialToBodyFixed,
+    /// Matrix maps body-fixed components into inertial components.
+    BodyFixedToInertial,
+}
+
+impl BodyFixedTransformDirection {
+    /// Returns the opposite transform direction.
+    #[must_use]
+    pub const fn inverse(self) -> Self {
+        match self {
+            Self::InertialToBodyFixed => Self::BodyFixedToInertial,
+            Self::BodyFixedToInertial => Self::InertialToBodyFixed,
+        }
+    }
+}
+
+/// Explicit request for a caller-supplied inertial/body-fixed rotation.
+///
+/// The epoch is stored in the requested Hifitime [`TimeScale`], making the
+/// temporal coordinate passed to the provider visible in the value itself.
+/// Construction does not load or select Earth-orientation data.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BodyFixedTransformRequest {
+    epoch: Epoch,
+    time_scale: TimeScale,
+    inertial_frame: InertialFrame,
+    body_fixed_frame: ReferenceFrame,
+    direction: BodyFixedTransformDirection,
+}
+
+impl BodyFixedTransformRequest {
+    /// Constructs and validates an inertial/body-fixed rotation request.
+    pub fn new(
+        epoch: Epoch,
+        time_scale: TimeScale,
+        inertial_frame: InertialFrame,
+        body_fixed_frame: ReferenceFrame,
+        direction: BodyFixedTransformDirection,
+    ) -> Result<Self, BodyFixedTransformError> {
+        let inertial_reference = inertial_frame.reference_frame();
+        validate_body_fixed_frame_pair(inertial_reference, body_fixed_frame)?;
+        Ok(Self {
+            epoch: epoch.to_time_scale(time_scale),
+            time_scale,
+            inertial_frame,
+            body_fixed_frame,
+            direction,
+        })
+    }
+
+    /// Returns the epoch at which the rotation is evaluated.
+    #[must_use]
+    pub const fn epoch(self) -> Epoch {
+        self.epoch
+    }
+
+    /// Returns the explicit time scale used to express [`Self::epoch`].
+    #[must_use]
+    pub const fn time_scale(self) -> TimeScale {
+        self.time_scale
+    }
+
+    /// Returns the inertial axes and origin side of the transform.
+    #[must_use]
+    pub const fn inertial_frame(self) -> InertialFrame {
+        self.inertial_frame
+    }
+
+    /// Returns the body-fixed axes and origin side of the transform.
+    #[must_use]
+    pub const fn body_fixed_frame(self) -> ReferenceFrame {
+        self.body_fixed_frame
+    }
+
+    /// Returns the direction requested from the provider.
+    #[must_use]
+    pub const fn direction(self) -> BodyFixedTransformDirection {
+        self.direction
+    }
+}
+
+/// Row-major 3x3 direction-cosine matrix.
+///
+/// Construction requires finite, orthonormal, right-handed rows. Use
+/// [`Self::identity`] in tests or for fixed-aligned axes. The matrix is only a
+/// rotation kernel; frame identity, epoch, direction, and angular velocity live
+/// in [`BodyFixedTransform`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DirectionCosineMatrix {
+    rows: [[f64; 3]; 3],
+}
+
+impl DirectionCosineMatrix {
+    /// Absolute tolerance used for row norms, dot products, and determinant.
+    pub const ORTHONORMAL_TOLERANCE: f64 = 1.0e-12;
+
+    /// Constructs a validated direction-cosine matrix from row-major elements.
+    pub fn new(rows: [[f64; 3]; 3]) -> Result<Self, BodyFixedTransformError> {
+        if rows.into_iter().flatten().any(|value| !value.is_finite()) {
+            return Err(BodyFixedTransformError::NonFiniteRotationMatrix);
+        }
+        for row in rows {
+            if (dot(row, row) - 1.0).abs() > Self::ORTHONORMAL_TOLERANCE {
+                return Err(BodyFixedTransformError::NonOrthonormalRotationMatrix);
+            }
+        }
+        for left in 0..3 {
+            for right in (left + 1)..3 {
+                if dot(rows[left], rows[right]).abs() > Self::ORTHONORMAL_TOLERANCE {
+                    return Err(BodyFixedTransformError::NonOrthonormalRotationMatrix);
+                }
+            }
+        }
+        if (determinant(rows) - 1.0).abs() > Self::ORTHONORMAL_TOLERANCE {
+            return Err(BodyFixedTransformError::ImproperRotationMatrix);
+        }
+        Ok(Self { rows })
+    }
+
+    /// Constructs the identity rotation.
+    #[must_use]
+    pub const fn identity() -> Self {
+        Self {
+            rows: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+        }
+    }
+
+    /// Returns row-major matrix elements.
+    #[must_use]
+    pub const fn rows(self) -> [[f64; 3]; 3] {
+        self.rows
+    }
+
+    fn transpose(self) -> Self {
+        let rows = self.rows;
+        Self {
+            rows: [
+                [rows[0][0], rows[1][0], rows[2][0]],
+                [rows[0][1], rows[1][1], rows[2][1]],
+                [rows[0][2], rows[1][2], rows[2][2]],
+            ],
+        }
+    }
+
+    fn multiply(self, vector: [f64; 3]) -> [f64; 3] {
+        [
+            dot(self.rows[0], vector),
+            dot(self.rows[1], vector),
+            dot(self.rows[2], vector),
+        ]
+    }
+}
+
+/// Complete caller-supplied body-fixed rotation for one epoch.
+///
+/// This value contains the frame identities, origin, epoch/time scale,
+/// transform direction, direction-cosine matrix, and body angular velocity
+/// required to transform both position and velocity between a same-origin
+/// inertial frame and a body-fixed frame. It intentionally carries no Earth
+/// orientation data files, conventions, interpolation policy, gravity field,
+/// tides, drag, or dynamics composition.
+///
+/// ```
+/// use frames::{
+///     BodyFixedTransform, BodyFixedTransformDirection, BodyFixedTransformRequest,
+///     DirectionCosineMatrix, InertialFrame, ReferenceFrame,
+/// };
+/// use hifitime::{Epoch, TimeScale};
+/// use units::AngularVelocityVector;
+///
+/// let request = BodyFixedTransformRequest::new(
+///     Epoch::from_tai_seconds(0.0),
+///     TimeScale::TAI,
+///     InertialFrame::GCRF,
+///     ReferenceFrame::ITRF2020,
+///     BodyFixedTransformDirection::InertialToBodyFixed,
+/// )?;
+/// let transform = BodyFixedTransform::new(
+///     request,
+///     DirectionCosineMatrix::identity(),
+///     AngularVelocityVector::from_radians_per_second(0.0, 0.0, 7.292_115_0e-5),
+/// )?;
+/// assert_eq!(transform.request(), request);
+/// # Ok::<(), frames::BodyFixedTransformError>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BodyFixedTransform {
+    request: BodyFixedTransformRequest,
+    rotation: DirectionCosineMatrix,
+    angular_velocity: AngularVelocityVector,
+}
+
+impl BodyFixedTransform {
+    /// Constructs a complete same-origin inertial/body-fixed transform.
+    pub fn new(
+        request: BodyFixedTransformRequest,
+        rotation: DirectionCosineMatrix,
+        angular_velocity: AngularVelocityVector,
+    ) -> Result<Self, BodyFixedTransformError> {
+        if !angular_velocity.is_finite() {
+            return Err(BodyFixedTransformError::NonFiniteAngularVelocity);
+        }
+        Ok(Self {
+            request,
+            rotation,
+            angular_velocity,
+        })
+    }
+
+    /// Returns the validated request this transform answers.
+    #[must_use]
+    pub const fn request(self) -> BodyFixedTransformRequest {
+        self.request
+    }
+
+    /// Returns the transform epoch.
+    #[must_use]
+    pub const fn epoch(self) -> Epoch {
+        self.request.epoch()
+    }
+
+    /// Returns the explicit transform epoch time scale.
+    #[must_use]
+    pub const fn time_scale(self) -> TimeScale {
+        self.request.time_scale()
+    }
+
+    /// Returns the transform direction.
+    #[must_use]
+    pub const fn direction(self) -> BodyFixedTransformDirection {
+        self.request.direction()
+    }
+
+    /// Returns the matrix for [`Self::direction`].
+    #[must_use]
+    pub const fn rotation(self) -> DirectionCosineMatrix {
+        self.rotation
+    }
+
+    /// Returns the body angular velocity relative to inertial axes, expressed
+    /// in body-fixed axes.
+    #[must_use]
+    pub const fn angular_velocity(self) -> AngularVelocityVector {
+        self.angular_velocity
+    }
+
+    /// Applies this transform to finite frame-qualified position/velocity.
+    pub fn transform_kinematics(
+        self,
+        kinematics: FrameKinematics,
+    ) -> Result<FrameKinematics, BodyFixedTransformError> {
+        let source = kinematics.frame();
+        match self.direction() {
+            BodyFixedTransformDirection::InertialToBodyFixed => {
+                if source != self.request.inertial_frame().reference_frame() {
+                    return Err(BodyFixedTransformError::InputFrameMismatch {
+                        expected: Box::new(self.request.inertial_frame().reference_frame()),
+                        actual: Box::new(source),
+                    });
+                }
+                self.inertial_to_body_fixed(kinematics)
+            }
+            BodyFixedTransformDirection::BodyFixedToInertial => {
+                if source != self.request.body_fixed_frame() {
+                    return Err(BodyFixedTransformError::InputFrameMismatch {
+                        expected: Box::new(self.request.body_fixed_frame()),
+                        actual: Box::new(source),
+                    });
+                }
+                self.body_fixed_to_inertial(kinematics)
+            }
+        }
+    }
+
+    fn inertial_to_body_fixed(
+        self,
+        kinematics: FrameKinematics,
+    ) -> Result<FrameKinematics, BodyFixedTransformError> {
+        let rotation = match self.direction() {
+            BodyFixedTransformDirection::InertialToBodyFixed => self.rotation,
+            BodyFixedTransformDirection::BodyFixedToInertial => self.rotation.transpose(),
+        };
+        let position = rotation.multiply(kinematics.position().to_metres());
+        let rotated_velocity = rotation.multiply(kinematics.velocity().to_metres_per_second());
+        let omega_cross_position = cross(self.angular_velocity().to_radians_per_second(), position);
+        FrameKinematics::new(
+            Position::from_metres(position[0], position[1], position[2]),
+            VelocityVector::from_metres_per_second(
+                rotated_velocity[0] - omega_cross_position[0],
+                rotated_velocity[1] - omega_cross_position[1],
+                rotated_velocity[2] - omega_cross_position[2],
+            ),
+            self.request.body_fixed_frame(),
+        )
+        .map_err(BodyFixedTransformError::InvalidKinematics)
+    }
+
+    fn body_fixed_to_inertial(
+        self,
+        kinematics: FrameKinematics,
+    ) -> Result<FrameKinematics, BodyFixedTransformError> {
+        let body_to_inertial = match self.direction() {
+            BodyFixedTransformDirection::InertialToBodyFixed => self.rotation.transpose(),
+            BodyFixedTransformDirection::BodyFixedToInertial => self.rotation,
+        };
+        let position_body = kinematics.position().to_metres();
+        let velocity_body = kinematics.velocity().to_metres_per_second();
+        let omega_cross_position = cross(
+            self.angular_velocity().to_radians_per_second(),
+            position_body,
+        );
+        let inertial_position = body_to_inertial.multiply(position_body);
+        let inertial_velocity = body_to_inertial.multiply([
+            velocity_body[0] + omega_cross_position[0],
+            velocity_body[1] + omega_cross_position[1],
+            velocity_body[2] + omega_cross_position[2],
+        ]);
+        FrameKinematics::new(
+            Position::from_metres(
+                inertial_position[0],
+                inertial_position[1],
+                inertial_position[2],
+            ),
+            VelocityVector::from_metres_per_second(
+                inertial_velocity[0],
+                inertial_velocity[1],
+                inertial_velocity[2],
+            ),
+            self.request.inertial_frame().reference_frame(),
+        )
+        .map_err(BodyFixedTransformError::InvalidKinematics)
+    }
+}
+
+/// Object-safe boundary for caller-supplied body-fixed rotations.
+///
+/// Implementations own data loading, coverage checks, convention selection,
+/// interpolation, and caching. They must not rely on a process-global Earth
+/// orientation context, and this trait does not imply any gravity, tide, drag,
+/// ephemeris, or dynamics implementation.
+pub trait BodyFixedTransformProvider: fmt::Debug + Send + Sync {
+    /// Resolves one explicit inertial/body-fixed transform request.
+    fn body_fixed_transform(
+        &self,
+        request: BodyFixedTransformRequest,
+    ) -> Result<BodyFixedTransform, BodyFixedTransformProviderError>;
+}
+
+impl<T: BodyFixedTransformProvider + ?Sized> BodyFixedTransformProvider for Box<T> {
+    fn body_fixed_transform(
+        &self,
+        request: BodyFixedTransformRequest,
+    ) -> Result<BodyFixedTransform, BodyFixedTransformProviderError> {
+        self.as_ref().body_fixed_transform(request)
+    }
+}
+
+impl<T: BodyFixedTransformProvider + ?Sized> BodyFixedTransformProvider for std::sync::Arc<T> {
+    fn body_fixed_transform(
+        &self,
+        request: BodyFixedTransformRequest,
+    ) -> Result<BodyFixedTransform, BodyFixedTransformProviderError> {
+        self.as_ref().body_fixed_transform(request)
+    }
+}
+
+/// Failure from an object-safe [`BodyFixedTransformProvider`].
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum BodyFixedTransformProviderError {
+    /// The provider does not support the requested frame pair or direction.
+    #[error("body-fixed transform provider does not support {request:?}")]
+    UnsupportedRequest {
+        /// Rejected transform request.
+        request: Box<BodyFixedTransformRequest>,
+    },
+    /// The provider has no data covering the requested epoch.
+    #[error("body-fixed transform provider has no data covering {epoch:?} in {time_scale:?}")]
+    EpochOutOfRange {
+        /// Requested epoch.
+        epoch: Epoch,
+        /// Time scale in which the request epoch was expressed.
+        time_scale: TimeScale,
+    },
+    /// Required external reference data were not supplied to the provider.
+    #[error("body-fixed transform provider is missing required caller-supplied reference data")]
+    MissingReferenceData,
+    /// The provider produced an invalid transform.
+    #[error("body-fixed transform provider returned an invalid transform")]
+    InvalidTransform {
+        /// Typed transform validation failure.
+        #[source]
+        source: Box<BodyFixedTransformError>,
+    },
+    /// Provider-specific failure surfaced without erasing the source error.
+    #[error("body-fixed transform provider failed")]
+    Source {
+        /// Provider-specific source failure.
+        #[source]
+        source: Box<dyn StdError + Send + Sync + 'static>,
+    },
+}
+
+/// [`KinematicFrameTransformProvider`] adapter backed by a body-fixed rotation provider.
+///
+/// The adapter preserves identity transforms without querying the provider.
+/// Distinct-frame conversions are limited to same-origin inertial/body-fixed
+/// pairs, and every provider result is checked against the requested epoch,
+/// time scale, frames, and direction before position/velocity are transformed.
+#[derive(Debug)]
+pub struct BodyFixedKinematicFrameTransform<P> {
+    provider: P,
+    time_scale: TimeScale,
+}
+
+impl<P> BodyFixedKinematicFrameTransform<P> {
+    /// Constructs an adapter that requests transforms in `time_scale`.
+    #[must_use]
+    pub const fn new(provider: P, time_scale: TimeScale) -> Self {
+        Self {
+            provider,
+            time_scale,
+        }
+    }
+
+    /// Returns the time scale used for provider requests.
+    #[must_use]
+    pub const fn time_scale(&self) -> TimeScale {
+        self.time_scale
+    }
+}
+
+impl<P> AsRef<P> for BodyFixedKinematicFrameTransform<P> {
+    fn as_ref(&self) -> &P {
+        &self.provider
+    }
+}
+
+impl<P: BodyFixedTransformProvider> KinematicFrameTransformProvider
+    for BodyFixedKinematicFrameTransform<P>
+{
+    type Error = BodyFixedKinematicFrameTransformError;
+
+    fn transform(
+        &self,
+        epoch: Epoch,
+        kinematics: FrameKinematics,
+        target: ReferenceFrame,
+    ) -> Result<FrameKinematics, Self::Error> {
+        if kinematics.frame() == target {
+            return Ok(kinematics);
+        }
+        let (inertial_frame, body_fixed_frame, direction) =
+            resolve_body_fixed_direction(kinematics.frame(), target)?;
+        let request = BodyFixedTransformRequest::new(
+            epoch,
+            self.time_scale,
+            inertial_frame,
+            body_fixed_frame,
+            direction,
+        )?;
+        let transform = self
+            .provider
+            .body_fixed_transform(request)
+            .map_err(BodyFixedKinematicFrameTransformError::from)?;
+        validate_provider_transform(request, transform)?;
+        transform
+            .transform_kinematics(kinematics)
+            .map_err(BodyFixedKinematicFrameTransformError::from)
+    }
+}
+
+/// Failure from [`BodyFixedKinematicFrameTransform`].
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum BodyFixedKinematicFrameTransformError {
+    /// Neither source nor target is a supported same-origin inertial/body-fixed pair.
+    #[error("cannot resolve an inertial/body-fixed direction from {from:?} to {to:?}")]
+    UnsupportedFramePair {
+        /// Input frame.
+        from: Box<ReferenceFrame>,
+        /// Requested output frame.
+        to: Box<ReferenceFrame>,
+    },
+    /// The body-fixed transform request was invalid.
+    #[error("body-fixed transform failed")]
+    Transform {
+        /// Typed transform failure.
+        #[source]
+        source: Box<BodyFixedTransformError>,
+    },
+    /// The caller-supplied body-fixed provider failed.
+    #[error("body-fixed transform provider failed")]
+    Provider {
+        /// Provider failure.
+        #[source]
+        source: Box<BodyFixedTransformProviderError>,
+    },
+}
+
+impl From<BodyFixedTransformError> for BodyFixedKinematicFrameTransformError {
+    fn from(source: BodyFixedTransformError) -> Self {
+        Self::Transform {
+            source: Box::new(source),
+        }
+    }
+}
+
+impl From<BodyFixedTransformProviderError> for BodyFixedKinematicFrameTransformError {
+    fn from(source: BodyFixedTransformProviderError) -> Self {
+        Self::Provider {
+            source: Box::new(source),
+        }
+    }
+}
+
+/// Invalid body-fixed rotation or conversion.
+#[derive(Debug, Clone, PartialEq, Error)]
+#[non_exhaustive]
+pub enum BodyFixedTransformError {
+    /// The inertial and body-fixed frames do not share one explicit origin.
+    #[error("inertial frame origin {inertial_origin:?} does not match body-fixed origin {body_fixed_origin:?}")]
+    OriginMismatch {
+        /// Origin carried by the inertial frame.
+        inertial_origin: FrameOrigin,
+        /// Origin carried by the body-fixed frame.
+        body_fixed_origin: FrameOrigin,
+    },
+    /// The body-fixed side did not declare rotating/non-inertial axes.
+    #[error("body-fixed frame {frame:?} must declare non-inertial axes")]
+    BodyFixedAxesNotNonInertial {
+        /// Rejected body-fixed frame.
+        frame: ReferenceFrame,
+    },
+    /// At least one rotation-matrix element is NaN or infinite.
+    #[error("direction-cosine matrix elements must be finite")]
+    NonFiniteRotationMatrix,
+    /// Rotation-matrix rows are not unit and mutually orthogonal.
+    #[error("direction-cosine matrix must be orthonormal")]
+    NonOrthonormalRotationMatrix,
+    /// Rotation matrix is not right-handed.
+    #[error("direction-cosine matrix determinant must be +1")]
+    ImproperRotationMatrix,
+    /// At least one angular-velocity component is NaN or infinite.
+    #[error("body-fixed angular velocity components must be finite")]
+    NonFiniteAngularVelocity,
+    /// Kinematics were not expressed in the frame expected by the transform.
+    #[error("body-fixed transform expected input frame {expected:?}, got {actual:?}")]
+    InputFrameMismatch {
+        /// Frame expected by the transform direction.
+        expected: Box<ReferenceFrame>,
+        /// Frame carried by the input kinematics.
+        actual: Box<ReferenceFrame>,
+    },
+    /// Provider returned a transform for a different request.
+    #[error("provider transform request mismatch: expected {expected:?}, got {actual:?}")]
+    RequestMismatch {
+        /// Request sent to the provider.
+        expected: Box<BodyFixedTransformRequest>,
+        /// Request carried by the provider result.
+        actual: Box<BodyFixedTransformRequest>,
+    },
+    /// Transformed position/velocity failed finite kinematics validation.
+    #[error("body-fixed transform produced invalid kinematics")]
+    InvalidKinematics(#[from] FrameKinematicsError),
+}
+
+fn validate_body_fixed_frame_pair(
+    inertial_frame: ReferenceFrame,
+    body_fixed_frame: ReferenceFrame,
+) -> Result<(), BodyFixedTransformError> {
+    if inertial_frame.origin() != body_fixed_frame.origin() {
+        return Err(BodyFixedTransformError::OriginMismatch {
+            inertial_origin: inertial_frame.origin(),
+            body_fixed_origin: body_fixed_frame.origin(),
+        });
+    }
+    if body_fixed_frame.motion() != FrameMotion::NonInertial {
+        return Err(BodyFixedTransformError::BodyFixedAxesNotNonInertial {
+            frame: body_fixed_frame,
+        });
+    }
+    Ok(())
+}
+
+fn resolve_body_fixed_direction(
+    source: ReferenceFrame,
+    target: ReferenceFrame,
+) -> Result<
+    (InertialFrame, ReferenceFrame, BodyFixedTransformDirection),
+    BodyFixedKinematicFrameTransformError,
+> {
+    if let Ok(inertial_frame) = InertialFrame::try_from(source) {
+        validate_body_fixed_frame_pair(source, target)?;
+        return Ok((
+            inertial_frame,
+            target,
+            BodyFixedTransformDirection::InertialToBodyFixed,
+        ));
+    }
+    if let Ok(inertial_frame) = InertialFrame::try_from(target) {
+        validate_body_fixed_frame_pair(target, source)?;
+        return Ok((
+            inertial_frame,
+            source,
+            BodyFixedTransformDirection::BodyFixedToInertial,
+        ));
+    }
+    Err(
+        BodyFixedKinematicFrameTransformError::UnsupportedFramePair {
+            from: Box::new(source),
+            to: Box::new(target),
+        },
+    )
+}
+
+fn validate_provider_transform(
+    expected: BodyFixedTransformRequest,
+    actual: BodyFixedTransform,
+) -> Result<(), BodyFixedKinematicFrameTransformError> {
+    if actual.request() == expected {
+        Ok(())
+    } else {
+        Err(BodyFixedTransformError::RequestMismatch {
+            expected: Box::new(expected),
+            actual: Box::new(actual.request()),
+        }
+        .into())
+    }
+}
+
+fn dot(left: [f64; 3], right: [f64; 3]) -> f64 {
+    left[0].mul_add(right[0], left[1].mul_add(right[1], left[2] * right[2]))
+}
+
+fn determinant(rows: [[f64; 3]; 3]) -> f64 {
+    rows[0][0].mul_add(
+        rows[1][1] * rows[2][2] - rows[1][2] * rows[2][1],
+        -rows[0][1] * (rows[1][0] * rows[2][2] - rows[1][2] * rows[2][0])
+            + rows[0][2] * (rows[1][0] * rows[2][1] - rows[1][1] * rows[2][0]),
+    )
+}
+
+fn cross(left: [f64; 3], right: [f64; 3]) -> [f64; 3] {
+    [
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    ]
 }
 
 /// Resolves kinematics between explicitly declared reference frames.
@@ -1153,6 +1815,36 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    struct FixedBodyFixedProvider {
+        rotation: DirectionCosineMatrix,
+        angular_velocity: AngularVelocityVector,
+    }
+
+    impl BodyFixedTransformProvider for FixedBodyFixedProvider {
+        fn body_fixed_transform(
+            &self,
+            request: BodyFixedTransformRequest,
+        ) -> Result<BodyFixedTransform, BodyFixedTransformProviderError> {
+            BodyFixedTransform::new(request, self.rotation, self.angular_velocity).map_err(
+                |source| BodyFixedTransformProviderError::InvalidTransform {
+                    source: Box::new(source),
+                },
+            )
+        }
+    }
+
+    fn body_fixed_request(direction: BodyFixedTransformDirection) -> BodyFixedTransformRequest {
+        BodyFixedTransformRequest::new(
+            Epoch::from_tai_seconds(10.0),
+            TimeScale::TAI,
+            InertialFrame::GCRF,
+            ReferenceFrame::ITRF2020,
+            direction,
+        )
+        .expect("valid Earth inertial/body-fixed request")
+    }
+
     #[test]
     fn built_in_frames_round_trip_through_names() {
         for frame in [
@@ -1459,6 +2151,209 @@ mod tests {
                 target: ReferenceFrame::GCRF,
             })
         );
+    }
+
+    #[test]
+    fn body_fixed_request_makes_origin_axes_direction_and_time_scale_explicit() {
+        let request = BodyFixedTransformRequest::new(
+            Epoch::from_tai_seconds(10.0).to_time_scale(TimeScale::UTC),
+            TimeScale::TAI,
+            InertialFrame::GCRF,
+            ReferenceFrame::ITRF2020,
+            BodyFixedTransformDirection::InertialToBodyFixed,
+        )
+        .expect("same-origin inertial/body-fixed frames");
+
+        assert_eq!(request.time_scale(), TimeScale::TAI);
+        assert_eq!(request.epoch().time_scale, TimeScale::TAI);
+        assert_eq!(request.inertial_frame(), InertialFrame::GCRF);
+        assert_eq!(request.body_fixed_frame(), ReferenceFrame::ITRF2020);
+        assert_eq!(
+            request.direction().inverse(),
+            BodyFixedTransformDirection::BodyFixedToInertial
+        );
+    }
+
+    #[test]
+    fn body_fixed_request_rejects_mismatched_origins_and_non_rotating_targets() {
+        let mars_fixed =
+            ReferenceFrame::new(FrameOrigin::Body(Body::MARS), FrameOrientation::Itrf(2020));
+        assert_eq!(
+            BodyFixedTransformRequest::new(
+                Epoch::from_tai_seconds(0.0),
+                TimeScale::TAI,
+                InertialFrame::GCRF,
+                mars_fixed,
+                BodyFixedTransformDirection::InertialToBodyFixed,
+            ),
+            Err(BodyFixedTransformError::OriginMismatch {
+                inertial_origin: FrameOrigin::Body(Body::EARTH),
+                body_fixed_origin: FrameOrigin::Body(Body::MARS),
+            })
+        );
+        assert_eq!(
+            BodyFixedTransformRequest::new(
+                Epoch::from_tai_seconds(0.0),
+                TimeScale::TAI,
+                InertialFrame::GCRF,
+                ReferenceFrame::GCRF,
+                BodyFixedTransformDirection::InertialToBodyFixed,
+            ),
+            Err(BodyFixedTransformError::BodyFixedAxesNotNonInertial {
+                frame: ReferenceFrame::GCRF,
+            })
+        );
+    }
+
+    #[test]
+    fn direction_cosine_matrix_rejects_invalid_rotations() {
+        assert_eq!(
+            DirectionCosineMatrix::new([[1.0, 0.0, 0.0], [0.0, f64::NAN, 0.0], [0.0, 0.0, 1.0]]),
+            Err(BodyFixedTransformError::NonFiniteRotationMatrix)
+        );
+        assert_eq!(
+            DirectionCosineMatrix::new([[2.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
+            Err(BodyFixedTransformError::NonOrthonormalRotationMatrix)
+        );
+        assert_eq!(
+            DirectionCosineMatrix::new([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, -1.0]]),
+            Err(BodyFixedTransformError::ImproperRotationMatrix)
+        );
+    }
+
+    #[test]
+    fn body_fixed_transform_applies_angular_velocity_to_velocity() {
+        let transform = BodyFixedTransform::new(
+            body_fixed_request(BodyFixedTransformDirection::InertialToBodyFixed),
+            DirectionCosineMatrix::identity(),
+            AngularVelocityVector::from_radians_per_second(0.0, 0.0, 2.0),
+        )
+        .expect("valid transform");
+        let inertial = FrameKinematics::new(
+            Position::from_metres(3.0, 0.0, 0.0),
+            VelocityVector::from_metres_per_second(0.0, 7.0, 0.0),
+            ReferenceFrame::GCRF,
+        )
+        .expect("finite inertial kinematics");
+
+        let body_fixed = transform
+            .transform_kinematics(inertial)
+            .expect("inertial to body-fixed");
+
+        assert_eq!(body_fixed.frame(), ReferenceFrame::ITRF2020);
+        assert_eq!(body_fixed.position(), Position::from_metres(3.0, 0.0, 0.0));
+        assert_eq!(
+            body_fixed.velocity(),
+            VelocityVector::from_metres_per_second(0.0, 1.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn body_fixed_inverse_recovers_position_and_velocity() {
+        let to_body = BodyFixedTransform::new(
+            body_fixed_request(BodyFixedTransformDirection::InertialToBodyFixed),
+            DirectionCosineMatrix::identity(),
+            AngularVelocityVector::from_radians_per_second(0.0, 0.0, 2.0),
+        )
+        .expect("valid inertial-to-body transform");
+        let to_inertial = BodyFixedTransform::new(
+            body_fixed_request(BodyFixedTransformDirection::BodyFixedToInertial),
+            DirectionCosineMatrix::identity(),
+            AngularVelocityVector::from_radians_per_second(0.0, 0.0, 2.0),
+        )
+        .expect("valid body-to-inertial transform");
+        let inertial = FrameKinematics::new(
+            Position::from_metres(3.0, 0.0, 0.0),
+            VelocityVector::from_metres_per_second(0.0, 7.0, 0.0),
+            ReferenceFrame::GCRF,
+        )
+        .expect("finite inertial kinematics");
+
+        let recovered = to_inertial
+            .transform_kinematics(
+                to_body
+                    .transform_kinematics(inertial)
+                    .expect("to body-fixed"),
+            )
+            .expect("back to inertial");
+
+        assert_eq!(recovered, inertial);
+    }
+
+    #[test]
+    fn body_fixed_provider_is_object_safe() {
+        let provider = FixedBodyFixedProvider {
+            rotation: DirectionCosineMatrix::identity(),
+            angular_velocity: AngularVelocityVector::from_radians_per_second(0.0, 0.0, 0.0),
+        };
+        let object: &dyn BodyFixedTransformProvider = &provider;
+
+        let transform = object
+            .body_fixed_transform(body_fixed_request(
+                BodyFixedTransformDirection::InertialToBodyFixed,
+            ))
+            .expect("object-safe provider resolves request");
+
+        assert_eq!(
+            transform.direction(),
+            BodyFixedTransformDirection::InertialToBodyFixed
+        );
+
+        let boxed: Box<dyn BodyFixedTransformProvider> = Box::new(provider);
+        let adapter = BodyFixedKinematicFrameTransform::new(boxed, TimeScale::TAI);
+        assert_eq!(adapter.time_scale(), TimeScale::TAI);
+        let state = FrameKinematics::new(
+            Position::from_metres(1.0, 0.0, 0.0),
+            VelocityVector::from_metres_per_second(0.0, 1.0, 0.0),
+            ReferenceFrame::GCRF,
+        )
+        .expect("finite state");
+        assert!(adapter
+            .transform(
+                Epoch::from_tai_seconds(10.0),
+                state,
+                ReferenceFrame::ITRF2020
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn body_fixed_adapter_converts_frame_kinematics_without_relabelling() {
+        let adapter = BodyFixedKinematicFrameTransform::new(
+            FixedBodyFixedProvider {
+                rotation: DirectionCosineMatrix::identity(),
+                angular_velocity: AngularVelocityVector::from_radians_per_second(0.0, 0.0, 2.0),
+            },
+            TimeScale::TAI,
+        );
+        let inertial = FrameKinematics::new(
+            Position::from_metres(3.0, 0.0, 0.0),
+            VelocityVector::from_metres_per_second(0.0, 7.0, 0.0),
+            ReferenceFrame::GCRF,
+        )
+        .expect("finite inertial state");
+
+        let body_fixed = adapter
+            .transform(
+                Epoch::from_tai_seconds(10.0),
+                inertial,
+                ReferenceFrame::ITRF2020,
+            )
+            .expect("adapter resolves body-fixed transform");
+        let recovered = adapter
+            .transform(
+                Epoch::from_tai_seconds(10.0),
+                body_fixed,
+                ReferenceFrame::GCRF,
+            )
+            .expect("adapter resolves inverse transform");
+
+        assert_eq!(body_fixed.frame(), ReferenceFrame::ITRF2020);
+        assert_eq!(
+            body_fixed.velocity(),
+            VelocityVector::from_metres_per_second(0.0, 1.0, 0.0)
+        );
+        assert_eq!(recovered, inertial);
     }
 
     #[test]

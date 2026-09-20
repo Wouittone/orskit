@@ -8,6 +8,12 @@
 
 pub use dynamics_core::*;
 
+#[cfg(feature = "drag")]
+pub use dynamics_drag::{
+    AtmosphereRelativeVelocity, AtmosphereRelativeVelocityProvider, AtmosphericDragForce,
+    CannonballDragModel, DragArea, DragCoefficient, DragEvaluationError, DragInputError, DragMass,
+    RelativeVelocityError,
+};
 #[cfg(feature = "harmonics")]
 pub use dynamics_harmonics::{J2Dynamics, J2EvaluationError, J2GravityModel, J2OblatenessForce};
 #[cfg(feature = "attitude")]
@@ -23,6 +29,24 @@ pub use dynamics_numerical::{
     ManeuverSchedule, NumericalPropagationError, ThrustFrame, ThrustVector,
     VariationalConfiguration, VariationalConfigurationError, VariationalPropagation,
     VariationalPropagationError,
+};
+#[cfg(feature = "spherical-harmonics")]
+pub use dynamics_spherical_harmonics::{
+    CoefficientNormalization, ConstructionError as SphericalHarmonicConstructionError,
+    EvaluationError as SphericalHarmonicEvaluationError, HarmonicCoefficient,
+    HarmonicCoefficientProvider, SphericalHarmonicField, SphericalHarmonicGravity,
+    SphericalHarmonicGravityModel, TideSystem,
+};
+#[cfg(feature = "srp")]
+pub use dynamics_srp::{
+    CannonballSolarRadiationPressure, EclipseGeometry, OpticalCoefficient, SolarFlux,
+    SolarFluxProvider, SrpArea, SrpEvaluationError, SrpInputError, SrpMass, SrpSpacecraft,
+    SPEED_OF_LIGHT_M_PER_S,
+};
+#[cfg(feature = "third-bodies")]
+pub use dynamics_third_bodies::{
+    DifferentialThirdBodyModel, ThirdBodyAccelerationConvention, ThirdBodyError,
+    ThirdBodyGravityForce,
 };
 #[cfg(feature = "two-bodies")]
 pub use dynamics_two_bodies::{
@@ -63,5 +87,49 @@ pub mod harmonics {
 
     pub use dynamics_harmonics::{
         J2Dynamics, J2EvaluationError, J2GravityModel, J2OblatenessForce,
+    };
+}
+
+#[cfg(feature = "drag")]
+pub mod drag {
+    //! Cannonball atmospheric-drag capability.
+
+    pub use dynamics_drag::{
+        AtmosphereRelativeVelocity, AtmosphereRelativeVelocityProvider, AtmosphericDragForce,
+        CannonballDragModel, DragArea, DragCoefficient, DragEvaluationError, DragInputError,
+        DragMass, RelativeVelocityError,
+    };
+}
+
+#[cfg(feature = "third-bodies")]
+pub mod third_bodies {
+    //! Differential third-body point-mass gravity capability.
+
+    pub use dynamics_third_bodies::{
+        DifferentialThirdBodyModel, ThirdBodyAccelerationConvention, ThirdBodyError,
+        ThirdBodyGravityForce,
+    };
+}
+
+#[cfg(feature = "srp")]
+pub mod srp {
+    //! Cannonball solar-radiation-pressure and eclipse capability.
+
+    pub use dynamics_srp::{
+        CannonballSolarRadiationPressure, EclipseGeometry, OpticalCoefficient, SolarFlux,
+        SolarFluxProvider, SrpArea, SrpEvaluationError, SrpInputError, SrpMass, SrpSpacecraft,
+        SPEED_OF_LIGHT_M_PER_S,
+    };
+}
+
+#[cfg(feature = "spherical-harmonics")]
+pub mod spherical_harmonics {
+    //! Caller-supplied low-degree zonal spherical-harmonic gravity capability.
+
+    pub use dynamics_spherical_harmonics::{
+        CoefficientNormalization, ConstructionError as SphericalHarmonicConstructionError,
+        EvaluationError as SphericalHarmonicEvaluationError, HarmonicCoefficient,
+        HarmonicCoefficientProvider, SphericalHarmonicField, SphericalHarmonicGravity,
+        SphericalHarmonicGravityModel, TideSystem,
     };
 }

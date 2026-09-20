@@ -1,0 +1,18 @@
+[package]
+name = "atmosphere"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Explicit atmosphere-density provider contracts for orskit"
+
+[lib]
+name = "atmosphere"
+
+[dependencies]
+frames = { path = "../frames" }
+hifitime.workspace = true
+thiserror.workspace = true
+units = { path = "../units" }

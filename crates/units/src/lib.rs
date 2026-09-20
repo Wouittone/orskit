@@ -25,7 +25,7 @@ pub use derivative::{InverseTime, InverseTimeSquared};
 pub use uom;
 pub use uom::si::f64::{
     Acceleration, Angle, AngularAcceleration, AngularVelocity, Area, Force, Frequency, Length,
-    Mass, MassRate, MomentOfInertia, Ratio, Time, Velocity,
+    Mass, MassDensity, MassRate, MomentOfInertia, Ratio, Time, Velocity,
 };
 pub use variance::{
     AngularVariance, FrequencyVariance, PositionVelocityCovariance, TimeVariance, VelocityVariance,

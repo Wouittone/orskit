@@ -1,0 +1,21 @@
+[package]
+name = "dynamics-drag"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Cannonball atmospheric drag force model for orskit"
+
+[lib]
+name = "dynamics_drag"
+
+[dependencies]
+atmosphere = { path = "../../atmosphere" }
+dynamics = { package = "dynamics-core", path = "../core" }
+frames = { path = "../../frames" }
+hifitime.workspace = true
+orbits = { path = "../../orbits", features = ["cartesian"] }
+thiserror.workspace = true
+units = { path = "../../units" }
