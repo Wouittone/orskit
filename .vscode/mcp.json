@@ -14,7 +14,11 @@
     },
     "docs-rs": {
       "type": "stdio",
-      "command": "docs-rs-mcp"
+      "command": "npx",
+      "args": [
+        "-y",
+        "@nuskey8/docs-rs-mcp@1.0.1"
+      ]
     }
   }
 }
