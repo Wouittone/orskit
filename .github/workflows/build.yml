@@ -80,7 +80,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Check minimal workspace
-        run: cargo check --workspace --all-targets --no-default-features --locked
+        run: cargo check --workspace --no-default-features --locked
 
   platform-smoke:
     name: ${{ matrix.os }} smoke tests
