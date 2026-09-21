@@ -83,7 +83,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo metadata --no-deps --format-version 1 \
+          cargo metadata --locked --no-deps --format-version 1 \
             | jq -r '.packages[].manifest_path' \
             | while IFS= read -r manifest; do
                 cargo check --locked --manifest-path "$manifest" --no-default-features

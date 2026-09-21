@@ -19,7 +19,7 @@ jobs:
     steps:
       - name: Install pinned Rust toolchain and rust-analyzer
         run: |
-          rustup toolchain install 1.96.1 --profile minimal --component rust-analyzer
+          rustup toolchain install 1.96.1 --profile minimal --component rust-analyzer,rustfmt,clippy
           rustup default 1.96.1
       - name: Install Rust Analyzer MCP server
         run: cargo install r3bl-rust-analyzer-mcp-server --version 1.1.4 --locked
