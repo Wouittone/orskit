@@ -1,0 +1,24 @@
+{
+  "servers": {
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/"
+    },
+    "rust-analyzer": {
+      "type": "stdio",
+      "command": "rust-analyzer-mcp-server",
+      "args": [
+        "--workspace",
+        "${workspaceFolder}"
+      ]
+    },
+    "docs-rs": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@nuskey8/docs-rs-mcp@1.0.1"
+      ]
+    }
+  }
+}
