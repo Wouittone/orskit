@@ -102,10 +102,25 @@ default numerical propagator. Instead:
 
 ## Validation
 
-No code changes accompany this decision. The cited SatKit evaluation
-(issue #40) and controller-arithmetic diagnostic (PR #50) are the accepted
-evidence. Any future adapter must add its own benchmark reusing that
-methodology before this ADR's performance gate is considered satisfied.
+The cited SatKit evaluation (issue #40) and controller-arithmetic diagnostic
+(PR #50) established the original default-path decision. The isolated
+`.agent/references/rkv98-adapter-gate` evidence run on 2026-10-03 additionally
+tested the released `differential-equations-rs` 1.4.1 reusable Vern9 API
+against `numeris` 0.6.0 RKV98 for matched-error six-hour LEO, synthetic
+velocity-dependent drag, and 30-second dense-query workloads. Isolated Vern9
+lanes recorded zero mature allocations and reallocations, but median runtime
+was 2.40x and 2.43x slower for the endpoint scenarios and 3.56x slower per
+dense query. Per-mode `Process.PeakWorkingSet64` values are process-footprint
+measurements captured at a post-measurement process handshake, not retained-heap
+measurements. The six-mode runner also enforces the paired physical-error
+comparability limit for each sample. The runtime threshold remains unsatisfied;
+the measured host was not independently verified idle or thermally stable, so
+retain the raw observations as local negative evidence.
+The reproduction command, medians, and raw samples are recorded in
+`.agent/references/rkv98-adapter-gate/README.md` and its
+`results/run-20261003-183015` artifacts. Input SHA-256 fingerprints are
+recorded even though the working tree was dirty during the run. This comparison
+does not assert that Vern9 and RKV98 share a tableau.
 
 ## Provenance
 
@@ -114,5 +129,8 @@ methodology before this ADR's performance gate is considered satisfied.
   profile controller arithmetic against RKV98"): same-author, MIT OR
   Apache-2.0 sibling project; public issue/PR findings used for the
   performance facts above only, no source code copied.
+- `.agent/references/rkv98-adapter-gate/README.md` and its linked raw run:
+  the released 1.4.1 reusable Vern9 API and 0.6.0 RKV98 public APIs were
+  exercised as isolated dependencies; no implementation source was copied.
 - `.agent/PROVENANCE.md` Nyx validation-boundary precedent for keeping an
   external comparison harness out of the distributed workspace.
