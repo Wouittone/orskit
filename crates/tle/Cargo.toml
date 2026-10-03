@@ -1,0 +1,26 @@
+[package]
+name = "tle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Strict Two-Line Element parsing and formatting for orskit"
+
+[features]
+default = []
+sgp4 = [
+    "dep:dynamics",
+    "dynamics/sgp4",
+    "dep:hifitime",
+    "dep:frames",
+    "dep:units",
+]
+
+[dependencies]
+dynamics = { path = "../dynamics", optional = true }
+frames = { path = "../frames", optional = true }
+hifitime = { workspace = true, optional = true }
+thiserror.workspace = true
+units = { path = "../units", optional = true }

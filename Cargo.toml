@@ -13,6 +13,7 @@ members = [
     "crates/dynamics/numerical",
     "crates/dynamics/relativity",
     "crates/dynamics/spherical-harmonics",
+    "crates/dynamics/sgp4",
     "crates/dynamics/srp",
     "crates/dynamics/third-bodies",
     "crates/dynamics/two-bodies",
@@ -23,6 +24,7 @@ members = [
     "crates/orskit",
     "crates/orbits",
     "crates/orbit-determination",
+    "crates/tle",
     "crates/units",
     "crates/utils",
 ]
@@ -39,6 +41,7 @@ repository = "https://github.com/Wouittone/orskit"
 hifitime = "=4.3.0"
 nalgebra = "0.35.0"
 rayon = "1.12.0"
+sgp4 = { version = "=2.4.0", default-features = false, features = ["std"] }
 thiserror = "2.0.18"
 tokio = "1.52.3"
 uom = { version = "0.38.0", default-features = false, features = ["autoconvert", "f64", "si", "std"] }

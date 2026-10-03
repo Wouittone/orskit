@@ -36,6 +36,8 @@ pub use measurements;
 pub use orbit_determination;
 #[cfg(feature = "cartesian")]
 pub use orbits;
+#[cfg(feature = "tle")]
+pub use tle;
 
 /// Conservative imports for selected workflow capabilities.
 pub mod prelude {
