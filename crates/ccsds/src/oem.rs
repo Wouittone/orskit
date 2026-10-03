@@ -2197,6 +2197,8 @@ impl MetadataBuilder {
                 | FrameOrientation::Mod
                 | FrameOrientation::Tod
                 | FrameOrientation::Gtod
+                | FrameOrientation::Cirs
+                | FrameOrientation::Tirs
         );
         if earth_only && origin != FrameOrigin::Body(Body::EARTH) {
             return Err(OemError::IncompatibleFrameCenter {
@@ -3278,12 +3280,14 @@ META_STOP\n\
 
     #[test]
     fn earth_fixed_frame_rejects_non_earth_center() {
-        let input = SAMPLE.replacen("REF_FRAME = ICRF", "REF_FRAME = ITRF2020", 1);
-        assert!(matches!(
-            parse_oem_kvn(&input),
-            Err(OemError::IncompatibleFrameCenter { center, frame, .. })
-                if center == "MARS" && frame == "ITRF2020"
-        ));
+        for frame in ["ITRF2020", "CIRS", "TIRS"] {
+            let input = SAMPLE.replacen("REF_FRAME = ICRF", &format!("REF_FRAME = {frame}"), 1);
+            assert!(matches!(
+                parse_oem_kvn(&input),
+                Err(OemError::IncompatibleFrameCenter { center, frame: actual, .. })
+                    if center == "MARS" && actual == frame
+            ));
+        }
     }
 
     #[test]

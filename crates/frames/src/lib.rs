@@ -2630,6 +2630,23 @@ mod tests {
     }
 
     #[test]
+    fn reference_frame_transform_request_rejects_mismatched_origins() {
+        let mars_cirs = ReferenceFrame::new(FrameOrigin::Body(Body::MARS), FrameOrientation::Cirs);
+        assert_eq!(
+            ReferenceFrameTransformRequest::new(
+                Epoch::from_tai_seconds(0.0),
+                TimeScale::TAI,
+                ReferenceFrame::CIRS,
+                mars_cirs,
+            ),
+            Err(ReferenceFrameTransformError::OriginMismatch {
+                source_origin: FrameOrigin::Body(Body::EARTH),
+                target_origin: FrameOrigin::Body(Body::MARS),
+            })
+        );
+    }
+
+    #[test]
     fn direction_cosine_matrix_rejects_invalid_rotations() {
         assert_eq!(
             DirectionCosineMatrix::new([[1.0, 0.0, 0.0], [0.0, f64::NAN, 0.0], [0.0, 0.0, 1.0]]),

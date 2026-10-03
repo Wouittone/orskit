@@ -77,3 +77,10 @@ validated on Rust 1.96.1:
 - Comparison with the verified main tree — no remaining changes to
   `crates/dynamics`, ADR-0047, task 0048, or the spherical-harmonics guide;
   the facade retains only its #17 `earth-rotation` additions.
+
+## Parent issue disposition
+
+This PR delivers the first ERA-only CIRS/TIRS slice. It does not complete
+issue #17's inertial-to-body-fixed provider workflow or close the issue; the
+celestial-intermediate and polar-motion composition remains follow-up work
+tracked on issue #17.
