@@ -53,7 +53,8 @@ to `b3228caee857e7c9c7f0ecc393b01f7addaa335c`. At PR head
 `06c077f` remained in the comparison diff despite merge commit `94b5aee`.
 The #11 patch was removed from the working tree without rewriting history:
 the existing low-degree gravity boundary and ADR were restored, and the
-general evaluator, added facade feature, guide, task 0048, and related ledger
+general evaluator, added facade feature, guide, gravity record (now
+[ADR-0049](../decisions/0049-general-spherical-harmonics-gravity.md)), and related ledger
 changes were removed. The #17 provider and shared frame contracts remain.
 
 Review comments 4173908679 and 4173931140 are accepted as scope corrections.
@@ -61,7 +62,7 @@ Comment 4173931157 identifies a valid provenance mismatch in the removed
 `SourcedBodyFixedTransformProvider`; that wrapper is not retained or expanded
 in this #17-only change. Any general-gravity provenance fix belongs to #11.
 
-Task 0048's workspace `nextest` evidence described the separate #11 work, not
+The gravity record's original workspace `nextest` evidence described the separate #11 work, not
 validation of this corrected comparison. The corrected #17-only tree was
 validated on Rust 1.96.1:
 
@@ -75,7 +76,7 @@ validated on Rust 1.96.1:
 - `.\scripts\check_crate_diagram.ps1 -Check` — passed.
 - `git diff --check` — passed.
 - Comparison with the verified main tree — no remaining changes to
-  `crates/dynamics`, ADR-0047, task 0048, or the spherical-harmonics guide;
+  `crates/dynamics`, ADR-0047, the gravity record, or the spherical-harmonics guide;
   the facade retains only its #17 `earth-rotation` additions.
 
 ## Parent issue disposition

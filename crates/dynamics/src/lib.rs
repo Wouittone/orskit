@@ -5,8 +5,16 @@
 //! Core force and propagation contracts are always available. Enable
 //! `numerical` for adaptive Cartesian propagation and `two-bodies` for
 //! point-mass dynamics and the analytical elliptic Kepler propagator.
+//! Independently opt in to `gauss-jackson` for fixed-step long arcs without
+//! dense output; the native adaptive method is unchanged.
 
 pub use dynamics_core::*;
+
+#[cfg(feature = "gauss-jackson")]
+pub use dynamics_numerical::{
+    GaussJackson8, GaussJacksonConfiguration, GaussJacksonConfigurationError,
+    GaussJacksonPropagationError,
+};
 
 #[cfg(feature = "drag")]
 pub use dynamics_drag::{
@@ -38,9 +46,11 @@ pub use dynamics_relativity::{
 };
 #[cfg(feature = "spherical-harmonics")]
 pub use dynamics_spherical_harmonics::{
-    CoefficientNormalization, ConstructionError as SphericalHarmonicConstructionError,
+    CoefficientEpochSemantics, CoefficientNormalization,
+    ConstructionError as SphericalHarmonicConstructionError,
     EvaluationError as SphericalHarmonicEvaluationError, HarmonicCoefficient,
-    HarmonicCoefficientProvider, SphericalHarmonicField, SphericalHarmonicGravity,
+    HarmonicCoefficientMetadata, HarmonicCoefficientProvider, ProvenanceField, ProvenanceProvider,
+    SourcedBodyFixedTransformProvider, SphericalHarmonicField, SphericalHarmonicGravity,
     SphericalHarmonicGravityModel, TideSystem,
 };
 #[cfg(feature = "srp")]
@@ -62,6 +72,12 @@ pub use dynamics_two_bodies::{
 #[cfg(feature = "numerical")]
 pub mod numerical {
     //! Adaptive Cartesian numerical propagation.
+
+    #[cfg(feature = "gauss-jackson")]
+    pub use dynamics_numerical::{
+        GaussJackson8, GaussJacksonConfiguration, GaussJacksonConfigurationError,
+        GaussJacksonPropagationError,
+    };
 
     #[cfg(feature = "attitude")]
     pub use dynamics_numerical::{AttitudeManeuverDynamicsError, AttitudeManeuverPropagationError};
@@ -139,12 +155,14 @@ pub mod relativity {
 
 #[cfg(feature = "spherical-harmonics")]
 pub mod spherical_harmonics {
-    //! Caller-supplied low-degree zonal spherical-harmonic gravity capability.
+    //! Caller-supplied general spherical-harmonic gravity capability.
 
     pub use dynamics_spherical_harmonics::{
-        CoefficientNormalization, ConstructionError as SphericalHarmonicConstructionError,
+        CoefficientEpochSemantics, CoefficientNormalization,
+        ConstructionError as SphericalHarmonicConstructionError,
         EvaluationError as SphericalHarmonicEvaluationError, HarmonicCoefficient,
-        HarmonicCoefficientProvider, SphericalHarmonicField, SphericalHarmonicGravity,
-        SphericalHarmonicGravityModel, TideSystem,
+        HarmonicCoefficientMetadata, HarmonicCoefficientProvider, ProvenanceField,
+        ProvenanceProvider, SourcedBodyFixedTransformProvider, SphericalHarmonicField,
+        SphericalHarmonicGravity, SphericalHarmonicGravityModel, TideSystem,
     };
 }

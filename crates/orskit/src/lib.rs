@@ -69,10 +69,22 @@ pub mod prelude {
         ManeuverPropagation, ManeuverSchedule, ThrustVector, VariationalConfiguration,
         VariationalPropagation,
     };
+    #[cfg(feature = "spherical-harmonics")]
+    pub use crate::dynamics::{
+        CoefficientEpochSemantics, CoefficientNormalization, HarmonicCoefficient,
+        HarmonicCoefficientMetadata, HarmonicCoefficientProvider,
+        SourcedBodyFixedTransformProvider, SphericalHarmonicField, SphericalHarmonicGravityModel,
+        TideSystem,
+    };
     #[cfg(feature = "dynamics")]
     pub use crate::dynamics::{ComposedDynamics, PropagationState, Propagator};
     #[cfg(feature = "two-bodies")]
     pub use crate::dynamics::{EllipticKeplerPropagator, TwoBodyDynamics};
+    #[cfg(feature = "gauss-jackson")]
+    pub use crate::dynamics::{
+        GaussJackson8, GaussJacksonConfiguration, GaussJacksonConfigurationError,
+        GaussJacksonPropagationError,
+    };
     #[cfg(feature = "point-mass-gravity")]
     pub use crate::gravity::PointMass;
     #[cfg(feature = "measurement-range")]
