@@ -14,6 +14,7 @@ flowchart TB
         CCSDS["ccsds"]
         ORBIT_DETERMINATION["orbit-determination"]
         MEASUREMENTS["measurements"]
+        TLE["tle"]
     end
     subgraph LAYER_DYNAMICS["Dynamics"]
         DYNAMICS["dynamics"]
@@ -22,6 +23,7 @@ flowchart TB
         DYNAMICS_HARMONICS["dynamics-harmonics"]
         DYNAMICS_NUMERICAL["dynamics-numerical"]
         DYNAMICS_RELATIVITY["dynamics-relativity"]
+        DYNAMICS_SGP4["dynamics-sgp4"]
         DYNAMICS_SPHERICAL_HARMONICS["dynamics-spherical-harmonics"]
         DYNAMICS_SRP["dynamics-srp"]
         DYNAMICS_THIRD_BODIES["dynamics-third-bodies"]
@@ -56,6 +58,7 @@ flowchart TB
     DYNAMICS -.->|optional| DYNAMICS_HARMONICS
     DYNAMICS -.->|optional| DYNAMICS_NUMERICAL
     DYNAMICS -.->|optional| DYNAMICS_RELATIVITY
+    DYNAMICS -.->|optional| DYNAMICS_SGP4
     DYNAMICS -.->|optional| DYNAMICS_SPHERICAL_HARMONICS
     DYNAMICS -.->|optional| DYNAMICS_SRP
     DYNAMICS -.->|optional| DYNAMICS_THIRD_BODIES
@@ -86,6 +89,11 @@ flowchart TB
     DYNAMICS_RELATIVITY --> ORBITS
     DYNAMICS_RELATIVITY --> UNITS
     DYNAMICS_RELATIVITY --> UTILS
+    DYNAMICS_SGP4 --> CORE
+    DYNAMICS_SGP4 --> DYNAMICS_CORE
+    DYNAMICS_SGP4 --> FRAMES
+    DYNAMICS_SGP4 --> ORBITS
+    DYNAMICS_SGP4 --> UNITS
     DYNAMICS_SPHERICAL_HARMONICS --> DYNAMICS_CORE
     DYNAMICS_SPHERICAL_HARMONICS --> FRAMES
     DYNAMICS_SPHERICAL_HARMONICS --> ORBITS
@@ -138,7 +146,11 @@ flowchart TB
     ORSKIT -.->|optional| MEASUREMENTS
     ORSKIT -.->|optional| ORBIT_DETERMINATION
     ORSKIT -.->|optional| ORBITS
+    ORSKIT -.->|optional| TLE
     ORSKIT --> UNITS
+    TLE -.->|optional| DYNAMICS
+    TLE -.->|optional| FRAMES
+    TLE -.->|optional| UNITS
     UTILS --> UNITS
 ```
 
