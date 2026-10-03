@@ -102,6 +102,7 @@ library source, tests, examples, internal structure or distinctive prose was
 used. No dataset or paper text is redistributed.
 
 | Schwarzschild first post-Newtonian acceleration | [IERS Conventions (2010), Chapter 10, §10.2, Eq. 10.8](https://apps.dtic.mil/sti/html/tr/ADA535671/index.html) and [BIPM definition of the metre](https://www.bipm.org/en/si-base-units/metre) | Public scientific standard and SI definition | The test-particle Schwarzschild correction in harmonic coordinates, isolated spherical monopole assumptions, and exact speed of light. The correction is independently implemented and checked against a separately evaluated SI vector; no source code or test material is copied | `crates/dynamics/relativity/src/lib.rs`; `docs/guides/relativity.md`; ADR-0050; task 0050 |
+| CIO-based GCRF-to-ITRF transform | [IERS Conventions (2010), Chapter 5, Tables 5.2a, 5.2b, 5.2d and §5.4-5.5](https://iers-conventions.obspm.fr/content/chapter5/icc5.pdf) | Public scientific standard and published numerical tables | CIP `X`, `Y`, `s` series, fundamental arguments, TIO locator and the CIO transformation chain. Coefficients are bundled as data; the implementation is original and checked against a separately generated ERFA/SOFA matrix, with no ERFA source or test material copied | `crates/frames-eop/src/cio.rs`; `crates/frames-eop/data/iers-2010`; `docs/guides/earth-orientation.md`; ADR-0051; task 0051 |
 
 ## Dependency policy
 

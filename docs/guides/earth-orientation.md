@@ -46,3 +46,21 @@ terrestrial/celestial orientation solution.
 References and scope are recorded in [the provenance ledger](../../.agent/PROVENANCE.md),
 [ADR-0046](../../.agent/decisions/0046-implement-era-only-eop-provider.md),
 and the [capability parity ledger](../../.agent/PARITY.md).
+
+## Full CIO-based GCRF to ITRF2020 transform
+
+`frames_eop::Iau2006CioProvider` implements the complete IERS Conventions (2010)
+Chapter 5 chain `W(t) R(t) Q(t)` for the `GCRF` and `ITRF2020` pair, in either
+direction. The celestial intermediate pole `X`, `Y` and the CIO locator `s`
+come from Tables 5.2a, 5.2b and 5.2d (bundled in
+`crates/frames-eop/data/iers-2010`), `R` is the Earth Rotation Angle above and
+`W` uses the TIO locator `s'` with caller-supplied polar motion. Callers
+provide versioned UT1-UTC, `xp`, `yp`, `dX` and `dY` samples; values are
+linearly interpolated with closed coverage and no extrapolation. The returned
+transform carries the EOP provenance and the analytic angular velocity.
+
+Validation: the 3 x 3 matrix agrees with an independent ERFA evaluation
+(`xys06a`, `c2ixys`, `era00`, `sp00`, `pom00`, `c2tcio`) to 1e-11; the angular
+velocity matches a central finite difference of the rotation. Tides and
+equinox-based or truncated variants are out of scope. See
+[ADR-0051](../../.agent/decisions/0051-iau2006-cio-earth-orientation.md).
