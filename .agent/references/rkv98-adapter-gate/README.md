@@ -90,11 +90,12 @@ Command:
 pwsh .agent\references\rkv98-adapter-gate\run.ps1 -Rounds 3 -SamplesPerRound 5 -Warmup 5 -Iterations 1000 -QueryRepetitions 20
 ```
 
-Raw samples: [`results/run-20261003-173100/raw.txt`](results/run-20261003-173100/raw.txt);
-host/toolchain record: [`results/run-20261003-173100/metadata.json`](results/run-20261003-173100/metadata.json).
-The earlier `run-20261003-172520` directory is retained as a preliminary run;
-the decision below uses only this final run, collected with the runtime error
-comparability assertions enabled.
+Raw samples: [`results/run-20261003-175341/raw.txt`](results/run-20261003-175341/raw.txt);
+host/toolchain record: [`results/run-20261003-175341/metadata.json`](results/run-20261003-175341/metadata.json).
+The earlier runs are retained for provenance, but are superseded: review found
+that the dense Vern9 RHS callback allocated an output array on every RHS
+evaluation. The callback now copies directly into its provided output slice;
+the decision below uses only this corrected 3 x 5 run.
 Each timing below is a median of 15 process samples, normalized per arc or
 query. Endpoint position errors differ by less than 0.5% and endpoint velocity
 errors by less than 7%; Vern9's dense-query maximum position and velocity
@@ -102,26 +103,26 @@ errors are respectively 18.6% and 13.2% smaller than native.
 
 | Workload | Native RKV98 | Reusable Vern9 | Vern9 regression | Position error, native / Vern9 | Velocity error, native / Vern9 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Two-body LEO endpoint | 63.541 us/arc | 146.087 us/arc | +129.9% | 1.646 / 1.653 mm | 1.879 / 1.759 um/s |
-| Velocity-dependent LEO endpoint | 59.870 us/arc | 154.185 us/arc | +157.5% | 1.644 / 1.639 mm | 1.878 / 1.754 um/s |
-| Dense query, 721 outputs | 79.202 ns/query | 321.893 ns/query | +306.4% | 1.901 / 1.547 mm max | 1.919 / 1.666 um/s max |
+| Two-body LEO endpoint | 84.921 us/arc | 207.656 us/arc | +144.5% | 1.646 / 1.653 mm | 1.879 / 1.759 um/s |
+| Velocity-dependent LEO endpoint | 86.445 us/arc | 211.852 us/arc | +145.1% | 1.644 / 1.639 mm | 1.878 / 1.754 um/s |
+| Dense query, 721 outputs | 107.039 ns/query | 436.720 ns/query | +308.0% | 1.901 / 1.547 mm max | 1.919 / 1.666 um/s max |
 
 Mature reusable Vern9 workspace propagation made **0 allocations / 0 bytes**
 in all endpoint samples. Workspace setup made 9 allocations / 1,110 bytes;
 first-use Vern9 tableau initialization, recorded separately, made 3,038
-allocations / 168,709 bytes. The dense-query solve retained more output data:
-2,798 allocations / 274,720 bytes for Vern9 versus 104 / 112,064 bytes for
-native RKV98. Repeated dense queries made no allocations in either lane. The
-largest sampled whole-process working set was 4,931,584 bytes.
+allocations / 168,709 bytes. The dense-query solve and retained output made
+289 allocations / 154,288 bytes for Vern9 versus 104 / 112,064 bytes for native
+RKV98. Repeated dense queries made no allocations in either lane. The largest
+sampled whole-process working set was 4,923,392 bytes.
 
-The runtime requirement is **not met**: matched-error Vern9 was 2.30–2.58x
-slower for endpoint propagation and 4.06x slower per dense query, versus the
-allowed maximum of 1.10x. Zero mature-loop allocations satisfy only the
-allocation half of ADR-0041. The machine was a Windows 11 / Ryzen 7 3800X host
-on the High performance power plan; idleness and thermal conditions were not
-independently verified. Raw sample ranges show timing variability, so this is
-local negative evidence, not a portable timing claim or promotion evidence.
-Do not promote the adapter.
+The runtime requirement is **not met**: matched-error Vern9 was 2.45x slower for
+endpoint propagation and 4.08x slower per dense query, versus the allowed
+maximum of 1.10x. Zero mature-loop allocations satisfy only the allocation half
+of ADR-0041. The machine was a Windows 11 / Ryzen 7 3800X host on the High
+performance power plan; idleness and thermal conditions were not independently
+verified. Raw sample ranges show timing variability, so this is local negative
+evidence, not a portable timing claim or promotion evidence. Do not promote the
+adapter.
 
 ## Provenance
 

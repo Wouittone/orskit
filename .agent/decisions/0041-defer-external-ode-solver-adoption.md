@@ -108,13 +108,13 @@ The cited SatKit evaluation (issue #40) and controller-arithmetic diagnostic
 tested the released `differential-equations-rs` 1.4.1 reusable Vern9 API
 against `numeris` 0.6.0 RKV98 for matched-error six-hour LEO, synthetic
 velocity-dependent drag, and 30-second dense-query workloads. Vern9 made zero
-mature workspace allocations, but median runtime was 2.30--2.58x slower for
-endpoint propagation and 4.06x slower per dense query. The runtime threshold
+mature workspace allocations, but median runtime was 2.45x slower for endpoint
+propagation and 4.08x slower per dense query. The runtime threshold
 remains unsatisfied; the measured host was not independently verified idle or
 thermally stable, so retain the raw observations as local negative evidence.
 The reproduction command, medians, and raw samples are recorded in
 `.agent/references/rkv98-adapter-gate/README.md` and its
-`results/run-20261003-173100` artifacts. This comparison does not assert that
+`results/run-20261003-175341` artifacts. This comparison does not assert that
 Vern9 and RKV98 share a tableau.
 
 ## Provenance

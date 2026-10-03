@@ -1,0 +1,37 @@
+{
+  "recorded_at_local": "2026-10-03T17:53:43.4217101+02:00",
+  "repository": "Wouittone/orskit",
+  "source_commit": "58e3e88baf0c1c6cbeaeab0125aefa4ef0d4fb6c",
+  "working_tree_dirty": true,
+  "cargo_lock_sha256": "7db3471768d43d9a568eba9742566a88c254033805a45e574fdd72a1ad58ef8e",
+  "command": "pwsh .agent/references/rkv98-adapter-gate/run.ps1 -Rounds 3 -SamplesPerRound 5 -Warmup 5 -Iterations 1000 -QueryRepetitions 20",
+  "rounds": 3,
+  "samples_per_round": 5,
+  "warmup_propagations": 5,
+  "measured_propagations_per_sample": 1000,
+  "dense_query_repetitions_per_sample": 20,
+  "solver_versions": {
+    "numeris": "0.6.0",
+    "stats_alloc": "0.1.10",
+    "differential_equations_rs": "1.4.1"
+  },
+  "host": {
+    "os": "Microsoft Windows 11 Professionnel 10.0.26300 build 26300",
+    "model": "X470 AORUS GAMING 7 WIFI",
+    "cpu": "AMD Ryzen 7 3800X 8-Core Processor             ",
+    "thermal_conditions": "Not instrumented; assess host cooling and throttling before treating timings as publishable.",
+    "host_idle_state": "Not independently verified; run on an otherwise idle host for promotion evidence.",
+    "cores": 8,
+    "reported_current_clock_mhz": 3901,
+    "active_power_scheme": "GUID du mode de gestion de l’alimentation : 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c  (Haute performance)",
+    "architecture": "AMD64",
+    "manufacturer": "Gigabyte Technology Co., Ltd.",
+    "logical_processors": 16,
+    "hypervisor_present": false
+  },
+  "powershell": "7.6.6",
+  "cargo": "cargo 1.96.1 (356927216 2026-06-26)",
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)\r\nbinary: rustc\r\ncommit-hash: 31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd\r\ncommit-date: 2026-06-26\r\nhost: x86_64-pc-windows-msvc\r\nrelease: 1.96.1\r\nLLVM version: 22.1.2",
+  "working_set_sampling_interval_ms": 10,
+  "memory_note": "Peak is whole-process working set sampled every 10 ms, including runtime and code; it is not a per-lane allocation count."
+}

@@ -440,7 +440,10 @@ fn print_dense_query_lanes(query_repetitions: usize) {
              scenario: &Scenario,
              _time: f64| {
                 let dy = derivative(state.as_slice().expect("contiguous state"), *scenario);
-                output.assign(&array![dy[0], dy[1], dy[2], dy[3], dy[4], dy[5]]);
+                output
+                    .as_slice_mut()
+                    .expect("contiguous output")
+                    .copy_from_slice(&dy);
             },
         );
     let options = SolveOptions::new()
