@@ -1,0 +1,873 @@
+#![forbid(unsafe_code)]
+
+//! Caller-owned Earth-orientation data for the [`frames`] transform contract.
+//!
+//! [`Iau2000EraProvider`] implements only the IAU 2000 Earth Rotation Angle
+//! (ERA) using linearly interpolated UT1−UTC samples. Interpolation is carried
+//! out on the continuous UT1−TAI offset derived from the sample epochs, so a
+//! UTC leap second does not create a spurious angular-rate spike. It is an
+//! Earth-spin slice, **not** a complete GCRF-to-ITRF realization: polar motion,
+//! precession-nutation/CIP motion, celestial-pole offsets, tides, and
+//! terrestrial-realization corrections are omitted. Use only when those
+//! omissions fit the required accuracy; the provider accepts exactly GCRF and
+//! ITRF2020 frame identities so it cannot silently serve another convention
+//! or realization.
+//!
+//! The caller supplies samples and a versioned provenance descriptor. This
+//! crate performs no file access, network access, or implicit data selection.
+//! Samples must be UTC epochs and finite typed UT1−UTC durations in seconds.
+//! Requests may use any Hifitime time scale; their epochs are converted to UTC
+//! for data lookup and ERA evaluation.
+//!
+//! ```no_run
+//! use frames::{BodyFixedTransformDirection, BodyFixedTransformRequest, InertialFrame, ReferenceFrame};
+//! use frames_eop::{EarthOrientationSample, Iau2000EraProvider};
+//! use hifitime::{Epoch, TimeScale};
+//! use units::Time;
+//! use units::uom::si::time::second;
+//!
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let samples = vec![
+//!     EarthOrientationSample {
+//!         epoch_utc: Epoch::from_gregorian_utc_at_midnight(2025, 1, 1),
+//!         ut1_minus_utc: Time::new::<second>(0.1),
+//!     },
+//!     EarthOrientationSample {
+//!         epoch_utc: Epoch::from_gregorian_utc_at_midnight(2025, 1, 2),
+//!         ut1_minus_utc: Time::new::<second>(0.1),
+//!     },
+//! ];
+//! let provider = Iau2000EraProvider::new(
+//!     samples,
+//!     "IERS",
+//!     "caller-supplied EOP series",
+//!     "release-2025-01",
+//!     Some("sha256:replace-with-the-data-checksum"),
+//! )?;
+//! let request = BodyFixedTransformRequest::new(
+//!     Epoch::from_gregorian_utc(2025, 1, 1, 12, 0, 0, 0),
+//!     TimeScale::UTC,
+//!     InertialFrame::GCRF,
+//!     ReferenceFrame::ITRF2020,
+//!     BodyFixedTransformDirection::InertialToBodyFixed,
+//! )?;
+//! let transform = provider.transform(request)?;
+//! assert_eq!(transform.request(), request);
+//! assert_eq!(transform.reference_data().len(), 3);
+//! # Ok(())
+//! # }
+//! ```
+
+use std::f64::consts::TAU;
+
+use frames::{
+    BodyFixedTransform, BodyFixedTransformDirection, BodyFixedTransformError,
+    BodyFixedTransformProvider, BodyFixedTransformProviderError, BodyFixedTransformRequest,
+    DirectionCosineMatrix, InertialFrame, ReferenceDataDescriptor, ReferenceFrame,
+};
+use hifitime::{Epoch, TimeScale};
+use thiserror::Error;
+use units::uom::si::time::second;
+use units::{AngularVelocityVector, Time};
+
+const ERA_REFERENCE_FRACTION: f64 = 0.779_057_273_264_0;
+const ERA_TURNS_PER_UT1_DAY: f64 = 1.002_737_811_911_354_6;
+const SECONDS_PER_DAY: f64 = 86_400.0;
+const UNIX_J2000_NOON_UTC_SECONDS: f64 = 946_728_000.0;
+
+/// One caller-supplied Earth-orientation sample.
+///
+/// `epoch_utc` is the UTC instant of the record; `ut1_minus_utc` is the
+/// corresponding UT1−UTC value. The value is retained as a typed time
+/// quantity, not as an unqualified scalar.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EarthOrientationSample {
+    /// UTC epoch at which the EOP value applies.
+    pub epoch_utc: Epoch,
+    /// UT1−UTC at `epoch_utc`, expressed as a typed SI time quantity.
+    pub ut1_minus_utc: Time,
+}
+
+/// ERA-only provider backed by an immutable, caller-supplied UT1−UTC series.
+///
+/// Samples must be strictly chronological, finite, and contain at least two
+/// records. The inclusive coverage interval is the first through last sample.
+/// Between records, the equivalent continuous UT1−TAI offset is linearly
+/// interpolated over elapsed TAI seconds. This is equivalent to interpolating
+/// UT1−UTC away from UTC leap seconds and avoids a false rotation-rate spike
+/// across a leap. The segment slope is included in the returned angular
+/// velocity so that the velocity cross term is consistent with the angle.
+///
+/// The supported transform is restricted to `GCRF` and `ITRF2020`; this
+/// restriction identifies the declared axes but does not supply the omitted
+/// IAU/IERS transformation terms listed in the crate documentation.
+#[derive(Debug)]
+pub struct Iau2000EraProvider {
+    samples: Vec<EarthOrientationSample>,
+    reference_data: [ReferenceDataDescriptor; 3],
+}
+
+impl Iau2000EraProvider {
+    /// Validates caller-supplied UTC samples and their provenance.
+    ///
+    /// `authority`, `product`, `revision`, and an optional `checksum` identify
+    /// the exact supplied EOP artifact. Fixed provenance records also identify
+    /// the IAU 2000 ERA convention and Hifitime UTC leap-second table used.
+    pub fn new(
+        samples: Vec<EarthOrientationSample>,
+        authority: impl Into<String>,
+        product: impl Into<String>,
+        revision: impl Into<String>,
+        checksum: Option<&str>,
+    ) -> Result<Self, EarthOrientationError> {
+        if samples.len() < 2 {
+            return Err(EarthOrientationError::InsufficientSamples {
+                actual: samples.len(),
+            });
+        }
+
+        let samples: Vec<_> = samples
+            .into_iter()
+            .map(|mut sample| {
+                sample.epoch_utc = sample.epoch_utc.to_time_scale(TimeScale::UTC);
+                sample
+            })
+            .collect();
+        for (index, sample) in samples.iter().enumerate() {
+            if sample.epoch_utc.to_gregorian_utc().0 < 1972 {
+                return Err(EarthOrientationError::BeforeLeapSecondEra { sample: index });
+            }
+            let ut1_minus_utc_seconds = sample.ut1_minus_utc.get::<second>();
+            if !ut1_minus_utc_seconds.is_finite() {
+                return Err(EarthOrientationError::NonFiniteUt1MinusUtc { sample: index });
+            }
+            if index > 0 && sample.epoch_utc <= samples[index - 1].epoch_utc {
+                return Err(EarthOrientationError::NonChronologicalSamples { sample: index });
+            }
+        }
+
+        let eop = ReferenceDataDescriptor {
+            authority: authority.into(),
+            product: product.into(),
+            revision: revision.into(),
+            checksum: checksum.map(str::to_owned),
+        };
+        if let Some(field) = invalid_provenance_field(&eop) {
+            return Err(EarthOrientationError::InvalidProvenance { field });
+        }
+        let convention = ReferenceDataDescriptor {
+            authority: "International Astronomical Union".to_owned(),
+            product: "Earth Rotation Angle".to_owned(),
+            revision: "IAU 2000; IERS Conventions 2010 §5.5.3".to_owned(),
+            checksum: None,
+        };
+        let time_scale = ReferenceDataDescriptor {
+            authority: "Hifitime".to_owned(),
+            product: "UTC-to-TAI leap-second table".to_owned(),
+            revision: "4.3.0".to_owned(),
+            checksum: None,
+        };
+
+        Ok(Self {
+            samples,
+            reference_data: [eop, convention, time_scale],
+        })
+    }
+
+    /// Returns the immutable EOP, ERA-convention, and time-scale records.
+    #[must_use]
+    pub fn reference_data(&self) -> &[ReferenceDataDescriptor] {
+        &self.reference_data
+    }
+
+    /// Resolves one request into a transform qualified by its provenance.
+    ///
+    /// The returned value retains the exact epoch, time scale, frame pair,
+    /// origin, direction, angular velocity, and borrowed data/convention
+    /// descriptors used for this evaluation.
+    pub fn transform(
+        &self,
+        request: BodyFixedTransformRequest,
+    ) -> Result<ProvenancedEarthRotation<'_>, EarthOrientationError> {
+        if request.inertial_frame() != InertialFrame::GCRF
+            || request.body_fixed_frame() != ReferenceFrame::ITRF2020
+        {
+            return Err(EarthOrientationError::UnsupportedFramePair {
+                request: Box::new(request),
+            });
+        }
+
+        let epoch_utc = request.epoch().to_time_scale(TimeScale::UTC);
+        let (ut1_minus_tai_seconds, ut1_minus_tai_rate) =
+            self.interpolate_ut1_minus_tai(epoch_utc, request)?;
+        let dut1_seconds = ut1_minus_tai_seconds + tai_minus_utc_seconds(epoch_utc);
+        let ut1_seconds_since_j2000_utc =
+            epoch_utc.to_unix_seconds() - UNIX_J2000_NOON_UTC_SECONDS + dut1_seconds;
+        let turns = ERA_REFERENCE_FRACTION
+            + ERA_TURNS_PER_UT1_DAY * (ut1_seconds_since_j2000_utc / SECONDS_PER_DAY);
+        if !dut1_seconds.is_finite()
+            || !ut1_seconds_since_j2000_utc.is_finite()
+            || !turns.is_finite()
+        {
+            return Err(EarthOrientationError::NonFiniteEvaluation {
+                request: Box::new(request),
+            });
+        }
+
+        let era = TAU * turns.rem_euclid(1.0);
+        let (sin_era, cos_era) = era.sin_cos();
+        let inertial_to_terrestrial = DirectionCosineMatrix::new([
+            [cos_era, sin_era, 0.0],
+            [-sin_era, cos_era, 0.0],
+            [0.0, 0.0, 1.0],
+        ])
+        .map_err(EarthOrientationError::InvalidTransform)?;
+        let rotation = match request.direction() {
+            BodyFixedTransformDirection::InertialToBodyFixed => inertial_to_terrestrial,
+            BodyFixedTransformDirection::BodyFixedToInertial => DirectionCosineMatrix::new([
+                [cos_era, -sin_era, 0.0],
+                [sin_era, cos_era, 0.0],
+                [0.0, 0.0, 1.0],
+            ])
+            .map_err(EarthOrientationError::InvalidTransform)?,
+        };
+        let angular_rate =
+            TAU * ERA_TURNS_PER_UT1_DAY / SECONDS_PER_DAY * (1.0 + ut1_minus_tai_rate);
+        let angular_velocity =
+            AngularVelocityVector::from_radians_per_second(0.0, 0.0, angular_rate);
+        let transform = BodyFixedTransform::new(request, rotation, angular_velocity)
+            .map_err(EarthOrientationError::InvalidTransform)?;
+        Ok(ProvenancedEarthRotation {
+            transform,
+            reference_data: &self.reference_data,
+        })
+    }
+
+    fn interpolate_ut1_minus_tai(
+        &self,
+        epoch_utc: Epoch,
+        request: BodyFixedTransformRequest,
+    ) -> Result<(f64, f64), EarthOrientationError> {
+        let first = self.samples[0];
+        let last = self.samples[self.samples.len() - 1];
+        if epoch_utc < first.epoch_utc || epoch_utc > last.epoch_utc {
+            return Err(EarthOrientationError::EpochOutOfRange {
+                request: Box::new(request),
+                start: first.epoch_utc,
+                end: last.epoch_utc,
+            });
+        }
+
+        let upper = self
+            .samples
+            .partition_point(|sample| sample.epoch_utc <= epoch_utc);
+        let left_index = if upper == self.samples.len() {
+            upper - 2
+        } else {
+            upper.saturating_sub(1)
+        };
+        let left = self.samples[left_index];
+        let right = self.samples[left_index + 1];
+        let interval_seconds = (right.epoch_utc.to_time_scale(TimeScale::TAI)
+            - left.epoch_utc.to_time_scale(TimeScale::TAI))
+        .to_seconds();
+        let elapsed_seconds = (epoch_utc.to_time_scale(TimeScale::TAI)
+            - left.epoch_utc.to_time_scale(TimeScale::TAI))
+        .to_seconds();
+        let left_ut1_tai = ut1_minus_tai_seconds(left);
+        let right_ut1_tai = ut1_minus_tai_seconds(right);
+        let ut1_tai_difference = right_ut1_tai - left_ut1_tai;
+        let fraction = elapsed_seconds / interval_seconds;
+        let ut1_minus_tai_seconds = ut1_tai_difference.mul_add(fraction, left_ut1_tai);
+        let ut1_minus_tai_rate = ut1_tai_difference / interval_seconds;
+        if !interval_seconds.is_finite()
+            || interval_seconds <= 0.0
+            || !fraction.is_finite()
+            || !ut1_minus_tai_seconds.is_finite()
+            || !ut1_minus_tai_rate.is_finite()
+        {
+            return Err(EarthOrientationError::NonFiniteEvaluation {
+                request: Box::new(request),
+            });
+        }
+        Ok((ut1_minus_tai_seconds, ut1_minus_tai_rate))
+    }
+}
+
+fn ut1_minus_tai_seconds(sample: EarthOrientationSample) -> f64 {
+    sample.ut1_minus_utc.get::<second>() - tai_minus_utc_seconds(sample.epoch_utc)
+}
+
+fn tai_minus_utc_seconds(epoch_utc: Epoch) -> f64 {
+    10.0 + f64::from(epoch_utc.leap_seconds_iers())
+}
+
+/// One evaluated ERA transform with its immutable selected provenance.
+///
+/// The borrowed descriptors are guaranteed to remain stable for the provider's
+/// lifetime. The underlying frame transform retains its original request,
+/// including epoch, time scale, direction, and frame identities.
+#[derive(Debug, Clone, Copy)]
+pub struct ProvenancedEarthRotation<'a> {
+    transform: BodyFixedTransform,
+    reference_data: &'a [ReferenceDataDescriptor],
+}
+
+impl<'a> ProvenancedEarthRotation<'a> {
+    /// Returns the underlying validated frame transform.
+    #[must_use]
+    pub const fn transform(self) -> BodyFixedTransform {
+        self.transform
+    }
+
+    /// Returns the exact EOP, convention, and time-scale provenance used.
+    #[must_use]
+    pub const fn reference_data(self) -> &'a [ReferenceDataDescriptor] {
+        self.reference_data
+    }
+}
+
+impl std::ops::Deref for ProvenancedEarthRotation<'_> {
+    type Target = BodyFixedTransform;
+
+    fn deref(&self) -> &Self::Target {
+        &self.transform
+    }
+}
+
+impl BodyFixedTransformProvider for Iau2000EraProvider {
+    fn body_fixed_transform(
+        &self,
+        request: BodyFixedTransformRequest,
+    ) -> Result<BodyFixedTransform, BodyFixedTransformProviderError> {
+        self.transform(request)
+            .map(ProvenancedEarthRotation::transform)
+            .map_err(|error| match error {
+                EarthOrientationError::UnsupportedFramePair { .. } => {
+                    BodyFixedTransformProviderError::UnsupportedRequest {
+                        request: Box::new(request),
+                    }
+                }
+                EarthOrientationError::EpochOutOfRange { .. } => {
+                    BodyFixedTransformProviderError::EpochOutOfRange {
+                        epoch: request.epoch(),
+                        time_scale: request.time_scale(),
+                    }
+                }
+                EarthOrientationError::InvalidTransform(source) => {
+                    BodyFixedTransformProviderError::InvalidTransform {
+                        source: Box::new(source),
+                    }
+                }
+                source => BodyFixedTransformProviderError::Source {
+                    source: Box::new(source),
+                },
+            })
+    }
+}
+
+fn invalid_provenance_field(provenance: &ReferenceDataDescriptor) -> Option<ProvenanceField> {
+    if provenance.authority.trim().is_empty() {
+        Some(ProvenanceField::Authority)
+    } else if provenance.product.trim().is_empty() {
+        Some(ProvenanceField::Product)
+    } else if provenance.revision.trim().is_empty() {
+        Some(ProvenanceField::Revision)
+    } else if provenance
+        .checksum
+        .as_deref()
+        .is_some_and(|checksum| checksum.trim().is_empty())
+    {
+        Some(ProvenanceField::Checksum)
+    } else {
+        None
+    }
+}
+
+/// A required identity field missing from the supplied EOP provenance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProvenanceField {
+    /// Data authority or publisher.
+    Authority,
+    /// EOP product or data family.
+    Product,
+    /// Immutable issue or revision.
+    Revision,
+    /// Optional checksum supplied as an empty string.
+    Checksum,
+}
+
+impl std::fmt::Display for ProvenanceField {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Authority => "authority",
+            Self::Product => "product",
+            Self::Revision => "revision",
+            Self::Checksum => "checksum",
+        })
+    }
+}
+
+/// Invalid caller-supplied Earth-orientation data or transform request.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum EarthOrientationError {
+    /// Fewer than two records cannot define interpolation or coverage.
+    #[error("Earth-orientation data require at least two samples, got {actual}")]
+    InsufficientSamples {
+        /// Number of samples supplied.
+        actual: usize,
+    },
+    /// UTC pre-dates the first integral TAI−UTC offset used by this slice.
+    #[error("Earth-orientation sample {sample} predates 1972-01-01 UTC")]
+    BeforeLeapSecondEra {
+        /// Zero-based sample index.
+        sample: usize,
+    },
+    /// A sample contains a non-finite UT1−UTC value.
+    #[error("Earth-orientation sample {sample} has a non-finite UT1−UTC value")]
+    NonFiniteUt1MinusUtc {
+        /// Zero-based sample index.
+        sample: usize,
+    },
+    /// Sample epochs are duplicated or not strictly increasing.
+    #[error("Earth-orientation sample {sample} is not strictly later than its predecessor")]
+    NonChronologicalSamples {
+        /// Zero-based invalid sample index.
+        sample: usize,
+    },
+    /// A required provenance field is empty.
+    #[error("Earth-orientation provenance has an empty {field}")]
+    InvalidProvenance {
+        /// Empty field.
+        field: ProvenanceField,
+    },
+    /// The requested frames do not match this provider's declared axes.
+    #[error("ERA provider does not support requested frame pair in {request:?}")]
+    UnsupportedFramePair {
+        /// Rejected request containing the frame pair and full request context.
+        request: Box<BodyFixedTransformRequest>,
+    },
+    /// The requested epoch is outside the closed sample coverage interval.
+    #[error("request {request:?} is outside Earth-orientation coverage [{start:?}, {end:?}]")]
+    EpochOutOfRange {
+        /// Rejected request, retaining the caller's epoch, scale, and frames.
+        request: Box<BodyFixedTransformRequest>,
+        /// First supported UTC epoch.
+        start: Epoch,
+        /// Last supported UTC epoch.
+        end: Epoch,
+    },
+    /// An intermediate floating-point result was not finite.
+    #[error("Earth-orientation evaluation for {request:?} produced a non-finite value")]
+    NonFiniteEvaluation {
+        /// Request associated with the failed numerical evaluation.
+        request: Box<BodyFixedTransformRequest>,
+    },
+    /// The validated frames-layer transform could not be constructed.
+    #[error("ERA provider produced an invalid frames-layer transform")]
+    InvalidTransform(#[source] BodyFixedTransformError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use frames::{BodyFixedTransformDirection, BodyFixedTransformRequest, FrameKinematics};
+    use hifitime::Duration;
+    use units::Position;
+
+    const ERA_AT_J2000_RADIANS: f64 = 4.894_961_212_823_058;
+    const RATE_TOLERANCE_RAD_PER_SEC: f64 = 1.0e-15;
+    const ANGLE_TOLERANCE_RAD: f64 = 2.0e-12;
+
+    fn epoch_utc(day: u8, hour: u8) -> Epoch {
+        Epoch::from_gregorian_utc(2000, 1, day, hour, 0, 0, 0)
+    }
+
+    fn provider(dut1_start: f64, dut1_end: f64) -> Iau2000EraProvider {
+        Iau2000EraProvider::new(
+            vec![
+                EarthOrientationSample {
+                    epoch_utc: epoch_utc(1, 0),
+                    ut1_minus_utc: Time::new::<second>(dut1_start),
+                },
+                EarthOrientationSample {
+                    epoch_utc: epoch_utc(2, 0),
+                    ut1_minus_utc: Time::new::<second>(dut1_end),
+                },
+            ],
+            "IERS",
+            "EOP test series",
+            "test-revision",
+            Some("sha256:test"),
+        )
+        .expect("valid EOP series")
+    }
+
+    fn request(epoch: Epoch, direction: BodyFixedTransformDirection) -> BodyFixedTransformRequest {
+        BodyFixedTransformRequest::new(
+            epoch,
+            TimeScale::UTC,
+            InertialFrame::GCRF,
+            ReferenceFrame::ITRF2020,
+            direction,
+        )
+        .expect("valid GCRF/ITRF2020 request")
+    }
+
+    #[test]
+    fn independent_iers_era_vector_at_j2000_is_reproduced() {
+        // IERS Conventions (2010), §5.5.3, Eq. (5.15): at JD(UT1)=2451545.0,
+        // ERA = 2π × 0.7790572732640 = 280.46061837504 degrees.
+        let provider = provider(0.0, 0.0);
+        let transform = provider
+            .transform(request(
+                epoch_utc(1, 12),
+                BodyFixedTransformDirection::InertialToBodyFixed,
+            ))
+            .expect("J2000 UTC epoch lies inside coverage");
+        let rows = transform.rotation().rows();
+        assert!((rows[0][0] - ERA_AT_J2000_RADIANS.cos()).abs() < ANGLE_TOLERANCE_RAD);
+        assert!((rows[0][1] - ERA_AT_J2000_RADIANS.sin()).abs() < ANGLE_TOLERANCE_RAD);
+        assert!((rows[1][0] + ERA_AT_J2000_RADIANS.sin()).abs() < ANGLE_TOLERANCE_RAD);
+        assert!((rows[1][1] - ERA_AT_J2000_RADIANS.cos()).abs() < ANGLE_TOLERANCE_RAD);
+
+        let inertial = FrameKinematics::new(
+            Position::from_metres(1.0, 0.0, 0.0),
+            units::VelocityVector::from_metres_per_second(0.0, 0.0, 0.0),
+            InertialFrame::GCRF.reference_frame(),
+        )
+        .expect("finite test state");
+        let terrestrial = transform
+            .transform_kinematics(inertial)
+            .expect("valid direct transform");
+        let expected_rate = TAU * ERA_TURNS_PER_UT1_DAY / SECONDS_PER_DAY;
+        let [x, y, _] = terrestrial.position().to_metres();
+        let [vx, vy, _] = terrestrial.velocity().to_metres_per_second();
+        assert!((x - ERA_AT_J2000_RADIANS.cos()).abs() < ANGLE_TOLERANCE_RAD);
+        assert!((y + ERA_AT_J2000_RADIANS.sin()).abs() < ANGLE_TOLERANCE_RAD);
+        assert!((vx + expected_rate * ERA_AT_J2000_RADIANS.sin()).abs() < 1.0e-12);
+        assert!((vy + expected_rate * ERA_AT_J2000_RADIANS.cos()).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn direct_and_inverse_position_velocity_transforms_recover_the_state() {
+        let provider = provider(0.2, 0.2);
+        let epoch = epoch_utc(1, 12);
+        let inertial = FrameKinematics::new(
+            Position::from_metres(7_000_000.0, -1_200_000.0, 800_000.0),
+            units::VelocityVector::from_metres_per_second(1_000.0, 7_400.0, -120.0),
+            InertialFrame::GCRF.reference_frame(),
+        )
+        .expect("finite inertial state");
+        let terrestrial = provider
+            .transform(request(
+                epoch,
+                BodyFixedTransformDirection::InertialToBodyFixed,
+            ))
+            .expect("covered forward transform")
+            .transform_kinematics(inertial)
+            .expect("forward state transform");
+        let recovered = provider
+            .transform(request(
+                epoch,
+                BodyFixedTransformDirection::BodyFixedToInertial,
+            ))
+            .expect("covered inverse transform")
+            .transform_kinematics(terrestrial)
+            .expect("inverse state transform");
+
+        for (actual, expected) in recovered
+            .position()
+            .to_metres()
+            .into_iter()
+            .zip(inertial.position().to_metres())
+        {
+            assert!((actual - expected).abs() < 2.0e-8);
+        }
+        for (actual, expected) in recovered
+            .velocity()
+            .to_metres_per_second()
+            .into_iter()
+            .zip(inertial.velocity().to_metres_per_second())
+        {
+            assert!((actual - expected).abs() < 2.0e-12);
+        }
+    }
+
+    #[test]
+    fn angular_rate_includes_interpolated_ut1_utc_slope() {
+        let start = -0.2;
+        let end = 0.2;
+        let provider = provider(start, end);
+        let transform = provider
+            .transform(request(
+                epoch_utc(1, 12),
+                BodyFixedTransformDirection::InertialToBodyFixed,
+            ))
+            .expect("covered transform");
+        let interval_seconds = (epoch_utc(2, 0) - epoch_utc(1, 0)).to_seconds();
+        let expected = TAU * ERA_TURNS_PER_UT1_DAY / SECONDS_PER_DAY
+            * (1.0 + (end - start) / interval_seconds);
+        let actual = transform.angular_velocity().to_radians_per_second()[2];
+        assert!((actual - expected).abs() < RATE_TOLERANCE_RAD_PER_SEC);
+    }
+
+    #[test]
+    fn coverage_is_closed_and_outside_epochs_are_typed_errors() {
+        let provider = provider(0.0, 0.0);
+        for epoch in [epoch_utc(1, 0), epoch_utc(2, 0)] {
+            provider
+                .transform(request(
+                    epoch,
+                    BodyFixedTransformDirection::InertialToBodyFixed,
+                ))
+                .expect("both coverage endpoints are included");
+        }
+        let outside_request = BodyFixedTransformRequest::new(
+            epoch_utc(2, 0) + Duration::from_seconds(0.001),
+            TimeScale::TAI,
+            InertialFrame::GCRF,
+            ReferenceFrame::ITRF2020,
+            BodyFixedTransformDirection::InertialToBodyFixed,
+        )
+        .expect("valid out-of-coverage request");
+        let error = provider
+            .transform(outside_request)
+            .expect_err("post-coverage request fails");
+        match error {
+            EarthOrientationError::EpochOutOfRange { request, .. } => {
+                assert_eq!(*request, outside_request);
+                assert_eq!(request.time_scale(), TimeScale::TAI);
+            }
+            other => panic!("expected a coverage error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_utc_requests_are_converted_using_their_declared_time_scale() {
+        let epoch_tai = epoch_utc(1, 12).to_time_scale(TimeScale::TAI);
+        let tai_request = BodyFixedTransformRequest::new(
+            epoch_tai,
+            TimeScale::TAI,
+            InertialFrame::GCRF,
+            ReferenceFrame::ITRF2020,
+            BodyFixedTransformDirection::InertialToBodyFixed,
+        )
+        .expect("valid request");
+        let zero_offset_provider = provider(0.0, 0.0);
+        let transform = zero_offset_provider
+            .transform(tai_request)
+            .expect("same physical epoch is covered");
+        let utc_provider = provider(0.0, 0.0);
+        let expected = utc_provider
+            .transform(request(
+                epoch_utc(1, 12),
+                BodyFixedTransformDirection::InertialToBodyFixed,
+            ))
+            .expect("UTC request is covered");
+        assert_eq!(transform.rotation(), expected.rotation());
+        assert_eq!(transform.time_scale(), TimeScale::TAI);
+    }
+
+    #[test]
+    fn unsupported_frames_and_invalid_provenance_are_rejected() {
+        let provider = provider(0.0, 0.0);
+        let unsupported = BodyFixedTransformRequest::new(
+            epoch_utc(1, 12),
+            TimeScale::UTC,
+            InertialFrame::EME2000,
+            ReferenceFrame::ITRF2020,
+            BodyFixedTransformDirection::InertialToBodyFixed,
+        )
+        .expect("valid same-origin frame pair");
+        assert!(matches!(
+            provider.transform(unsupported),
+            Err(EarthOrientationError::UnsupportedFramePair { .. })
+        ));
+
+        let invalid = Iau2000EraProvider::new(
+            vec![
+                EarthOrientationSample {
+                    epoch_utc: epoch_utc(1, 0),
+                    ut1_minus_utc: Time::new::<second>(0.0),
+                },
+                EarthOrientationSample {
+                    epoch_utc: epoch_utc(2, 0),
+                    ut1_minus_utc: Time::new::<second>(0.0),
+                },
+            ],
+            "IERS",
+            "EOP",
+            " ",
+            None,
+        );
+        assert!(matches!(
+            invalid,
+            Err(EarthOrientationError::InvalidProvenance {
+                field: ProvenanceField::Revision
+            })
+        ));
+    }
+
+    #[test]
+    fn invalid_sample_values_and_order_are_rejected() {
+        let later = EarthOrientationSample {
+            epoch_utc: epoch_utc(2, 0),
+            ut1_minus_utc: Time::new::<second>(0.0),
+        };
+        let earlier = EarthOrientationSample {
+            epoch_utc: epoch_utc(1, 0),
+            ut1_minus_utc: Time::new::<second>(0.0),
+        };
+        let invalid_value = Iau2000EraProvider::new(
+            vec![
+                EarthOrientationSample {
+                    epoch_utc: epoch_utc(1, 0),
+                    ut1_minus_utc: Time::new::<second>(f64::NAN),
+                },
+                later,
+            ],
+            "IERS",
+            "EOP test series",
+            "invalid-value",
+            None,
+        );
+        assert!(matches!(
+            invalid_value,
+            Err(EarthOrientationError::NonFiniteUt1MinusUtc { sample: 0 })
+        ));
+
+        let unordered = Iau2000EraProvider::new(
+            vec![later, earlier],
+            "IERS",
+            "EOP test series",
+            "unordered",
+            None,
+        );
+        assert!(matches!(
+            unordered,
+            Err(EarthOrientationError::NonChronologicalSamples { sample: 1 })
+        ));
+    }
+
+    #[test]
+    fn provenance_exposes_the_exact_input_and_convention_revision() {
+        let provider = provider(0.0, 0.0);
+        let artifacts = provider.reference_data();
+        assert_eq!(artifacts.len(), 3);
+        assert_eq!(artifacts[0].revision, "test-revision");
+        assert_eq!(artifacts[0].checksum.as_deref(), Some("sha256:test"));
+        assert_eq!(artifacts[1].product, "Earth Rotation Angle");
+        assert!(artifacts[1].revision.starts_with("IAU 2000;"));
+        assert_eq!(artifacts[2].product, "UTC-to-TAI leap-second table");
+        assert_eq!(artifacts[2].revision, "4.3.0");
+
+        let request = request(
+            epoch_utc(1, 12),
+            BodyFixedTransformDirection::InertialToBodyFixed,
+        );
+        let resolved = provider.transform(request).expect("covered request");
+        assert_eq!(resolved.request(), request);
+        assert_eq!(resolved.reference_data(), artifacts);
+    }
+
+    #[test]
+    fn leap_second_boundary_preserves_ut1_rate_and_coverage() {
+        let provider = Iau2000EraProvider::new(
+            vec![
+                EarthOrientationSample {
+                    epoch_utc: Epoch::from_gregorian_utc_at_midnight(2016, 12, 31),
+                    ut1_minus_utc: Time::new::<second>(-0.4),
+                },
+                EarthOrientationSample {
+                    epoch_utc: Epoch::from_gregorian_utc_at_midnight(2017, 1, 1),
+                    ut1_minus_utc: Time::new::<second>(0.6),
+                },
+            ],
+            "IERS",
+            "EOP test series",
+            "leap-second-test",
+            None,
+        )
+        .expect("valid leap-second-spanning series");
+        let request_at = |epoch| {
+            BodyFixedTransformRequest::new(
+                epoch,
+                TimeScale::UTC,
+                InertialFrame::GCRF,
+                ReferenceFrame::ITRF2020,
+                BodyFixedTransformDirection::InertialToBodyFixed,
+            )
+            .expect("valid request")
+        };
+        let before = Epoch::from_gregorian_utc(2016, 12, 31, 23, 59, 59, 0);
+        let leap = Epoch::from_gregorian_utc(2016, 12, 31, 23, 59, 60, 0);
+        let after = Epoch::from_gregorian_utc_at_midnight(2017, 1, 1);
+        let before_transform = provider
+            .transform(request_at(before))
+            .expect("covered pre-leap epoch");
+        let leap_transform = provider
+            .transform(request_at(leap))
+            .expect("covered leap-second epoch");
+        let after_transform = provider
+            .transform(request_at(after))
+            .expect("covered post-leap epoch");
+
+        let rate = before_transform.angular_velocity().to_radians_per_second()[2];
+        for transform in [leap_transform, after_transform] {
+            assert!(
+                (transform.angular_velocity().to_radians_per_second()[2] - rate).abs() < 1.0e-15
+            );
+        }
+        let angle = |transform: ProvenancedEarthRotation<'_>| {
+            let rows = transform.rotation().rows();
+            rows[0][1].atan2(rows[0][0])
+        };
+        let observed_advance = (angle(after_transform) - angle(before_transform)).rem_euclid(TAU);
+        let elapsed = (after - before).to_seconds();
+        assert!((observed_advance - rate * elapsed).abs() < 1.0e-8);
+    }
+
+    #[test]
+    fn utc_samples_before_the_integral_leap_table_era_are_rejected() {
+        let error = Iau2000EraProvider::new(
+            vec![
+                EarthOrientationSample {
+                    epoch_utc: Epoch::from_gregorian_utc_at_midnight(1971, 12, 31),
+                    ut1_minus_utc: Time::new::<second>(0.0),
+                },
+                EarthOrientationSample {
+                    epoch_utc: Epoch::from_gregorian_utc_at_midnight(1972, 1, 1),
+                    ut1_minus_utc: Time::new::<second>(0.0),
+                },
+            ],
+            "IERS",
+            "EOP test series",
+            "pre-leap-table-test",
+            None,
+        )
+        .expect_err("pre-1972 fractional UTC offsets are outside this model");
+        assert!(matches!(
+            error,
+            EarthOrientationError::BeforeLeapSecondEra { sample: 0 }
+        ));
+    }
+
+    #[test]
+    fn provider_trait_preserves_typed_coverage_and_frame_failures() {
+        let provider = provider(0.0, 0.0);
+        let coverage = BodyFixedTransformProvider::body_fixed_transform(
+            &provider,
+            request(
+                epoch_utc(2, 0) + Duration::from_seconds(1.0),
+                BodyFixedTransformDirection::InertialToBodyFixed,
+            ),
+        )
+        .expect_err("coverage is closed");
+        assert!(matches!(
+            coverage,
+            BodyFixedTransformProviderError::EpochOutOfRange { .. }
+        ));
+    }
+}

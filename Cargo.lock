@@ -421,6 +421,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "frames-eop"
+version = "0.0.0"
+dependencies = [
+ "frames",
+ "hifitime",
+ "thiserror",
+ "units",
+]
+
+[[package]]
 name = "futures-core"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -771,6 +781,7 @@ dependencies = [
  "core",
  "dynamics",
  "frames",
+ "frames-eop",
  "gravity",
  "measurements",
  "orbit-determination",

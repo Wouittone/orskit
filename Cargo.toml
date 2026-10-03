@@ -16,6 +16,7 @@ members = [
     "crates/dynamics/third-bodies",
     "crates/dynamics/two-bodies",
     "crates/frames",
+    "crates/frames-eop",
     "crates/gravity",
     "crates/measurements",
     "crates/orskit",
