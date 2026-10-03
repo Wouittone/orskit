@@ -16,6 +16,9 @@ software example, not an orbital model:
 cargo run -p dynamics-core --example custom_propagator --locked
 ```
 
+For the independent opt-in fixed-step long-arc method, see
+[Gauss-Jackson restrictions and evidence](gauss-jackson.md).
+
 ## Define the state and problem
 
 The caller-facing type implements `orskit_core::SpacecraftState`, including an

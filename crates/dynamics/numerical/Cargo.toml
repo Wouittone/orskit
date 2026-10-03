@@ -6,13 +6,14 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Adaptive Cartesian numerical propagation for orskit"
+description = "Cartesian numerical propagation for orskit"
 
 [lib]
 name = "dynamics_numerical"
 
 [features]
 default = []
+gauss-jackson = []
 attitude = ["dep:attitude"]
 
 [dependencies]
@@ -32,3 +33,8 @@ gravity = { path = "../../gravity", features = ["point-mass"] }
 [[example]]
 name = "body_fixed_maneuver"
 required-features = ["attitude"]
+
+[[bench]]
+name = "gauss_jackson"
+harness = false
+required-features = ["gauss-jackson"]

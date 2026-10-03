@@ -96,6 +96,11 @@ missing abstraction or an incorrectly placed type.
   not imply that attitude or other epoch-dependent spacecraft properties were
   advanced. Analytical, numerical, semi-analytical, and TLE algorithms,
   ephemerides, and variational equations remain distinct capabilities.
+  The separately opt-in `gauss-jackson` feature implements fixed eighth-order
+  summed propagation with nine acceleration ordinates and eight native startup
+  intervals. It accepts only inertial Cartesian states and exact uniform-grid
+  targets, with no dense/events/variational extension or implicit partial step.
+  Each call starts fresh; the Bogacki-Shampine path is unchanged (ADR-0048).
 - **Events:** open detectors return a finite dimensionless switching value and
   select propagation-order rising, falling, or any crossings. A typed maximum
   check interval bounds scanning; bisection localizes bracketed roots on dense

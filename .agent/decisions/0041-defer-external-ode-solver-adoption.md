@@ -1,6 +1,8 @@
 # ADR-0041: keep differential-equations-rs out of the default propagation path
 
 - Status: Accepted
+- Follow-up: ADR-0048 supersedes the external-adapter preference for #16 after
+  the reported #19 runtime gate failure; no external dependency is adopted.
 - Date: 2026-09-20
 - Owners: propagation/dynamics maintainers
 - Affected parity rows: Propagation / numerical integration and dense
