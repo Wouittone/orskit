@@ -34,5 +34,5 @@ and does not currently provide variational acceleration partials.
 
 No relativistic model data is bundled or fetched. An independent vector test
 uses the IERS equation with explicitly declared SI constants. See
-[ADR-0048](../../.agent/decisions/0048-schwarzschild-1pn-and-tide-blockers.md)
+[ADR-0050](../../.agent/decisions/0050-schwarzschild-1pn-and-tide-blockers.md)
 and [the provenance ledger](../../.agent/PROVENANCE.md).

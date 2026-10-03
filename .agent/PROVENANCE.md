@@ -101,7 +101,7 @@ check the reference floor. Neither is linked into orskit. No external
 library source, tests, examples, internal structure or distinctive prose was
 used. No dataset or paper text is redistributed.
 
-| Schwarzschild first post-Newtonian acceleration | [IERS Conventions (2010), Chapter 10, §10.2, Eq. 10.8](https://apps.dtic.mil/sti/html/tr/ADA535671/index.html) and [BIPM definition of the metre](https://www.bipm.org/en/si-base-units/metre) | Public scientific standard and SI definition | The test-particle Schwarzschild correction in harmonic coordinates, isolated spherical monopole assumptions, and exact speed of light. The correction is independently implemented and checked against a separately evaluated SI vector; no source code or test material is copied | `crates/dynamics/relativity/src/lib.rs`; `docs/guides/relativity.md`; ADR-0048; task 0049 |
+| Schwarzschild first post-Newtonian acceleration | [IERS Conventions (2010), Chapter 10, §10.2, Eq. 10.8](https://apps.dtic.mil/sti/html/tr/ADA535671/index.html) and [BIPM definition of the metre](https://www.bipm.org/en/si-base-units/metre) | Public scientific standard and SI definition | The test-particle Schwarzschild correction in harmonic coordinates, isolated spherical monopole assumptions, and exact speed of light. The correction is independently implemented and checked against a separately evaluated SI vector; no source code or test material is copied | `crates/dynamics/relativity/src/lib.rs`; `docs/guides/relativity.md`; ADR-0050; task 0050 |
 
 ## Dependency policy
 

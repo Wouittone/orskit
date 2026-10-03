@@ -1,4 +1,4 @@
-# ADR-0048: add correction-only Schwarzschild 1PN gravity and defer tides
+# ADR-0050: add correction-only Schwarzschild 1PN gravity and defer tides
 
 - Status: Accepted
 - Date: 2026-10-03
@@ -10,8 +10,9 @@
 
 Issue #15 requests first-post-Newtonian relativistic acceleration and
 solid-Earth, ocean, and pole-tide corrections. The current main harmonic model
-accepts caller-selected low-degree zonal coefficients with normalization,
-tide-system, and frame metadata plus epoch-qualified transforms; it does not
+accepts caller-selected general spherical-harmonic coefficients with
+source/revision, normalization, tide-system, frame, and epoch metadata plus
+provenance-qualified epoch transforms; it does not
 accept epoch-varying coefficient deltas. Its acceleration is the gradient of that
 selected potential, so a tide modification belongs inside this model boundary
 or an equivalent coefficient-potential composition, not as an unrelated

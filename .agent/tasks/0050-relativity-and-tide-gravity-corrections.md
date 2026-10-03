@@ -7,9 +7,9 @@
   source commit `c71a9c93595d019db790c511f55d24950859c43f`, onto main
   `84b919f1e630894547e09d7881e69973fa954cc1` in [PR #29](https://github.com/Wouittone/orskit/pull/29).
   PR #24 was merged into a feature branch, not main.
-- Preserve main's ERA provider and Vern9 gate. Main's harmonic evaluator is
-  still central/J2/optional-J3 only; do not import the source branch's broader
-  harmonic implementation or its parity claims.
+- Merge current main `dc6c82c721808f3b2682b63ada4a0e804ed827e1`, retaining
+  its ERA provider, Vern9 gate, opt-in Gauss–Jackson (#28), and general
+  spherical harmonics (#30), alongside this correction-only slice.
 - Implement the correction-only Schwarzschild 1PN monopole term.
 - Defer solid-Earth, ocean, and pole-tide implementation: the harmonic model
   has no epoch-dependent coefficient-delta composition, no tide-specific
@@ -61,7 +61,7 @@ The independent non-radial IERS reference vector is tested in the new crate.
 Tides remain intentionally unimplemented pending the providers, semantics,
 and independent references described above.
 
-## Main-based PR #29 verification evidence
+## Initial main-based PR #29 verification evidence (before the main refresh)
 
 - Toolchain: `rustc 1.96.1 (31fca3adb 2026-06-26)`.
 - `cargo +1.96.1 fmt --all --check` — passed.
