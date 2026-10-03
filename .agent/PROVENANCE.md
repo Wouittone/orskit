@@ -81,6 +81,25 @@ parity claim.
 | External reusable Vern9 allocation/performance gate | [`differential-equations-rs` 1.4.1](https://crates.io/crates/differential-equations-rs/1.4.1), [`numeris` 0.6.0](https://crates.io/crates/numeris/0.6.0), and [`stats_alloc` 0.1.10](https://crates.io/crates/stats_alloc/0.1.10) | Isolated MIT OR Apache-2.0 and MIT dependencies; public APIs and versioned package contracts | Reusable workspace allocation guarantees and unmodified native RKV98 comparison behavior; no dependency source was copied. Fixed LEO, synthetic velocity-dependent perturbation, and equal 30-second dense-query samples are benchmark inputs, not claimed reference trajectories beyond the stated analytic/convergence checks | `.agent/references/rkv98-adapter-gate`; ADR-0041; GitHub Issue #19 |
 | Earth-oblateness J2 gravity correction | [NASA GMAT *Mathematical Specifications* (2007)](https://ntrs.nasa.gov/citations/20080031744), already an accepted reference in this ledger, and [IERS Conventions 2010, Chapter 6](https://iers-conventions.obspm.fr/content/chapter6/icc6.pdf) | US Government technical documentation; public standard | Closed-form zonal J2 perturbing-acceleration equation and geopotential tide-system convention naming only; no source code, tests, or distinctive prose was copied | `crates/gravity/src/lib.rs`; `crates/dynamics/harmonics`; ADR-0042; GitHub Issue #9 |
 
+## Gauss-Jackson research record
+
+Gauss-Jackson (#16): Matthew M. Berry and Liam M. Healy, *Implementation of
+Gauss-Jackson Integration for Orbit Propagation*, Journal of the Astronautical
+Sciences 52(3), July-September 2004, pp. 331-357,
+<https://hdl.handle.net/1903/2202>. Publicly accessible copyrighted paper:
+equations 38/52, backward-difference concepts, stability restrictions and
+published period/eccentricity facts only. Neither the supplemental Lisp source
+nor any astrodynamics integrator implementation was consulted or copied.
+Original generating-function coefficient derivation and tests live in
+`crates/dynamics/numerical`; evidence is in `references/gauss-jackson`.
+Orekit 13.1.6 (Apache-2.0) was executed unmodified through public APIs in the
+isolated Java harness for independent numeric endpoints only. Its transitive
+Hipparchus 4.0.3 (Apache-2.0) DOP853 public API independently integrates an
+original point-mass plus linear-drag scenario; tenfold tighter local tolerances
+check the reference floor. Neither is linked into orskit. No external
+library source, tests, examples, internal structure or distinctive prose was
+used. No dataset or paper text is redistributed.
+
 ## Dependency policy
 
 - Confirm the license from package metadata and the upstream repository before
