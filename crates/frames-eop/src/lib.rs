@@ -1,5 +1,9 @@
 #![forbid(unsafe_code)]
 
+mod cio;
+
+pub use cio::{CioEarthOrientationSample, Iau2006CioError, Iau2006CioProvider};
+
 //! Caller-owned Earth-orientation data for the [`frames`] transform contract.
 //!
 //! [`Iau2000EraProvider`] implements only the IAU 2000 Earth Rotation Angle
