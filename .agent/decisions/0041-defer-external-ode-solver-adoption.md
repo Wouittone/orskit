@@ -107,15 +107,20 @@ The cited SatKit evaluation (issue #40) and controller-arithmetic diagnostic
 `.agent/references/rkv98-adapter-gate` evidence run on 2026-10-03 additionally
 tested the released `differential-equations-rs` 1.4.1 reusable Vern9 API
 against `numeris` 0.6.0 RKV98 for matched-error six-hour LEO, synthetic
-velocity-dependent drag, and 30-second dense-query workloads. Vern9 made zero
-mature workspace allocations, but median runtime was 2.45x slower for endpoint
-propagation and 4.08x slower per dense query. The runtime threshold
-remains unsatisfied; the measured host was not independently verified idle or
-thermally stable, so retain the raw observations as local negative evidence.
+velocity-dependent drag, and 30-second dense-query workloads. Isolated Vern9
+lanes recorded zero mature allocations and reallocations, but median runtime
+was 2.40x and 2.43x slower for the endpoint scenarios and 3.56x slower per
+dense query. Per-mode `Process.PeakWorkingSet64` values are process-footprint
+measurements captured at a post-measurement process handshake, not retained-heap
+measurements. The six-mode runner also enforces the paired physical-error
+comparability limit for each sample. The runtime threshold remains unsatisfied;
+the measured host was not independently verified idle or thermally stable, so
+retain the raw observations as local negative evidence.
 The reproduction command, medians, and raw samples are recorded in
 `.agent/references/rkv98-adapter-gate/README.md` and its
-`results/run-20261003-175341` artifacts. This comparison does not assert that
-Vern9 and RKV98 share a tableau.
+`results/run-20261003-183015` artifacts. Input SHA-256 fingerprints are
+recorded even though the working tree was dirty during the run. This comparison
+does not assert that Vern9 and RKV98 share a tableau.
 
 ## Provenance
 

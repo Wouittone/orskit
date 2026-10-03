@@ -1,0 +1,42 @@
+{
+  "recorded_at_local": "2026-10-03T18:30:17.4257689+02:00",
+  "repository": "Wouittone/orskit",
+  "source_commit": "e30a56baa7089a3bcf159759e182286a8eee0920",
+  "working_tree_dirty": true,
+  "harness_input_sha256": {
+    "cargo_toml": "cb4479bbb4caf8de35da4b9ca9acdf62259924b6dbbe717a8098d3592df44735",
+    "cargo_lock": "7db3471768d43d9a568eba9742566a88c254033805a45e574fdd72a1ad58ef8e",
+    "main_rs": "f2fe2d9bfe81db5bc0d287bd4ad8243085d420fce471bc82deb2c9193fc4febe",
+    "run_ps1": "5a17fcd9da83261b1e4252cb0b8ce4372a4d4774b97adae7a14994c4b36408dd"
+  },
+  "command": "pwsh .agent/references/rkv98-adapter-gate/run.ps1 -Rounds 3 -SamplesPerRound 5 -Warmup 5 -Iterations 1000 -QueryRepetitions 20",
+  "rounds": 3,
+  "samples_per_round": 5,
+  "warmup_propagations": 5,
+  "measured_propagations_per_sample": 1000,
+  "dense_query_repetitions_per_sample": 20,
+  "solver_versions": {
+    "numeris": "0.6.0",
+    "differential_equations_rs": "1.4.1",
+    "stats_alloc": "0.1.10"
+  },
+  "host": {
+    "active_power_scheme": "GUID du mode de gestion de l’alimentation : 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c  (Haute performance)",
+    "logical_processors": 16,
+    "host_idle_state": "Not independently verified; run on an otherwise idle host for promotion evidence.",
+    "cpu": "AMD Ryzen 7 3800X 8-Core Processor             ",
+    "model": "X470 AORUS GAMING 7 WIFI",
+    "thermal_conditions": "Not instrumented; assess host cooling and throttling before treating timings as publishable.",
+    "hypervisor_present": false,
+    "manufacturer": "Gigabyte Technology Co., Ltd.",
+    "architecture": "AMD64",
+    "os": "Microsoft Windows 11 Professionnel 10.0.26300 build 26300",
+    "reported_current_clock_mhz": 3901,
+    "cores": 8
+  },
+  "powershell": "7.6.6",
+  "cargo": "cargo 1.96.1 (356927216 2026-06-26)",
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)\r\nbinary: rustc\r\ncommit-hash: 31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd\r\ncommit-date: 2026-06-26\r\nhost: x86_64-pc-windows-msvc\r\nrelease: 1.96.1\r\nLLVM version: 22.1.2",
+  "peak_capture_protocol": "After all benchmark regions finish, the harness flushes a completion marker and waits. The runner reads Process.PeakWorkingSet64 while the process is held, then releases it.",
+  "memory_metric": "Windows Process.PeakWorkingSet64 OS-maintained process high-water working set captured after benchmark completion and before process exit; whole process footprint, including runtime and code, not retained heap memory."
+}
