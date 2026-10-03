@@ -2207,6 +2207,97 @@ mod tests {
     }
 
     #[test]
+    fn linear_rate_provider_rejects_incomplete_invalid_and_out_of_coverage_rates() {
+        let metadata = delta_metadata(
+            0,
+            0,
+            CoefficientNormalization::FullyNormalized4Pi,
+            TideSystem::TideFree,
+            ReferenceFrame::ITRF2020,
+        );
+        assert!(matches!(
+            LinearSecularRateProvider::new(metadata, Epoch::from_tai_seconds(0.0), Vec::new()),
+            Err(ConstructionError::MissingCoefficientRate {
+                degree: 0,
+                order: 0
+            })
+        ));
+
+        let metadata = delta_metadata(
+            0,
+            0,
+            CoefficientNormalization::FullyNormalized4Pi,
+            TideSystem::TideFree,
+            ReferenceFrame::ITRF2020,
+        );
+        assert!(matches!(
+            LinearSecularRateProvider::new(
+                metadata,
+                Epoch::from_tai_seconds(0.0),
+                vec![vec![coefficient_rate(1.0e-12, 0.0)]]
+            ),
+            Err(ConstructionError::NonZeroCentralCoefficientRate)
+        ));
+
+        let metadata = delta_metadata(
+            0,
+            0,
+            CoefficientNormalization::FullyNormalized4Pi,
+            TideSystem::TideFree,
+            ReferenceFrame::ITRF2020,
+        );
+        assert!(matches!(
+            LinearSecularRateProvider::new(
+                metadata,
+                Epoch::from_tai_seconds(0.0),
+                vec![vec![coefficient_rate(f64::INFINITY, 0.0)]]
+            ),
+            Err(ConstructionError::NonFiniteCoefficientRate {
+                degree: 0,
+                order: 0
+            })
+        ));
+
+        let mut metadata = delta_metadata(
+            0,
+            0,
+            CoefficientNormalization::FullyNormalized4Pi,
+            TideSystem::TideFree,
+            ReferenceFrame::ITRF2020,
+        );
+        metadata.coverage.end = Epoch::from_tai_seconds(10.0);
+        assert!(matches!(
+            LinearSecularRateProvider::new(
+                metadata,
+                Epoch::from_tai_seconds(10.1),
+                vec![vec![coefficient_rate(0.0, 0.0)]]
+            ),
+            Err(ConstructionError::DeltaReferenceEpochOutOfRange)
+        ));
+
+        let mut metadata = delta_metadata(
+            0,
+            0,
+            CoefficientNormalization::FullyNormalized4Pi,
+            TideSystem::TideFree,
+            ReferenceFrame::ITRF2020,
+        );
+        metadata.source.authority.clear();
+        assert!(matches!(
+            LinearSecularRateProvider::new(
+                metadata,
+                Epoch::from_tai_seconds(0.0),
+                vec![vec![coefficient_rate(0.0, 0.0)]]
+            ),
+            Err(ConstructionError::InvalidProvenance {
+                provider: ProvenanceProvider::CoefficientDeltas,
+                field: ProvenanceField::Authority,
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn delta_evaluation_rejects_coverage_missing_nonfinite_and_central_changes() {
         let make_model = |metadata, value| {
             model(
