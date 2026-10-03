@@ -9,7 +9,9 @@
 
 The frames crate already defines an object-safe body-fixed transform request
 and provider boundary, but applications still have to implement the Earth
-rotation prerequisite themselves. A complete terrestrial/celestial
+rotation prerequisite themselves. ERA alone maps CIRS to TIRS; a complete
+GCRF-to-ITRF realization also requires a celestial-intermediate rotation and
+polar motion. A complete terrestrial/celestial
 realization would also require precession-nutation/CIP motion, polar motion,
 and selected conventions and corrections. Shipping those together would
 expand this issue into dependent frame and force-model work (#11/#15) and
@@ -27,16 +29,17 @@ would require additional data formats and reference vectors.
    table to form UT1−TAI, and linearly interpolate that continuous offset in
    TAI seconds. Coverage is inclusive at both sample endpoints and no
    extrapolation is performed.
-4. Accept only the explicit GCRF/ITRF2020 frame identities at Earth's center.
-   Retain epoch, time scale, direction, frames/origin, angular velocity, EOP
-   provenance, convention revision, and time-scale provenance with each
-   resolved transform. Include the interpolated UT1−TAI slope in angular
-   velocity.
+4. Accept only the explicit CIRS↔TIRS frame identities at Earth's center, via
+   the same-origin reference-frame transform contract that does not claim an
+   inertial source frame. Retain epoch, time scale, frames/origin, angular
+   velocity, EOP provenance, convention revision, and time-scale provenance
+   with each resolved transform. Include the interpolated UT1−TAI slope in
+   angular velocity.
 5. Label the model ERA-only. It does not implement polar motion,
    precession-nutation/CIP motion, celestial-pole offsets, tides, or
    terrestrial-realization corrections and therefore is not a complete
    precision GCRF-to-ITRF transform.
-6. Do not bundle or fetch EOP data and do not add parsers, general transform
+6. Do not bundle or fetch EOP data and do not add parsers, unrelated transform
    infrastructure, harmonics, tides, or dependent issue #11/#15 work.
 
 ## Alternatives considered
@@ -49,8 +52,9 @@ would require additional data formats and reference vectors.
 - Interpolate UT1−UTC directly across leap seconds: rejected because the
   discontinuity would create a false angular-rate spike. Interpolating the
   continuous UT1−TAI offset is equivalent away from leap boundaries.
-- Accept any inertial/terrestrial frame pair: rejected because ERA alone
-  cannot silently claim other frame conventions or ITRF realizations.
+- Accept GCRF/ITRF2020 as the transform pair: rejected because ERA alone is
+  only the CIRS/TIRS rotation and cannot claim that the omitted rotations were
+  applied.
 - Add an EOP file reader or bundled series: deferred so applications retain
   data-loading, revision, checksum, and offline control.
 

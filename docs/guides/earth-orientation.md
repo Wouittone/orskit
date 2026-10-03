@@ -2,11 +2,13 @@
 
 `frames-eop::Iau2000EraProvider` is a small, explicit Earth-spin provider over
 caller-supplied Earth-orientation samples. It is not a full high-precision
-GCRF-to-ITRF implementation. The provider omits polar motion,
-precession-nutation/Celestial Intermediate Pole motion, celestial-pole offsets,
-tides, and terrestrial-realization corrections. Its GCRF/ITRF2020 frame labels
-identify the accepted request pair, not a claim that those omitted terms have
-been applied.
+GCRF-to-ITRF implementation. ERA relates the Celestial Intermediate Reference
+System (CIRS) to the Terrestrial Intermediate Reference System (TIRS), so the
+provider's typed results are CIRS↔TIRS only. It does not label an ERA-only
+rotation as GCRF↔ITRF2020. The full transformation additionally requires
+celestial-intermediate and polar-motion rotations. This provider omits polar
+motion, precession-nutation/Celestial Intermediate Pole motion, celestial-pole
+offsets, tides, and terrestrial-realization corrections.
 
 The provider implements the IAU 2000 Earth Rotation Angle from IERS
 Conventions 2010 Chapter 5 §5.5.3 Eq. 5.15:
@@ -21,8 +23,9 @@ in elapsed TAI seconds. Requests are converted to TAI for coverage lookup, so
 instants remain distinct across leap seconds. ERA is evaluated using elapsed
 TAI seconds relative to J2000 noon plus the interpolated `UT1−TAI` offset.
 The segment derivative scales the nominal ERA
-rate and is retained as the returned body angular velocity, so the frame
-provider's velocity transform includes a rate-consistent `ω × r` term.
+rate and is retained as the returned TIRS-relative-to-CIRS angular velocity,
+so the frame provider's velocity transform includes a rate-consistent
+`ω × r` term.
 Samples are accepted only from 1972-01-01 UTC onward, must be finite,
 strictly ordered, and must include at least two records. Coverage includes both
 endpoints; extrapolation is an error.

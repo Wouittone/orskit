@@ -145,6 +145,10 @@ pub enum FrameOrientation {
     Tod,
     /// Greenwich true-of-date rotating frame.
     Gtod,
+    /// Celestial Intermediate Reference System (CIRS).
+    Cirs,
+    /// Terrestrial Intermediate Reference System (TIRS).
+    Tirs,
     /// Application-defined orientation with explicit motion semantics.
     Custom {
         /// Application-defined orientation identity.
@@ -166,9 +170,13 @@ impl FrameOrientation {
     pub const fn motion(self) -> FrameMotion {
         match self {
             Self::Icrf | Self::Gcrf | Self::Eme2000 => FrameMotion::Inertial,
-            Self::Itrf(_) | Self::Teme | Self::Mod | Self::Tod | Self::Gtod => {
-                FrameMotion::NonInertial
-            }
+            Self::Itrf(_)
+            | Self::Teme
+            | Self::Mod
+            | Self::Tod
+            | Self::Gtod
+            | Self::Cirs
+            | Self::Tirs => FrameMotion::NonInertial,
             Self::Custom { motion, .. } => motion,
         }
     }
@@ -240,6 +248,10 @@ impl ReferenceFrame {
     /// Geocentric ITRF2020 terrestrial frame.
     pub const ITRF2020: Self =
         Self::new(FrameOrigin::Body(Body::EARTH), FrameOrientation::Itrf(2020));
+    /// Geocentric Celestial Intermediate Reference System.
+    pub const CIRS: Self = Self::new(FrameOrigin::Body(Body::EARTH), FrameOrientation::Cirs);
+    /// Geocentric Terrestrial Intermediate Reference System.
+    pub const TIRS: Self = Self::new(FrameOrigin::Body(Body::EARTH), FrameOrientation::Tirs);
     /// Geocentric True Equator, Mean Equinox frame.
     pub const TEME: Self = Self::new(FrameOrigin::Body(Body::EARTH), FrameOrientation::Teme);
 
@@ -685,6 +697,186 @@ impl BodyFixedTransform {
     }
 }
 
+/// Explicit request to rotate kinematics between two same-origin reference
+/// frames without claiming that either frame is inertial.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ReferenceFrameTransformRequest {
+    epoch: Epoch,
+    time_scale: TimeScale,
+    source_frame: ReferenceFrame,
+    target_frame: ReferenceFrame,
+}
+
+impl ReferenceFrameTransformRequest {
+    /// Constructs a same-origin reference-frame rotation request.
+    pub fn new(
+        epoch: Epoch,
+        time_scale: TimeScale,
+        source_frame: ReferenceFrame,
+        target_frame: ReferenceFrame,
+    ) -> Result<Self, ReferenceFrameTransformError> {
+        if source_frame.origin() != target_frame.origin() {
+            return Err(ReferenceFrameTransformError::OriginMismatch {
+                source_origin: source_frame.origin(),
+                target_origin: target_frame.origin(),
+            });
+        }
+        Ok(Self {
+            epoch: epoch.to_time_scale(time_scale),
+            time_scale,
+            source_frame,
+            target_frame,
+        })
+    }
+
+    /// Returns the epoch at which the rotation is evaluated.
+    #[must_use]
+    pub const fn epoch(self) -> Epoch {
+        self.epoch
+    }
+
+    /// Returns the time scale used to express [`Self::epoch`].
+    #[must_use]
+    pub const fn time_scale(self) -> TimeScale {
+        self.time_scale
+    }
+
+    /// Returns the input frame.
+    #[must_use]
+    pub const fn source_frame(self) -> ReferenceFrame {
+        self.source_frame
+    }
+
+    /// Returns the output frame.
+    #[must_use]
+    pub const fn target_frame(self) -> ReferenceFrame {
+        self.target_frame
+    }
+}
+
+/// Rotation and relative angular velocity between two same-origin frames.
+///
+/// The direction-cosine matrix maps components from the request's source frame
+/// to its target frame. Angular velocity is the target frame relative to the
+/// source frame, expressed in target-frame axes. Neither frame is required to
+/// be inertial, so this contract can represent intermediate-frame rotations
+/// such as CIRS to TIRS without labeling an ERA-only rotation GCRF to ITRF.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ReferenceFrameTransform {
+    request: ReferenceFrameTransformRequest,
+    rotation: DirectionCosineMatrix,
+    angular_velocity: AngularVelocityVector,
+}
+
+impl ReferenceFrameTransform {
+    /// Constructs a transform for the supplied request and relative rotation.
+    pub fn new(
+        request: ReferenceFrameTransformRequest,
+        rotation: DirectionCosineMatrix,
+        angular_velocity: AngularVelocityVector,
+    ) -> Result<Self, ReferenceFrameTransformError> {
+        if !angular_velocity.is_finite() {
+            return Err(ReferenceFrameTransformError::NonFiniteAngularVelocity);
+        }
+        Ok(Self {
+            request,
+            rotation,
+            angular_velocity,
+        })
+    }
+
+    /// Returns the validated request this transform answers.
+    #[must_use]
+    pub const fn request(self) -> ReferenceFrameTransformRequest {
+        self.request
+    }
+
+    /// Returns the transform epoch.
+    #[must_use]
+    pub const fn epoch(self) -> Epoch {
+        self.request.epoch()
+    }
+
+    /// Returns the transform epoch's explicit time scale.
+    #[must_use]
+    pub const fn time_scale(self) -> TimeScale {
+        self.request.time_scale()
+    }
+
+    /// Returns the source-to-target direction-cosine matrix.
+    #[must_use]
+    pub const fn rotation(self) -> DirectionCosineMatrix {
+        self.rotation
+    }
+
+    /// Returns target-frame angular velocity relative to the source frame,
+    /// expressed in target-frame axes.
+    #[must_use]
+    pub const fn angular_velocity(self) -> AngularVelocityVector {
+        self.angular_velocity
+    }
+
+    /// Applies this transform to finite position/velocity expressed in the
+    /// request's source frame.
+    pub fn transform_kinematics(
+        self,
+        kinematics: FrameKinematics,
+    ) -> Result<FrameKinematics, ReferenceFrameTransformError> {
+        if kinematics.frame() != self.request.source_frame() {
+            return Err(ReferenceFrameTransformError::InputFrameMismatch {
+                expected: Box::new(self.request.source_frame()),
+                actual: Box::new(kinematics.frame()),
+            });
+        }
+        let position = self.rotation.multiply(kinematics.position().to_metres());
+        let rotated_velocity = self
+            .rotation
+            .multiply(kinematics.velocity().to_metres_per_second());
+        let omega_cross_position = cross(self.angular_velocity.to_radians_per_second(), position);
+        FrameKinematics::new(
+            Position::from_metres(position[0], position[1], position[2]),
+            VelocityVector::from_metres_per_second(
+                rotated_velocity[0] - omega_cross_position[0],
+                rotated_velocity[1] - omega_cross_position[1],
+                rotated_velocity[2] - omega_cross_position[2],
+            ),
+            self.request.target_frame(),
+        )
+        .map_err(ReferenceFrameTransformError::InvalidKinematics)
+    }
+}
+
+/// Invalid same-origin reference-frame rotation or conversion.
+#[derive(Debug, Clone, PartialEq, Error)]
+#[non_exhaustive]
+pub enum ReferenceFrameTransformError {
+    /// Source and target frames do not share an explicit origin.
+    #[error("source frame origin {source_origin:?} does not match target frame origin {target_origin:?}")]
+    OriginMismatch {
+        /// Origin carried by the source frame.
+        source_origin: FrameOrigin,
+        /// Origin carried by the target frame.
+        target_origin: FrameOrigin,
+    },
+    /// At least one angular-velocity component is NaN or infinite.
+    #[error("relative angular velocity components must be finite")]
+    NonFiniteAngularVelocity,
+    /// A direction-cosine matrix failed validation.
+    #[error("reference-frame rotation matrix is invalid")]
+    InvalidRotationMatrix(#[source] Box<BodyFixedTransformError>),
+    /// Kinematics were not expressed in the requested source frame.
+    #[error("reference-frame transform expected input frame {expected:?}, got {actual:?}")]
+    InputFrameMismatch {
+        /// Frame expected by the transform.
+        expected: Box<ReferenceFrame>,
+        /// Frame carried by the input kinematics.
+        actual: Box<ReferenceFrame>,
+    },
+    /// Transformed position/velocity failed finite kinematics validation.
+    #[error("reference-frame transform produced invalid kinematics")]
+    InvalidKinematics(#[from] FrameKinematicsError),
+}
+
 /// Object-safe boundary for caller-supplied body-fixed rotations.
 ///
 /// Implementations own data loading, coverage checks, convention selection,
@@ -771,6 +963,140 @@ impl std::ops::Deref for ProvenancedBodyFixedTransform<'_> {
     fn deref(&self) -> &Self::Target {
         &self.transform
     }
+}
+
+/// Object-safe boundary for caller-supplied same-origin frame rotations.
+///
+/// Unlike [`BodyFixedTransformProvider`], this contract does not assume an
+/// inertial source frame. It is suitable for transformations between
+/// intermediate frames such as CIRS and TIRS.
+pub trait ReferenceFrameTransformProvider: fmt::Debug + Send + Sync {
+    /// Returns the immutable reference data used for transform evaluations.
+    fn reference_data(&self) -> &[ReferenceDataDescriptor] {
+        &[]
+    }
+
+    /// Resolves a transform together with the immutable provenance required
+    /// to reproduce it.
+    fn reference_frame_transform_with_provenance<'a>(
+        &'a self,
+        request: ReferenceFrameTransformRequest,
+    ) -> Result<ProvenancedReferenceFrameTransform<'a>, ReferenceFrameTransformProviderError> {
+        let transform = self.reference_frame_transform(request)?;
+        Ok(ProvenancedReferenceFrameTransform::new(
+            transform,
+            self.reference_data(),
+        ))
+    }
+
+    /// Resolves one explicit same-origin frame transform request.
+    fn reference_frame_transform(
+        &self,
+        request: ReferenceFrameTransformRequest,
+    ) -> Result<ReferenceFrameTransform, ReferenceFrameTransformProviderError>;
+}
+
+/// Reference-frame transform paired with its provider's stable provenance.
+#[derive(Debug, Clone, Copy)]
+pub struct ProvenancedReferenceFrameTransform<'a> {
+    transform: ReferenceFrameTransform,
+    reference_data: &'a [ReferenceDataDescriptor],
+}
+
+impl<'a> ProvenancedReferenceFrameTransform<'a> {
+    /// Associates one transform with immutable provider reference data.
+    #[must_use]
+    pub const fn new(
+        transform: ReferenceFrameTransform,
+        reference_data: &'a [ReferenceDataDescriptor],
+    ) -> Self {
+        Self {
+            transform,
+            reference_data,
+        }
+    }
+
+    /// Returns the validated frame transform.
+    #[must_use]
+    pub const fn transform(self) -> ReferenceFrameTransform {
+        self.transform
+    }
+
+    /// Returns the immutable provenance artifacts associated with the transform.
+    #[must_use]
+    pub const fn reference_data(self) -> &'a [ReferenceDataDescriptor] {
+        self.reference_data
+    }
+}
+
+impl std::ops::Deref for ProvenancedReferenceFrameTransform<'_> {
+    type Target = ReferenceFrameTransform;
+
+    fn deref(&self) -> &Self::Target {
+        &self.transform
+    }
+}
+
+impl<T: ReferenceFrameTransformProvider + ?Sized> ReferenceFrameTransformProvider for Box<T> {
+    fn reference_data(&self) -> &[ReferenceDataDescriptor] {
+        self.as_ref().reference_data()
+    }
+
+    fn reference_frame_transform(
+        &self,
+        request: ReferenceFrameTransformRequest,
+    ) -> Result<ReferenceFrameTransform, ReferenceFrameTransformProviderError> {
+        self.as_ref().reference_frame_transform(request)
+    }
+}
+
+impl<T: ReferenceFrameTransformProvider + ?Sized> ReferenceFrameTransformProvider
+    for std::sync::Arc<T>
+{
+    fn reference_data(&self) -> &[ReferenceDataDescriptor] {
+        self.as_ref().reference_data()
+    }
+
+    fn reference_frame_transform(
+        &self,
+        request: ReferenceFrameTransformRequest,
+    ) -> Result<ReferenceFrameTransform, ReferenceFrameTransformProviderError> {
+        self.as_ref().reference_frame_transform(request)
+    }
+}
+
+/// Failure from a [`ReferenceFrameTransformProvider`].
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum ReferenceFrameTransformProviderError {
+    /// The provider does not support the requested frame pair.
+    #[error("reference-frame transform provider does not support {request:?}")]
+    UnsupportedRequest {
+        /// Rejected transform request.
+        request: Box<ReferenceFrameTransformRequest>,
+    },
+    /// The provider has no data covering the requested epoch.
+    #[error("reference-frame transform provider has no data covering {epoch:?} in {time_scale:?}")]
+    EpochOutOfRange {
+        /// Requested epoch.
+        epoch: Epoch,
+        /// Time scale in which the request epoch was expressed.
+        time_scale: TimeScale,
+    },
+    /// The provider produced an invalid transform.
+    #[error("reference-frame transform provider returned an invalid transform")]
+    InvalidTransform {
+        /// Typed transform validation failure.
+        #[source]
+        source: Box<ReferenceFrameTransformError>,
+    },
+    /// Provider-specific failure surfaced without erasing the source error.
+    #[error("reference-frame transform provider failed")]
+    Source {
+        /// Provider-specific source failure.
+        #[source]
+        source: Box<dyn StdError + Send + Sync + 'static>,
+    },
 }
 
 impl<T: BodyFixedTransformProvider + ?Sized> BodyFixedTransformProvider for Box<T> {
@@ -1525,6 +1851,8 @@ impl fmt::Display for ReferenceFrame {
             Self::GCRF => "GCRF",
             Self::EME2000 => "EME2000",
             Self::ITRF2020 => "ITRF2020",
+            Self::CIRS => "CIRS",
+            Self::TIRS => "TIRS",
             Self::TEME => "TEME",
             _ => return write!(formatter, "{}/{}", self.origin, self.orientation),
         };
@@ -1541,6 +1869,8 @@ impl FromStr for ReferenceFrame {
             "GCRF" => Ok(Self::GCRF),
             "EME2000" | "J2000" => Ok(Self::EME2000),
             "ITRF2020" | "ITRF-2020" => Ok(Self::ITRF2020),
+            "CIRS" => Ok(Self::CIRS),
+            "TIRS" => Ok(Self::TIRS),
             "TEME" => Ok(Self::TEME),
             _ => Err(FrameParseError),
         }
@@ -1608,6 +1938,8 @@ impl fmt::Display for FrameOrientation {
             Self::Mod => formatter.write_str("MOD"),
             Self::Tod => formatter.write_str("TOD"),
             Self::Gtod => formatter.write_str("GTOD"),
+            Self::Cirs => formatter.write_str("CIRS"),
+            Self::Tirs => formatter.write_str("TIRS"),
             Self::Custom { id, motion } => {
                 write!(formatter, "CUSTOM({},{motion})", id.value())
             }
@@ -1628,6 +1960,8 @@ impl FromStr for FrameOrientation {
             "MOD" => Ok(Self::Mod),
             "TOD" => Ok(Self::Tod),
             "GTOD" => Ok(Self::Gtod),
+            "CIRS" => Ok(Self::Cirs),
+            "TIRS" => Ok(Self::Tirs),
             _ => normalized
                 .strip_prefix("ITRF")
                 .and_then(|year| year.trim().parse::<u16>().ok())
@@ -1934,6 +2268,8 @@ mod tests {
             ReferenceFrame::GCRF,
             ReferenceFrame::EME2000,
             ReferenceFrame::ITRF2020,
+            ReferenceFrame::CIRS,
+            ReferenceFrame::TIRS,
             ReferenceFrame::TEME,
         ] {
             assert_eq!(frame.to_string().parse(), Ok(frame));
@@ -1943,6 +2279,12 @@ mod tests {
     #[test]
     fn j2000_alias_resolves_to_eme2000() {
         assert_eq!("J2000".parse(), Ok(ReferenceFrame::EME2000));
+    }
+
+    #[test]
+    fn intermediate_earth_frames_are_non_inertial() {
+        assert!(!ReferenceFrame::CIRS.is_inertial());
+        assert!(!ReferenceFrame::TIRS.is_inertial());
     }
 
     #[test]

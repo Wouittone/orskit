@@ -8,10 +8,9 @@
 //! UTC leap second does not create a spurious angular-rate spike. It is an
 //! Earth-spin slice, **not** a complete GCRF-to-ITRF realization: polar motion,
 //! precession-nutation/CIP motion, celestial-pole offsets, tides, and
-//! terrestrial-realization corrections are omitted. Use only when those
-//! omissions fit the required accuracy; the provider accepts exactly GCRF and
-//! ITRF2020 frame identities so it cannot silently serve another convention
-//! or realization.
+//! terrestrial-realization corrections are omitted. ERA is the CIRS-to-TIRS
+//! rotation, so this provider accepts only those intermediate frame identities
+//! and does not label its result GCRF-to-ITRF2020.
 //!
 //! The caller supplies samples and a versioned provenance descriptor. This
 //! crate performs no file access, network access, or implicit data selection.
@@ -21,7 +20,7 @@
 //! relative to J2000 noon TAI plus the interpolated UT1−TAI offset.
 //!
 //! ```no_run
-//! use frames::{BodyFixedTransformDirection, BodyFixedTransformRequest, InertialFrame, ReferenceFrame};
+//! use frames::{ReferenceFrame, ReferenceFrameTransformRequest};
 //! use frames_eop::{EarthOrientationSample, Iau2000EraProvider};
 //! use hifitime::{Epoch, TimeScale};
 //! use units::Time;
@@ -45,12 +44,11 @@
 //!     "release-2025-01",
 //!     Some("sha256:replace-with-the-data-checksum"),
 //! )?;
-//! let request = BodyFixedTransformRequest::new(
+//! let request = ReferenceFrameTransformRequest::new(
 //!     Epoch::from_gregorian_utc(2025, 1, 1, 12, 0, 0, 0),
 //!     TimeScale::UTC,
-//!     InertialFrame::GCRF,
-//!     ReferenceFrame::ITRF2020,
-//!     BodyFixedTransformDirection::InertialToBodyFixed,
+//!     ReferenceFrame::CIRS,
+//!     ReferenceFrame::TIRS,
 //! )?;
 //! let transform = provider.transform(request)?;
 //! assert_eq!(transform.request(), request);
@@ -62,10 +60,10 @@
 use std::f64::consts::TAU;
 
 use frames::{
-    BodyFixedTransform, BodyFixedTransformDirection, BodyFixedTransformError,
-    BodyFixedTransformProvider, BodyFixedTransformProviderError, BodyFixedTransformRequest,
-    DirectionCosineMatrix, InertialFrame, ProvenancedBodyFixedTransform, ReferenceDataDescriptor,
-    ReferenceFrame,
+    DirectionCosineMatrix, ProvenancedReferenceFrameTransform, ReferenceDataDescriptor,
+    ReferenceFrame, ReferenceFrameTransform, ReferenceFrameTransformError,
+    ReferenceFrameTransformProvider, ReferenceFrameTransformProviderError,
+    ReferenceFrameTransformRequest,
 };
 use hifitime::{Epoch, TimeScale};
 use thiserror::Error;
@@ -103,9 +101,8 @@ pub struct EarthOrientationSample {
 /// across a leap. The segment slope is included in the returned angular
 /// velocity so that the velocity cross term is consistent with the angle.
 ///
-/// The supported transform is restricted to `GCRF` and `ITRF2020`; this
-/// restriction identifies the declared axes but does not supply the omitted
-/// IAU/IERS transformation terms listed in the crate documentation.
+/// The supported transform is restricted to `CIRS` and `TIRS`, the frames
+/// related by ERA. The result is not a GCRF/ITRF2020 transform.
 #[derive(Debug)]
 pub struct Iau2000EraProvider {
     samples: Vec<EarthOrientationSample>,
@@ -188,19 +185,21 @@ impl Iau2000EraProvider {
     /// Resolves one request into a transform qualified by its provenance.
     ///
     /// The returned value retains the exact epoch, time scale, frame pair,
-    /// origin, direction, angular velocity, and borrowed data/convention
+    /// origin, angular velocity, and borrowed data/convention
     /// descriptors used for this evaluation.
     pub fn transform(
         &self,
-        request: BodyFixedTransformRequest,
+        request: ReferenceFrameTransformRequest,
     ) -> Result<ProvenancedEarthRotation<'_>, EarthOrientationError> {
-        if request.inertial_frame() != InertialFrame::GCRF
-            || request.body_fixed_frame() != ReferenceFrame::ITRF2020
-        {
-            return Err(EarthOrientationError::UnsupportedFramePair {
-                request: Box::new(request),
-            });
-        }
+        let inverse = match (request.source_frame(), request.target_frame()) {
+            (ReferenceFrame::CIRS, ReferenceFrame::TIRS) => false,
+            (ReferenceFrame::TIRS, ReferenceFrame::CIRS) => true,
+            _ => {
+                return Err(EarthOrientationError::UnsupportedFramePair {
+                    request: Box::new(request),
+                });
+            }
+        };
 
         let epoch_tai = request.epoch().to_time_scale(TimeScale::TAI);
         let (ut1_minus_tai_seconds, ut1_minus_tai_rate) =
@@ -217,26 +216,38 @@ impl Iau2000EraProvider {
 
         let era = TAU * turns.rem_euclid(1.0);
         let (sin_era, cos_era) = era.sin_cos();
-        let inertial_to_terrestrial = DirectionCosineMatrix::new([
+        let cirs_to_tirs = DirectionCosineMatrix::new([
             [cos_era, sin_era, 0.0],
             [-sin_era, cos_era, 0.0],
             [0.0, 0.0, 1.0],
         ])
-        .map_err(EarthOrientationError::InvalidTransform)?;
-        let rotation = match request.direction() {
-            BodyFixedTransformDirection::InertialToBodyFixed => inertial_to_terrestrial,
-            BodyFixedTransformDirection::BodyFixedToInertial => DirectionCosineMatrix::new([
+        .map_err(|error| {
+            EarthOrientationError::InvalidTransform(
+                ReferenceFrameTransformError::InvalidRotationMatrix(Box::new(error)),
+            )
+        })?;
+        let rotation = if inverse {
+            DirectionCosineMatrix::new([
                 [cos_era, -sin_era, 0.0],
                 [sin_era, cos_era, 0.0],
                 [0.0, 0.0, 1.0],
             ])
-            .map_err(EarthOrientationError::InvalidTransform)?,
+            .map_err(|error| {
+                EarthOrientationError::InvalidTransform(
+                    ReferenceFrameTransformError::InvalidRotationMatrix(Box::new(error)),
+                )
+            })?
+        } else {
+            cirs_to_tirs
         };
         let angular_rate =
             TAU * ERA_TURNS_PER_UT1_DAY / SECONDS_PER_DAY * (1.0 + ut1_minus_tai_rate);
-        let angular_velocity =
-            AngularVelocityVector::from_radians_per_second(0.0, 0.0, angular_rate);
-        let transform = BodyFixedTransform::new(request, rotation, angular_velocity)
+        let angular_velocity = AngularVelocityVector::from_radians_per_second(
+            0.0,
+            0.0,
+            if inverse { -angular_rate } else { angular_rate },
+        );
+        let transform = ReferenceFrameTransform::new(request, rotation, angular_velocity)
             .map_err(EarthOrientationError::InvalidTransform)?;
         Ok(ProvenancedEarthRotation::new(
             transform,
@@ -247,7 +258,7 @@ impl Iau2000EraProvider {
     fn interpolate_ut1_minus_tai(
         &self,
         epoch_tai: Epoch,
-        request: BodyFixedTransformRequest,
+        request: ReferenceFrameTransformRequest,
     ) -> Result<(f64, f64), EarthOrientationError> {
         let first = self.samples[0];
         let last = self.samples[self.samples.len() - 1];
@@ -308,37 +319,37 @@ fn tai_minus_utc_seconds(epoch_utc: Epoch) -> f64 {
 ///
 /// This is the frames-layer transform/provenance pair returned by an
 /// [`Iau2000EraProvider`] and remains usable through an object-safe provider.
-pub type ProvenancedEarthRotation<'a> = ProvenancedBodyFixedTransform<'a>;
+pub type ProvenancedEarthRotation<'a> = ProvenancedReferenceFrameTransform<'a>;
 
-impl BodyFixedTransformProvider for Iau2000EraProvider {
+impl ReferenceFrameTransformProvider for Iau2000EraProvider {
     fn reference_data(&self) -> &[ReferenceDataDescriptor] {
         &self.reference_data
     }
 
-    fn body_fixed_transform(
+    fn reference_frame_transform(
         &self,
-        request: BodyFixedTransformRequest,
-    ) -> Result<BodyFixedTransform, BodyFixedTransformProviderError> {
+        request: ReferenceFrameTransformRequest,
+    ) -> Result<ReferenceFrameTransform, ReferenceFrameTransformProviderError> {
         self.transform(request)
             .map(ProvenancedEarthRotation::transform)
             .map_err(|error| match error {
                 EarthOrientationError::UnsupportedFramePair { .. } => {
-                    BodyFixedTransformProviderError::UnsupportedRequest {
+                    ReferenceFrameTransformProviderError::UnsupportedRequest {
                         request: Box::new(request),
                     }
                 }
                 EarthOrientationError::EpochOutOfRange { .. } => {
-                    BodyFixedTransformProviderError::EpochOutOfRange {
+                    ReferenceFrameTransformProviderError::EpochOutOfRange {
                         epoch: request.epoch(),
                         time_scale: request.time_scale(),
                     }
                 }
                 EarthOrientationError::InvalidTransform(source) => {
-                    BodyFixedTransformProviderError::InvalidTransform {
+                    ReferenceFrameTransformProviderError::InvalidTransform {
                         source: Box::new(source),
                     }
                 }
-                source => BodyFixedTransformProviderError::Source {
+                source => ReferenceFrameTransformProviderError::Source {
                     source: Box::new(source),
                 },
             })
@@ -425,33 +436,33 @@ pub enum EarthOrientationError {
     #[error("ERA provider does not support requested frame pair in {request:?}")]
     UnsupportedFramePair {
         /// Rejected request containing the frame pair and full request context.
-        request: Box<BodyFixedTransformRequest>,
+        request: Box<ReferenceFrameTransformRequest>,
     },
     /// The requested epoch is outside the closed sample coverage interval.
     #[error("request {request:?} is outside Earth-orientation coverage [{start:?}, {end:?}]")]
     EpochOutOfRange {
         /// Rejected request, retaining the caller's epoch, scale, and frames.
-        request: Box<BodyFixedTransformRequest>,
-        /// First supported UTC epoch.
+        request: Box<ReferenceFrameTransformRequest>,
+        /// First sample epoch expressed in TAI.
         start: Epoch,
-        /// Last supported UTC epoch.
+        /// Last sample epoch expressed in TAI.
         end: Epoch,
     },
     /// An intermediate floating-point result was not finite.
     #[error("Earth-orientation evaluation for {request:?} produced a non-finite value")]
     NonFiniteEvaluation {
         /// Request associated with the failed numerical evaluation.
-        request: Box<BodyFixedTransformRequest>,
+        request: Box<ReferenceFrameTransformRequest>,
     },
     /// The validated frames-layer transform could not be constructed.
     #[error("ERA provider produced an invalid frames-layer transform")]
-    InvalidTransform(#[source] BodyFixedTransformError),
+    InvalidTransform(#[source] ReferenceFrameTransformError),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use frames::{BodyFixedTransformDirection, BodyFixedTransformRequest, FrameKinematics};
+    use frames::{BodyFixedTransformDirection, FrameKinematics, ReferenceFrameTransformRequest};
     use hifitime::Duration;
     use units::Position;
 
@@ -483,15 +494,20 @@ mod tests {
         .expect("valid EOP series")
     }
 
-    fn request(epoch: Epoch, direction: BodyFixedTransformDirection) -> BodyFixedTransformRequest {
-        BodyFixedTransformRequest::new(
-            epoch,
-            TimeScale::UTC,
-            InertialFrame::GCRF,
-            ReferenceFrame::ITRF2020,
-            direction,
-        )
-        .expect("valid GCRF/ITRF2020 request")
+    fn request(
+        epoch: Epoch,
+        direction: BodyFixedTransformDirection,
+    ) -> ReferenceFrameTransformRequest {
+        let (source, target) = match direction {
+            BodyFixedTransformDirection::InertialToBodyFixed => {
+                (ReferenceFrame::CIRS, ReferenceFrame::TIRS)
+            }
+            BodyFixedTransformDirection::BodyFixedToInertial => {
+                (ReferenceFrame::TIRS, ReferenceFrame::CIRS)
+            }
+        };
+        ReferenceFrameTransformRequest::new(epoch, TimeScale::UTC, source, target)
+            .expect("valid CIRS/TIRS request")
     }
 
     #[test]
@@ -520,18 +536,18 @@ mod tests {
         assert!((rows[1][0] + ERA_AT_J2000_RADIANS.sin()).abs() < ANGLE_TOLERANCE_RAD);
         assert!((rows[1][1] - ERA_AT_J2000_RADIANS.cos()).abs() < ANGLE_TOLERANCE_RAD);
 
-        let inertial = FrameKinematics::new(
+        let cirs = FrameKinematics::new(
             Position::from_metres(1.0, 0.0, 0.0),
             units::VelocityVector::from_metres_per_second(0.0, 0.0, 0.0),
-            InertialFrame::GCRF.reference_frame(),
+            ReferenceFrame::CIRS,
         )
-        .expect("finite test state");
-        let terrestrial = transform
-            .transform_kinematics(inertial)
+        .expect("finite CIRS test state");
+        let tirs = transform
+            .transform_kinematics(cirs)
             .expect("valid direct transform");
         let expected_rate = TAU * ERA_TURNS_PER_UT1_DAY / SECONDS_PER_DAY;
-        let [x, y, _] = terrestrial.position().to_metres();
-        let [vx, vy, _] = terrestrial.velocity().to_metres_per_second();
+        let [x, y, _] = tirs.position().to_metres();
+        let [vx, vy, _] = tirs.velocity().to_metres_per_second();
         assert!((x - ERA_AT_J2000_RADIANS.cos()).abs() < ANGLE_TOLERANCE_RAD);
         assert!((y + ERA_AT_J2000_RADIANS.sin()).abs() < ANGLE_TOLERANCE_RAD);
         assert!((vx + expected_rate * ERA_AT_J2000_RADIANS.sin()).abs() < 1.0e-12);
@@ -542,34 +558,36 @@ mod tests {
     fn direct_and_inverse_position_velocity_transforms_recover_the_state() {
         let provider = provider(0.2, 0.2);
         let epoch = epoch_utc(1, 12);
-        let inertial = FrameKinematics::new(
+        let cirs = FrameKinematics::new(
             Position::from_metres(7_000_000.0, -1_200_000.0, 800_000.0),
             units::VelocityVector::from_metres_per_second(1_000.0, 7_400.0, -120.0),
-            InertialFrame::GCRF.reference_frame(),
+            ReferenceFrame::CIRS,
         )
-        .expect("finite inertial state");
-        let terrestrial = provider
+        .expect("finite CIRS state");
+        let tirs = provider
             .transform(request(
                 epoch,
                 BodyFixedTransformDirection::InertialToBodyFixed,
             ))
             .expect("covered forward transform")
-            .transform_kinematics(inertial)
+            .transform_kinematics(cirs)
             .expect("forward state transform");
+        assert_eq!(tirs.frame(), ReferenceFrame::TIRS);
         let recovered = provider
             .transform(request(
                 epoch,
                 BodyFixedTransformDirection::BodyFixedToInertial,
             ))
             .expect("covered inverse transform")
-            .transform_kinematics(terrestrial)
+            .transform_kinematics(tirs)
             .expect("inverse state transform");
+        assert_eq!(recovered.frame(), ReferenceFrame::CIRS);
 
         for (actual, expected) in recovered
             .position()
             .to_metres()
             .into_iter()
-            .zip(inertial.position().to_metres())
+            .zip(cirs.position().to_metres())
         {
             assert!((actual - expected).abs() < 2.0e-8);
         }
@@ -577,7 +595,7 @@ mod tests {
             .velocity()
             .to_metres_per_second()
             .into_iter()
-            .zip(inertial.velocity().to_metres_per_second())
+            .zip(cirs.velocity().to_metres_per_second())
         {
             assert!((actual - expected).abs() < 2.0e-12);
         }
@@ -612,12 +630,11 @@ mod tests {
                 ))
                 .expect("both coverage endpoints are included");
         }
-        let outside_request = BodyFixedTransformRequest::new(
+        let outside_request = ReferenceFrameTransformRequest::new(
             epoch_utc(2, 0) + Duration::from_seconds(0.001),
             TimeScale::TAI,
-            InertialFrame::GCRF,
-            ReferenceFrame::ITRF2020,
-            BodyFixedTransformDirection::InertialToBodyFixed,
+            ReferenceFrame::CIRS,
+            ReferenceFrame::TIRS,
         )
         .expect("valid out-of-coverage request");
         let error = provider
@@ -635,12 +652,11 @@ mod tests {
     #[test]
     fn non_utc_requests_are_converted_using_their_declared_time_scale() {
         let epoch_tai = epoch_utc(1, 12).to_time_scale(TimeScale::TAI);
-        let tai_request = BodyFixedTransformRequest::new(
+        let tai_request = ReferenceFrameTransformRequest::new(
             epoch_tai,
             TimeScale::TAI,
-            InertialFrame::GCRF,
-            ReferenceFrame::ITRF2020,
-            BodyFixedTransformDirection::InertialToBodyFixed,
+            ReferenceFrame::CIRS,
+            ReferenceFrame::TIRS,
         )
         .expect("valid request");
         let zero_offset_provider = provider(0.0, 0.0);
@@ -661,16 +677,26 @@ mod tests {
     #[test]
     fn unsupported_frames_and_invalid_provenance_are_rejected() {
         let provider = provider(0.0, 0.0);
-        let unsupported = BodyFixedTransformRequest::new(
+        let unsupported = ReferenceFrameTransformRequest::new(
             epoch_utc(1, 12),
             TimeScale::UTC,
-            InertialFrame::EME2000,
+            ReferenceFrame::EME2000,
             ReferenceFrame::ITRF2020,
-            BodyFixedTransformDirection::InertialToBodyFixed,
         )
         .expect("valid same-origin frame pair");
         assert!(matches!(
             provider.transform(unsupported),
+            Err(EarthOrientationError::UnsupportedFramePair { .. })
+        ));
+        let gcrf_to_itrf = ReferenceFrameTransformRequest::new(
+            epoch_utc(1, 12),
+            TimeScale::UTC,
+            ReferenceFrame::GCRF,
+            ReferenceFrame::ITRF2020,
+        )
+        .expect("valid same-origin frame pair");
+        assert!(matches!(
+            provider.transform(gcrf_to_itrf),
             Err(EarthOrientationError::UnsupportedFramePair { .. })
         ));
 
@@ -780,12 +806,11 @@ mod tests {
         )
         .expect("valid leap-second-spanning series");
         let request_at = |epoch| {
-            BodyFixedTransformRequest::new(
+            ReferenceFrameTransformRequest::new(
                 epoch,
                 TimeScale::TAI,
-                InertialFrame::GCRF,
-                ReferenceFrame::ITRF2020,
-                BodyFixedTransformDirection::InertialToBodyFixed,
+                ReferenceFrame::CIRS,
+                ReferenceFrame::TIRS,
             )
             .expect("valid request")
         };
@@ -864,23 +889,23 @@ mod tests {
     #[test]
     fn provider_trait_preserves_typed_coverage_and_frame_failures() {
         let eop_provider = provider(0.0, 0.0);
-        let object: &dyn BodyFixedTransformProvider = &eop_provider;
+        let object: &dyn ReferenceFrameTransformProvider = &eop_provider;
         assert_eq!(object.reference_data(), eop_provider.reference_data());
         let covered_request = request(
             epoch_utc(1, 12),
             BodyFixedTransformDirection::InertialToBodyFixed,
         );
         let resolved = object
-            .body_fixed_transform_with_provenance(covered_request)
+            .reference_frame_transform_with_provenance(covered_request)
             .expect("trait-object resolution retains provenance");
         assert_eq!(resolved.request(), covered_request);
         assert_eq!(resolved.reference_data(), eop_provider.reference_data());
-        let boxed: Box<dyn BodyFixedTransformProvider> = Box::new(provider(0.0, 0.0));
+        let boxed: Box<dyn ReferenceFrameTransformProvider> = Box::new(provider(0.0, 0.0));
         assert_eq!(boxed.reference_data().len(), 3);
-        let shared: std::sync::Arc<dyn BodyFixedTransformProvider> =
+        let shared: std::sync::Arc<dyn ReferenceFrameTransformProvider> =
             std::sync::Arc::new(provider(0.0, 0.0));
         assert_eq!(shared.reference_data().len(), 3);
-        let coverage = BodyFixedTransformProvider::body_fixed_transform(
+        let coverage = ReferenceFrameTransformProvider::reference_frame_transform(
             &eop_provider,
             request(
                 epoch_utc(2, 0) + Duration::from_seconds(1.0),
@@ -890,7 +915,7 @@ mod tests {
         .expect_err("coverage is closed");
         assert!(matches!(
             coverage,
-            BodyFixedTransformProviderError::EpochOutOfRange { .. }
+            ReferenceFrameTransformProviderError::EpochOutOfRange { .. }
         ));
     }
 }

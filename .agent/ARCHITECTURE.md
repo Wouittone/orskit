@@ -57,8 +57,11 @@ missing abstraction or an incorrectly placed type.
   velocity needed for velocity conversion. Caches may retain derived values but
   cannot silently replace selected scientific data. Transform-provider
   contracts therefore admit optional external adapters without a global data
-  context; the only public matrix type is the validated direction-cosine
-  matrix needed to carry this explicit rotation boundary.
+  context. `ReferenceFrameTransformProvider` separately represents
+  same-origin frame rotations when the source is not inertial, including the
+  CIRS/TIRS relationship for an ERA-only Earth-spin provider. The only public
+  matrix type is the validated direction-cosine matrix needed to carry these
+  explicit rotation boundaries.
 - **Orbits:** frame- and epoch-qualified states, element sets, conversions,
   Jacobians, interpolation, covariance representations, and an object-safe
   caller-supplied body ephemeris contract. Each ephemeris request and result
