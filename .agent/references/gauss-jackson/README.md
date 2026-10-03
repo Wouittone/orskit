@@ -192,4 +192,43 @@ source diagnostic; serial Cargo builds resolved it.
 Remaining limitations: real data-backed perturbed operational scenarios,
 dense interpolation, persistent history, adaptive mature-step error control,
 other orders, events/maneuvers/STM/covariance, allocation profiling and language
-bindings are not provided. No commit, push, merge or pull request was made.
+bindings are not provided. The original local validation above preceded PR #25.
+
+### Port to main: PR #28
+
+PR #28 ports PR #25 tip `738e5ccb4adbb2417a4beafc94585d7d48fa1d30`
+onto main `84b919f1e630894547e09d7881e69973fa954cc1`, including checked
+compensated-candidate acceptance and the nominal eighth-order ratio gate of
+256. Implementation, tests, benchmark, original CSV and Java harness are
+unchanged from that source. Main's complete Vern9 gate and peak-working-set
+methodology remain in the parity ledger; ADR-0048 cites that merged evidence.
+The historical Windows timings above are not measurements from this port.
+
+Revalidation on Linux with Rust 1.96.1 and `CARGO_BUILD_JOBS=2`:
+
+| Exact command | Result |
+| --- | --- |
+| `cargo +1.96.1 fmt --all --check`; `git diff --check` | Passed |
+| `cargo +1.96.1 test -p dynamics-numerical --all-features --locked gauss_jackson -- --nocapture` | 10 tests passed |
+| `cargo +1.96.1 check --workspace --all-targets --all-features --locked` | Passed |
+| `cargo +1.96.1 clippy --workspace --all-targets --all-features --locked -- -D warnings -D clippy::must-use-candidate` | Passed |
+| `cargo +1.96.1 test --workspace --lib --tests --all-features --locked` | 246 tests passed |
+| `cargo +1.96.1 test --workspace --doc --all-features --locked` | 12 doctests passed |
+| `cargo +1.96.1 doc --workspace --all-features --no-deps --locked` | Passed |
+| `cargo +1.96.1 bench --workspace --all-features --no-run --locked` | 25 targets compiled; no new timing measurements |
+| `cargo +1.96.1 check --workspace --all-targets --locked` | Passed |
+| `cargo +1.96.1 test --workspace --lib --tests --locked` | 233 default-feature tests passed |
+| `cargo +1.96.1 check --workspace --lib --no-default-features --locked` | Passed with the two existing measurements unused-import warnings |
+| `cargo +1.96.1 check -p orskit --all-targets --no-default-features --features gauss-jackson --locked` | Passed |
+| `cargo +1.96.1 test -p dynamics-numerical --all-targets --no-default-features --features gauss-jackson --locked -- --list` | All targets compiled and discovered without running benchmark measurements |
+| `cargo +1.96.1 test -p dynamics-numerical --lib --no-default-features --features gauss-jackson --locked` | 43 tests passed |
+| `cargo +1.96.1 test -p dynamics --no-default-features --features gauss-jackson --locked`; `cargo +1.96.1 test -p orskit --no-default-features --features gauss-jackson --locked` | Passed |
+| `cargo +1.96.1 check --workspace --all-targets --no-default-features --locked` | Existing CCSDS benchmark failure: imports disabled `parse_oem_kvn_parallel` |
+| `cargo +1.96.1 doc -p dynamics-numerical --no-default-features --no-deps --locked` | Completed with the existing attitude-gated maneuver link warning |
+| `gradle -p .agent/references/gauss-jackson/orekit run --quiet --no-daemon` | Reproduced the retained Orekit and Hipparchus endpoints |
+| `pwsh -NoProfile -File scripts/check_crate_diagram.ps1 -Check` | Passed |
+
+Cargo's existing test runner was used because cargo-nextest was unavailable.
+Dependency advisory checks and changed-file secret scanning found no issues.
+Automated review could not execute because its binary was unavailable; CodeQL
+timed out. These gaps do not waive repository review or security requirements.
