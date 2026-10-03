@@ -54,6 +54,8 @@ pub mod prelude {
     };
     #[cfg(feature = "bodies")]
     pub use crate::bodies::{Body, BodySystem};
+    #[cfg(feature = "relativity")]
+    pub use crate::dynamics::Schwarzschild1PnCorrection;
     #[cfg(feature = "attitude-maneuvers")]
     pub use crate::dynamics::{
         AttitudeManeuverDynamicsError, AttitudeManeuverPropagationError, ThrustFrame,

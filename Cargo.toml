@@ -11,6 +11,7 @@ members = [
     "crates/dynamics/drag",
     "crates/dynamics/harmonics",
     "crates/dynamics/numerical",
+    "crates/dynamics/relativity",
     "crates/dynamics/spherical-harmonics",
     "crates/dynamics/srp",
     "crates/dynamics/third-bodies",

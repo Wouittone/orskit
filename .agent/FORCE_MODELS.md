@@ -112,6 +112,14 @@ Every row below implements the single physical `GravityForce` family.
 | Finite-size/multipole gravity coupling | Position, orientation, inertia/geometry | Spacecraft mass distribution and body gravity derivatives |
 | Relativistic gravity | Position, usually velocity | Schwarzschild/first post-Newtonian, Lense-Thirring, de Sitter or configurable PPN/N-body inputs |
 
+`dynamics-relativity::Schwarzschild1PnCorrection` is a correction-only
+Schwarzschild monopole slice. It does not include Newtonian attraction and
+must be composed with a Newtonian model using the same `μ`, central origin,
+inertial harmonic-coordinate frame, and weak-field/slow-motion regime bound.
+Spin, external-body 1PN terms, and relativistic coupling to nonspherical gravity
+remain unsupported. See [ADR-0050](decisions/0050-schwarzschild-1pn-and-tide-blockers.md)
+and [task 0050](tasks/0050-relativity-and-tide-gravity-corrections.md).
+
 Tide-free, zero-tide, and mean-tide are gravity-data conventions, not forces or
 standalone force models. Solid, ocean, and pole-tide modifications must not be
 double counted against the tide system embedded in a gravity dataset.
