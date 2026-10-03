@@ -101,3 +101,39 @@ and independent references described above.
   and CodeQL timed out. Neither is claimed as a completed clean scan.
 - PR CI reports `action_required`, with no jobs executed. Required approval
   and branch rules remain unchanged; this PR is not merged.
+
+## Current-main refresh verification evidence
+
+Main `dc6c82c721808f3b2682b63ada4a0e804ed827e1` is the second parent of
+merge commit `72ab569`. Relativity ADR/task numbering is now 0050; unrelated
+Gauss–Jackson ADR-0048 and general-harmonics ADR-0049 records are unchanged.
+The relativity implementation/tests and main's two new model implementations
+were compared byte-for-byte with their respective pre-merge sources.
+
+With `RUSTUP_TOOLCHAIN=1.96.1`, the following commands passed:
+
+- `cargo fmt --all --check`.
+- `cargo clippy --workspace --all-targets --all-features --locked -j 1 -- -D warnings`.
+- `cargo test -p dynamics-relativity --all-features --locked -j 1` —
+  six unit tests and one doctest.
+- `cargo test --workspace --doc --all-features --locked -j 1` —
+  14 workspace doctests.
+- `cargo doc --workspace --all-features --no-deps --locked -j 1`.
+- `cargo check -p orskit --no-default-features --features relativity --locked -j 1`.
+- `pwsh -NoProfile -File scripts/check_crate_diagram.ps1` and
+  `pwsh -NoProfile -File scripts/check_crate_diagram.ps1 -Check` —
+  regenerated diagram matches locked Cargo metadata.
+- `git diff --check`.
+
+The known pre-existing 100 MiB CCSDS benchmark allocation failure was not
+rerun locally; no full-suite local result is claimed. GitHub CI run
+[37153049754](https://github.com/Wouittone/orskit/actions/runs/37153049754)
+passed on `c0c9b29`. Secret scans found no secrets. Automated review was
+unavailable and CodeQL timed out again; neither is claimed as a clean scan.
+Manual review confirmed both sets of features/parity evidence, source
+preservation, reference numbering, and lockfile/diagram consistency.
+
+Issue #15 remains partially addressed: tide coefficient-delta composition,
+tide-specific versioned data/formula/reference vectors, and full orientation
+inputs remain missing. No tide force, Newtonian term, issue closure, or approval
+rule change is introduced.
