@@ -1,0 +1,18 @@
+[package]
+name = "frames-eop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Caller-supplied Earth-orientation data providers for orskit frames"
+
+[lib]
+name = "frames_eop"
+
+[dependencies]
+frames = { path = "../frames" }
+hifitime.workspace = true
+thiserror.workspace = true
+units = { path = "../units" }

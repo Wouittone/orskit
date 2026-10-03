@@ -15,6 +15,7 @@ atmosphere = ["dep:atmosphere"]
 bodies = ["dep:bodies"]
 ccsds = ["dep:ccsds", "cartesian"]
 cartesian = ["dep:orbits", "orbits/cartesian"]
+earth-rotation = ["dep:frames-eop"]
 dynamics = ["dep:dynamics"]
 numerical = ["cartesian", "dynamics", "two-bodies", "dynamics/numerical"]
 attitude-maneuvers = ["attitude", "numerical", "dynamics/attitude"]
@@ -64,6 +65,7 @@ dynamics = { path = "../dynamics", optional = true }
 orbit_determination = { package = "orbit-determination", path = "../orbit-determination", optional = true }
 gravity = { path = "../gravity", optional = true }
 frames = { path = "../frames" }
+frames-eop = { path = "../frames-eop", optional = true }
 measurements = { path = "../measurements", optional = true, default-features = false }
 orbits = { path = "../orbits", optional = true }
 units = { path = "../units" }

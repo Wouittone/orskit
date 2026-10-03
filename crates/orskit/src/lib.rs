@@ -26,6 +26,8 @@ pub use bodies;
 pub use ccsds;
 #[cfg(feature = "dynamics")]
 pub use dynamics;
+#[cfg(feature = "earth-rotation")]
+pub use frames_eop;
 #[cfg(feature = "point-mass-gravity")]
 pub use gravity;
 #[cfg(feature = "measurements")]
