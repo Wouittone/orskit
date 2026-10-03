@@ -1,0 +1,32 @@
+[package]
+name = "rkv98-adapter-gate-benchmark"
+version = "0.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Non-shipping, opt-in benchmark harness assessing ADR-0041's differential-equations-rs adapter gate for a paired RKV98 LEO scenario. Never part of the orskit workspace or distribution."
+
+[workspace]
+
+[[bin]]
+name = "rkv98-adapter-gate"
+path = "src/main.rs"
+
+[features]
+default = []
+# Compile-time opt-in for the differential-equations-rs adapter lane. Without
+# this feature only the native numeris::ode::RKV98 lane builds and runs.
+adapter = ["dep:differential-equations-rs"]
+
+[dependencies]
+# Independent, permissively licensed (MIT) crates.io crate providing the
+# stack-based RKV98 baseline for this isolated harness. Used unmodified as a
+# dependency, never copied.
+numeris = { version = "=0.6.0", default-features = false, features = ["std", "ode"] }
+# Published, permissively licensed (MIT OR Apache-2.0) release of the crate
+# evaluated by ADR-0041. Optional: only compiled with `--features adapter`.
+# Pin the released reusable-stepping contract under evaluation.
+differential-equations-rs = { version = "=1.4.1", default-features = false, optional = true }
+# Scoped allocation-counting instrumentation for the separate allocation
+# validation this harness reports; MIT OR Apache-2.0.
+stats_alloc = "0.1.10"
