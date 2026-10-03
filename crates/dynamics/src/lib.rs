@@ -32,11 +32,9 @@ pub use dynamics_numerical::{
 };
 #[cfg(feature = "spherical-harmonics")]
 pub use dynamics_spherical_harmonics::{
-    CoefficientEpochSemantics, CoefficientNormalization,
-    ConstructionError as SphericalHarmonicConstructionError,
+    CoefficientNormalization, ConstructionError as SphericalHarmonicConstructionError,
     EvaluationError as SphericalHarmonicEvaluationError, HarmonicCoefficient,
-    HarmonicCoefficientMetadata, HarmonicCoefficientProvider, ProvenanceField, ProvenanceProvider,
-    SourcedBodyFixedTransformProvider, SphericalHarmonicField, SphericalHarmonicGravity,
+    HarmonicCoefficientProvider, SphericalHarmonicField, SphericalHarmonicGravity,
     SphericalHarmonicGravityModel, TideSystem,
 };
 #[cfg(feature = "srp")]
@@ -126,14 +124,12 @@ pub mod srp {
 
 #[cfg(feature = "spherical-harmonics")]
 pub mod spherical_harmonics {
-    //! Caller-supplied general spherical-harmonic gravity capability.
+    //! Caller-supplied low-degree zonal spherical-harmonic gravity capability.
 
     pub use dynamics_spherical_harmonics::{
-        CoefficientEpochSemantics, CoefficientNormalization,
-        ConstructionError as SphericalHarmonicConstructionError,
+        CoefficientNormalization, ConstructionError as SphericalHarmonicConstructionError,
         EvaluationError as SphericalHarmonicEvaluationError, HarmonicCoefficient,
-        HarmonicCoefficientMetadata, HarmonicCoefficientProvider, ProvenanceField,
-        ProvenanceProvider, SourcedBodyFixedTransformProvider, SphericalHarmonicField,
-        SphericalHarmonicGravity, SphericalHarmonicGravityModel, TideSystem,
+        HarmonicCoefficientProvider, SphericalHarmonicField, SphericalHarmonicGravity,
+        SphericalHarmonicGravityModel, TideSystem,
     };
 }

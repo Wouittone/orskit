@@ -18,6 +18,8 @@
 //! Requests may use any Hifitime time scale; their epochs are converted to TAI
 //! for coverage and interpolation. ERA is evaluated from elapsed TAI seconds
 //! relative to J2000 noon TAI plus the interpolated UT1−TAI offset.
+//! Whole-day turns are reduced using the published excess rotation rate in
+//! IERS Eq. (5.15), with the sub-day UT1 offset evaluated separately.
 //!
 //! ```no_run
 //! use frames::{ReferenceFrame, ReferenceFrameTransformRequest};
@@ -71,8 +73,10 @@ use units::uom::si::time::second;
 use units::{AngularVelocityVector, Time};
 
 const ERA_REFERENCE_FRACTION: f64 = 0.779_057_273_264_0;
-const ERA_TURNS_PER_UT1_DAY: f64 = 1.002_737_811_911_354_6;
+const ERA_EXCESS_TURNS_PER_UT1_DAY: f64 = 0.002_737_811_911_354_48;
+const ERA_TURNS_PER_UT1_DAY: f64 = 1.0 + ERA_EXCESS_TURNS_PER_UT1_DAY;
 const SECONDS_PER_DAY: f64 = 86_400.0;
+const NANOSECONDS_PER_DAY: i128 = 86_400_000_000_000;
 
 fn j2000_noon_tai() -> Epoch {
     Epoch::from_gregorian_tai(2000, 1, 1, 12, 0, 0, 0)
@@ -204,11 +208,16 @@ impl Iau2000EraProvider {
         let epoch_tai = request.epoch().to_time_scale(TimeScale::TAI);
         let (ut1_minus_tai_seconds, ut1_minus_tai_rate) =
             self.interpolate_ut1_minus_tai(epoch_tai, request)?;
-        let ut1_seconds_since_j2000_tai =
-            (epoch_tai - j2000_noon_tai()).to_seconds() + ut1_minus_tai_seconds;
+        // Split before conversion to f64 so distant epochs retain sub-day
+        // precision; the integral one-turn-per-day term vanishes modulo one.
+        let tai_nanoseconds = (epoch_tai - j2000_noon_tai()).total_nanoseconds();
+        let whole_days = tai_nanoseconds.div_euclid(NANOSECONDS_PER_DAY) as f64;
+        let subday_ut1_seconds =
+            tai_nanoseconds.rem_euclid(NANOSECONDS_PER_DAY) as f64 / 1.0e9 + ut1_minus_tai_seconds;
         let turns = ERA_REFERENCE_FRACTION
-            + ERA_TURNS_PER_UT1_DAY * (ut1_seconds_since_j2000_tai / SECONDS_PER_DAY);
-        if !ut1_seconds_since_j2000_tai.is_finite() || !turns.is_finite() {
+            + (ERA_EXCESS_TURNS_PER_UT1_DAY * whole_days).rem_euclid(1.0)
+            + ERA_TURNS_PER_UT1_DAY * (subday_ut1_seconds / SECONDS_PER_DAY);
+        if !subday_ut1_seconds.is_finite() || !turns.is_finite() {
             return Err(EarthOrientationError::NonFiniteEvaluation {
                 request: Box::new(request),
             });
@@ -552,6 +561,85 @@ mod tests {
         assert!((y + ERA_AT_J2000_RADIANS.sin()).abs() < ANGLE_TOLERANCE_RAD);
         assert!((vx + expected_rate * ERA_AT_J2000_RADIANS.sin()).abs() < 1.0e-12);
         assert!((vy + expected_rate * ERA_AT_J2000_RADIANS.cos()).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn independent_iers_era_vectors_preserve_precision_away_from_j2000() {
+        // Exact rational evaluation of IERS Eq. (5.15), using the published
+        // decimals 0.7790572732640 and 1.00273781191135448, integer nanoseconds
+        // since J2000 UT1 noon, and modulo reduction before conversion to f64.
+        let vectors = [
+            (
+                Epoch::from_gregorian_utc(2025, 1, 1, 12, 34, 56, 987_654_321),
+                0.1,
+                5.058_554_460_940_293,
+            ),
+            (
+                Epoch::from_gregorian_utc_at_midnight(1972, 1, 2),
+                0.0,
+                1.764_467_734_032_388,
+            ),
+            (
+                Epoch::from_gregorian_utc(1999, 12, 31, 23, 59, 59, 123_456_789),
+                -0.3,
+                1.744_681_674_560_645,
+            ),
+            (
+                Epoch::from_gregorian_utc_at_midnight(2025, 1, 1),
+                0.1,
+                1.755_445_963_197_561_6,
+            ),
+            (
+                Epoch::from_gregorian_utc(2100, 1, 1, 0, 0, 0, 1),
+                -0.2,
+                1.735_831_153_034_682_4,
+            ),
+            (
+                Epoch::from_gregorian_utc(2200, 1, 1, 18, 0, 0, 123_456_789),
+                0.25,
+                0.151_854_366_293_834,
+            ),
+        ];
+        for (epoch, dut1, expected_era) in vectors {
+            let provider = Iau2000EraProvider::new(
+                vec![
+                    EarthOrientationSample {
+                        epoch_utc: epoch - Duration::from_seconds(43_200.0),
+                        ut1_minus_utc: Time::new::<second>(dut1),
+                    },
+                    EarthOrientationSample {
+                        epoch_utc: epoch + Duration::from_seconds(43_200.0),
+                        ut1_minus_utc: Time::new::<second>(dut1),
+                    },
+                ],
+                "IERS",
+                "exact-rational ERA test vectors",
+                "IERS Conventions 2010 Eq. (5.15)",
+                None,
+            )
+            .expect("valid constant UT1 offset");
+            for direction in [
+                BodyFixedTransformDirection::InertialToBodyFixed,
+                BodyFixedTransformDirection::BodyFixedToInertial,
+            ] {
+                let transform = provider
+                    .transform(request(epoch, direction))
+                    .expect("covered reference epoch");
+                let rows = transform.rotation().rows();
+                let sign = match direction {
+                    BodyFixedTransformDirection::InertialToBodyFixed => 1.0,
+                    BodyFixedTransformDirection::BodyFixedToInertial => -1.0,
+                };
+                let actual_era = (sign * rows[0][1]).atan2(rows[0][0]);
+                let error = (actual_era - expected_era)
+                    .sin()
+                    .atan2((actual_era - expected_era).cos());
+                assert!(
+                    error.abs() < ANGLE_TOLERANCE_RAD,
+                    "{epoch:?}, {direction:?}: ERA error {error:e} rad"
+                );
+            }
+        }
     }
 
     #[test]
