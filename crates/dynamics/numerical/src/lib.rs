@@ -2077,7 +2077,7 @@ mod tests {
         // position-only oscillator. Require at least the nominal order,
         // without claiming its superconvergence for general dynamics.
         assert!(
-            convergence_ratio > 150.0,
+            convergence_ratio >= 256.0,
             "eighth order: coarse={coarse:e}, fine={fine:e}, ratio={convergence_ratio}"
         );
     }
