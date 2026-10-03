@@ -79,6 +79,25 @@ parity claim.
 | External ODE solver performance evaluation | [`Wouittone/differential-equations-rs` issue #40](https://github.com/Wouittone/differential-equations-rs/issues/40) and [PR #50](https://github.com/Wouittone/differential-equations-rs/pull/50) | Same-author, MIT OR Apache-2.0 sibling project; public issue/PR findings | Representative six-hour LEO RKV98 wall-clock/accuracy comparison and controller-arithmetic cost share, used only as performance facts to justify not adopting the crate as the default numerical backend | `.agent/decisions/0041-defer-external-ode-solver-adoption.md`; GitHub Issue #8 |
 | Earth-oblateness J2 gravity correction | [NASA GMAT *Mathematical Specifications* (2007)](https://ntrs.nasa.gov/citations/20080031744), already an accepted reference in this ledger, and [IERS Conventions 2010, Chapter 6](https://iers-conventions.obspm.fr/content/chapter6/icc6.pdf) | US Government technical documentation; public standard | Closed-form zonal J2 perturbing-acceleration equation and geopotential tide-system convention naming only; no source code, tests, or distinctive prose was copied | `crates/gravity/src/lib.rs`; `crates/dynamics/harmonics`; ADR-0042; GitHub Issue #9 |
 
+## Gauss-Jackson research record
+
+Gauss-Jackson (#16): Matthew M. Berry and Liam M. Healy, *Implementation of
+Gauss-Jackson Integration for Orbit Propagation*, Journal of the Astronautical
+Sciences 52(3), July-September 2004, pp. 331-357,
+<https://hdl.handle.net/1903/2202>. Publicly accessible copyrighted paper:
+equations 38/52, backward-difference concepts, stability restrictions and
+published period/eccentricity facts only. Neither the supplemental Lisp source
+nor any astrodynamics integrator implementation was consulted or copied.
+Original generating-function coefficient derivation and tests live in
+`crates/dynamics/numerical`; evidence is in `references/gauss-jackson`.
+Orekit 13.1.6 (Apache-2.0) was executed unmodified through public APIs in the
+isolated Java harness for independent numeric endpoints only. Its transitive
+Hipparchus 4.0.3 (Apache-2.0) DOP853 public API independently integrates an
+original point-mass plus linear-drag scenario; tenfold tighter local tolerances
+check the reference floor. Neither is linked into orskit. No external
+library source, tests, examples, internal structure or distinctive prose was
+used. No dataset or paper text is redistributed.
+
 ## Dependency policy
 
 - Confirm the license from package metadata and the upstream repository before

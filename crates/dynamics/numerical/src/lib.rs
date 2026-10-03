@@ -27,6 +27,11 @@
 //! cargo run -p dynamics-numerical --example variational_propagation
 //! cargo run -p dynamics-numerical --features attitude --example body_fixed_maneuver
 //! ```
+//!
+//! The independent `gauss-jackson` feature additionally exposes
+//! `GaussJackson8` for smooth long arcs on a fixed eighth-order history grid.
+//! It does not replace this crate's native adaptive method or provide dense
+//! output. See the fixed-step restrictions in its type documentation.
 
 use std::error::Error;
 
@@ -42,6 +47,14 @@ use units::{Length, Position, Ratio, Velocity, VelocityVector};
 
 mod maneuver;
 mod variational;
+
+#[cfg(feature = "gauss-jackson")]
+mod gauss_jackson;
+#[cfg(feature = "gauss-jackson")]
+pub use gauss_jackson::{
+    GaussJackson8, GaussJacksonConfiguration, GaussJacksonConfigurationError,
+    GaussJacksonPropagationError,
+};
 
 #[cfg(feature = "attitude")]
 pub use maneuver::{AttitudeManeuverDynamicsError, AttitudeManeuverPropagationError};
@@ -1968,6 +1981,476 @@ mod tests {
             ],
             2.0e-4,
         );
+    }
+
+    #[cfg(feature = "gauss-jackson")]
+    fn gj_configuration(step: f64) -> GaussJacksonConfiguration {
+        GaussJacksonConfiguration::new(
+            Duration::from_seconds(step),
+            configuration(1.0e-7, 1.0e-10, 1.0e-15, 1.0e-8, 1.0, 0.1),
+            Length::new::<meter>(1.0e-8),
+            Velocity::new::<meter_per_second>(1.0e-11),
+            20,
+            1_000_000,
+        )
+        .expect("valid Gauss-Jackson configuration")
+    }
+
+    #[cfg(feature = "gauss-jackson")]
+    #[test]
+    fn gauss_jackson_two_body_long_arc_and_reverse() {
+        let (gravity, problem) = earth_problem();
+        let initial = external_fixture_initial(gravity);
+        let epoch = Epoch::from_tai_seconds(0.0);
+        let target = epoch + Duration::from_seconds(259_200.0);
+        let gj = GaussJackson8::new(problem.clone(), gj_configuration(30.0));
+        let actual = gj.propagate(Orbit::new(epoch, initial), target).unwrap();
+        let exact = EllipticKeplerPropagator::new(problem)
+            .propagate(Orbit::new(epoch, initial), target)
+            .unwrap();
+        // 1 cm / 10 um/s operational numerical budget over three days.
+        assert_vector_close(
+            actual.as_ref().position().to_metres(),
+            exact.as_ref().position().to_metres(),
+            0.01,
+        );
+        assert_vector_close(
+            actual.as_ref().velocity().to_metres_per_second(),
+            exact.as_ref().velocity().to_metres_per_second(),
+            1.0e-5,
+        );
+        assert_eq!(actual.epoch(), target);
+        assert_eq!(actual.as_ref().frame(), initial.frame());
+        fn invariants(state: &CartesianState) -> (f64, [f64; 3]) {
+            let p = state.position().to_metres();
+            let v = state.velocity().to_metres_per_second();
+            let radius = p.iter().map(|x| x * x).sum::<f64>().sqrt();
+            let energy = 0.5 * v.iter().map(|x| x * x).sum::<f64>() - 3.986_004_418e14 / radius;
+            (
+                energy,
+                [
+                    p[1] * v[2] - p[2] * v[1],
+                    p[2] * v[0] - p[0] * v[2],
+                    p[0] * v[1] - p[1] * v[0],
+                ],
+            )
+        }
+        let (initial_energy, initial_momentum) = invariants(&initial);
+        let (final_energy, final_momentum) = invariants(actual.as_ref());
+        // Relative budgets of 2 ppb correspond to cm-scale changes on this
+        // 7200 km orbit; invariant checks do not replace phase-error checks.
+        assert!(((final_energy - initial_energy) / initial_energy).abs() < 2.0e-9);
+        for (a, b) in final_momentum.into_iter().zip(initial_momentum) {
+            assert!(((a - b) / b).abs() < 2.0e-9);
+        }
+        let reverse = gj.propagate(actual, epoch).unwrap();
+        assert_vector_close(
+            reverse.as_ref().position().to_metres(),
+            initial.position().to_metres(),
+            0.02,
+        );
+        assert_vector_close(
+            reverse.as_ref().velocity().to_metres_per_second(),
+            initial.velocity().to_metres_per_second(),
+            2.0e-5,
+        );
+    }
+
+    #[cfg(feature = "gauss-jackson")]
+    #[test]
+    fn gauss_jackson_observed_order_at_least_eight() {
+        fn error(step: f64) -> f64 {
+            let epoch = Epoch::from_tai_seconds(0.0);
+            let actual = GaussJackson8::new(HarmonicOscillator, gj_configuration(step))
+                .propagate(
+                    Orbit::new(epoch, state([1.0, 0.0, 0.0], [0.0, 0.0, 0.0])),
+                    epoch + Duration::from_seconds(40.0),
+                )
+                .unwrap();
+            (actual.as_ref().position().to_metres()[0] - 40.0_f64.cos())
+                .hypot(actual.as_ref().velocity().to_metres_per_second()[0] + 40.0_f64.sin())
+        }
+        let coarse = error(0.4);
+        let fine = error(0.2);
+        let convergence_ratio = coarse / fine;
+        // Summed eighth-difference formulas can superconverge on this
+        // position-only oscillator. Require at least the nominal order,
+        // without claiming its superconvergence for general dynamics.
+        assert!(
+            convergence_ratio > 150.0,
+            "eighth order: coarse={coarse:e}, fine={fine:e}, ratio={convergence_ratio}"
+        );
+    }
+
+    #[cfg(feature = "gauss-jackson")]
+    #[test]
+    fn gauss_jackson_grid_limits_and_nonconvergence() {
+        let epoch = Epoch::from_tai_seconds(0.0);
+        let initial = state([1.0, 0.0, 0.0], [0.0, 0.0, 0.0]);
+        let gj = GaussJackson8::new(HarmonicOscillator, gj_configuration(0.4));
+        assert!(matches!(
+            gj.propagate(
+                Orbit::new(epoch, initial),
+                epoch + Duration::from_seconds(0.41)
+            ),
+            Err(GaussJacksonPropagationError::TargetOffGrid)
+        ));
+        assert!(matches!(
+            gj.propagate(
+                Orbit::new(epoch, initial),
+                epoch + Duration::from_seconds(400_000.4)
+            ),
+            Err(GaussJacksonPropagationError::StepLimitExceeded)
+        ));
+        let config = GaussJacksonConfiguration::new(
+            Duration::from_seconds(0.4),
+            gj_configuration(0.4).startup(),
+            Length::new::<meter>(1.0e-30),
+            Velocity::new::<meter_per_second>(1.0e-30),
+            1,
+            100,
+        )
+        .unwrap();
+        let result = GaussJackson8::new(HarmonicOscillator, config).propagate(
+            Orbit::new(epoch, initial),
+            epoch + Duration::from_seconds(4.0),
+        );
+        assert!(matches!(
+            result,
+            Err(GaussJacksonPropagationError::NonConvergence { iterations: 1, .. })
+        ));
+    }
+
+    #[cfg(feature = "gauss-jackson")]
+    #[test]
+    fn gauss_jackson_independent_reduced_iss_crres_scenarios() {
+        // Berry/Healy 2004 pp. 353-354 supply period/eccentricity. These
+        // reduced two-body scenarios do NOT reproduce their perturbed arcs.
+        // Endpoints: Orekit 13.1.6 public API, independently generated by
+        // .agent/references/gauss-jackson/orekit over three days.
+        let fixtures = [
+            (
+                92.05,
+                0.001,
+                [
+                    3.216_277_810_366_851_3e6,
+                    5.929_274_810_713_108e6,
+                    -1.489_792_515_805_683_5e5,
+                ],
+                [
+                    -5.120_448_527_129_156e3,
+                    2.898_258_159_706_495e3,
+                    4.950_988_008_733_631e3,
+                ],
+            ),
+            (
+                607.28,
+                0.716,
+                [
+                    -1.525_049_312_528_052_4e7,
+                    -1.335_427_735_087_405_3e7,
+                    6.345_719_215_033_984e6,
+                ],
+                [
+                    -1.070_506_008_984_648_8e3,
+                    -4.344_236_148_626_02e3,
+                    -8.561_742_063_583_034e2,
+                ],
+            ),
+        ];
+        for (period_minutes, eccentricity, position, velocity) in fixtures {
+            let (gravity, problem) = earth_problem();
+            let a =
+                (3.986_004_418e14 * (period_minutes * 60.0 / std::f64::consts::TAU).powi(2)).cbrt();
+            let initial: CartesianState = KeplerianState::new(
+                InertialFrame::GCRF,
+                gravity,
+                Length::new::<meter>(a),
+                Ratio::new::<ratio>(eccentricity),
+                Angle::new::<radian>(0.7),
+                Angle::new::<radian>(1.1),
+                Angle::new::<radian>(0.4),
+                Angle::new::<radian>(0.0),
+            )
+            .unwrap()
+            .try_into()
+            .unwrap();
+            let epoch = Epoch::from_tai_seconds(0.0);
+            // Halve the step for the high-eccentricity periapsis passage,
+            // retaining the same a priori scientific budget.
+            let step = if eccentricity > 0.5 { 15.0 } else { 30.0 };
+            let actual = GaussJackson8::new(problem, gj_configuration(step))
+                .propagate(
+                    Orbit::new(epoch, initial),
+                    epoch + Duration::from_seconds(259_200.0),
+                )
+                .unwrap();
+            // A priori 1 cm / 10 um/s reduced-model operational budget.
+            assert_vector_close(actual.as_ref().position().to_metres(), position, 0.01);
+            assert_vector_close(
+                actual.as_ref().velocity().to_metres_per_second(),
+                velocity,
+                1.0e-5,
+            );
+        }
+    }
+
+    #[cfg(feature = "gauss-jackson")]
+    #[test]
+    fn gauss_jackson_startup_polynomial_errors_and_identity() {
+        let epoch = Epoch::from_tai_seconds(1000.0);
+        let initial = state([10.0, -4.0, 8.0], [3.0, 2.0, -1.0]);
+        let gj = GaussJackson8::new(
+            ConstantAcceleration {
+                value: AccelerationVector::from_metres_per_second_squared(2.0, -1.0, 0.5),
+            },
+            gj_configuration(1.0),
+        );
+        for seconds in [0.0, 3.0, 8.0, 100.0, -100.0] {
+            let actual = gj
+                .propagate(
+                    Orbit::new(epoch, initial),
+                    epoch + Duration::from_seconds(seconds),
+                )
+                .unwrap();
+            assert_vector_close(
+                actual.as_ref().position().to_metres(),
+                [
+                    10.0 + 3.0 * seconds + seconds * seconds,
+                    -4.0 + 2.0 * seconds - 0.5 * seconds * seconds,
+                    8.0 - seconds + 0.25 * seconds * seconds,
+                ],
+                1.0e-8,
+            );
+            assert_vector_close(
+                actual.as_ref().velocity().to_metres_per_second(),
+                [3.0 + 2.0 * seconds, 2.0 - seconds, -1.0 + 0.5 * seconds],
+                1.0e-10,
+            );
+        }
+        let wrong = GaussJackson8::new(WrongFrameDynamics, gj_configuration(1.0)).propagate(
+            Orbit::new(epoch, initial),
+            epoch + Duration::from_seconds(10.0),
+        );
+        assert!(matches!(
+            wrong,
+            Err(GaussJacksonPropagationError::Numerical(
+                NumericalPropagationError::AccelerationFrameMismatch { .. }
+            ))
+        ));
+        let error = GaussJackson8::new(FailingDynamics, gj_configuration(1.0))
+            .propagate(
+                Orbit::new(epoch, initial),
+                epoch + Duration::from_seconds(10.0),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            GaussJacksonPropagationError::Numerical(NumericalPropagationError::Dynamics(
+                FixtureModelError
+            ))
+        ));
+        assert!(error.source().unwrap().source().is_some());
+        let terrestrial = CartesianState::new(
+            ReferenceFrame::ITRF2020,
+            Position::from_metres(1.0, 0.0, 0.0),
+            VelocityVector::from_metres_per_second(0.0, 0.0, 0.0),
+        )
+        .unwrap();
+        assert!(matches!(
+            gj.propagate(Orbit::new(epoch, terrestrial), epoch),
+            Err(GaussJacksonPropagationError::NonInertialFrame)
+        ));
+    }
+
+    #[cfg(feature = "gauss-jackson")]
+    #[test]
+    fn gauss_jackson_velocity_dependent_manufactured_solution() {
+        #[derive(Debug)]
+        struct LinearDrag;
+        impl CartesianDynamics for LinearDrag {
+            type Error = Infallible;
+            fn validate(&self, _: &CartesianState) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn acceleration(
+                &self,
+                _: Epoch,
+                state: &CartesianState,
+            ) -> Result<FramedAcceleration, Self::Error> {
+                let [x, y, z] = state.velocity().to_metres_per_second().map(|v| -0.001 * v);
+                Ok(FramedAcceleration::new(
+                    AccelerationVector::from_metres_per_second_squared(x, y, z),
+                    state.frame(),
+                )
+                .unwrap())
+            }
+        }
+        let epoch = Epoch::from_tai_seconds(0.0);
+        let initial = state([1.0e6, 0.0, 0.0], [1000.0, 0.0, 0.0]);
+        let actual = GaussJackson8::new(LinearDrag, gj_configuration(30.0))
+            .propagate(
+                Orbit::new(epoch, initial),
+                epoch + Duration::from_seconds(3600.0),
+            )
+            .unwrap();
+        let decay = (-3.6_f64).exp();
+        // Exact solution of v'=-k v. 0.1 mm / 0.1 um/s budget.
+        assert_vector_close(
+            actual.as_ref().position().to_metres(),
+            [1.0e6 + 1.0e6 * (1.0 - decay), 0.0, 0.0],
+            1.0e-4,
+        );
+        assert_vector_close(
+            actual.as_ref().velocity().to_metres_per_second(),
+            [1000.0 * decay, 0.0, 0.0],
+            1.0e-7,
+        );
+    }
+
+    #[cfg(feature = "gauss-jackson")]
+    #[test]
+    fn gauss_jackson_independent_perturbed_long_arc() {
+        #[derive(Debug)]
+        struct DraggedOrbit(TwoBodyDynamics);
+        impl CartesianDynamics for DraggedOrbit {
+            type Error = TwoBodyEvaluationError;
+            fn validate(&self, state: &CartesianState) -> Result<(), Self::Error> {
+                self.0.validate(state)
+            }
+            fn acceleration(
+                &self,
+                epoch: Epoch,
+                state: &CartesianState,
+            ) -> Result<FramedAcceleration, Self::Error> {
+                let central = self
+                    .0
+                    .acceleration(epoch, state)?
+                    .value()
+                    .to_metres_per_second_squared();
+                let velocity = state.velocity().to_metres_per_second();
+                let a: [f64; 3] = std::array::from_fn(|j| central[j] - 1.0e-8 * velocity[j]);
+                Ok(FramedAcceleration::new(
+                    AccelerationVector::from_metres_per_second_squared(a[0], a[1], a[2]),
+                    state.frame(),
+                )
+                .unwrap())
+            }
+        }
+        let (gravity, problem) = earth_problem();
+        let a = (3.986_004_418e14 * (92.05 * 60.0 / std::f64::consts::TAU).powi(2)).cbrt();
+        let initial: CartesianState = KeplerianState::new(
+            InertialFrame::GCRF,
+            gravity,
+            Length::new::<meter>(a),
+            Ratio::new::<ratio>(0.001),
+            Angle::new::<radian>(0.7),
+            Angle::new::<radian>(1.1),
+            Angle::new::<radian>(0.4),
+            Angle::new::<radian>(0.0),
+        )
+        .unwrap()
+        .try_into()
+        .unwrap();
+        let epoch = Epoch::from_tai_seconds(0.0);
+        let actual = GaussJackson8::new(DraggedOrbit(problem), gj_configuration(30.0))
+            .propagate(
+                Orbit::new(epoch, initial),
+                epoch + Duration::from_seconds(259_200.0),
+            )
+            .unwrap();
+        // Independent Hipparchus 4.0.3 DOP853 black-box integration of
+        // r''=-mu*r/|r|^3-k*v, k=1e-8 /s; not a physical atmosphere model.
+        // Tightening its tolerances tenfold changes the reference by <13 um.
+        // The same 1 cm / 10 um/s budget remains comfortably above that floor.
+        assert_vector_close(
+            actual.as_ref().position().to_metres(),
+            [
+                -2.779_458_794_445_228_8e6,
+                4.714_719_550_021_319e6,
+                3.887_710_583_637_523e6,
+            ],
+            0.01,
+        );
+        assert_vector_close(
+            actual.as_ref().velocity().to_metres_per_second(),
+            [
+                -5.447_035_423_406_024e3,
+                -5.000_319_688_345_475e3,
+                2.178_420_919_266_762_7e3,
+            ],
+            1.0e-5,
+        );
+    }
+
+    #[cfg(feature = "gauss-jackson")]
+    #[test]
+    fn gauss_jackson_time_dependent_force_and_nanosecond_grid() {
+        #[derive(Debug)]
+        struct TimeAcceleration(Epoch);
+        impl CartesianDynamics for TimeAcceleration {
+            type Error = Infallible;
+            fn validate(&self, _: &CartesianState) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn acceleration(
+                &self,
+                epoch: Epoch,
+                state: &CartesianState,
+            ) -> Result<FramedAcceleration, Self::Error> {
+                let elapsed_seconds = (epoch - self.0).to_seconds();
+                Ok(FramedAcceleration::new(
+                    AccelerationVector::from_metres_per_second_squared(
+                        2.0 * elapsed_seconds,
+                        0.0,
+                        0.0,
+                    ),
+                    state.frame(),
+                )
+                .unwrap())
+            }
+        }
+        let epoch = Epoch::from_tai_seconds(1000.0);
+        let initial = state([1.0, 0.0, 0.0], [2.0, 0.0, 0.0]);
+        // BS32 integrates this cubic exactly. Use fixed integer-second
+        // startup steps so adaptive stage-epoch nanosecond rounding cannot
+        // mask the epoch/grid contract being tested.
+        let settings = GaussJacksonConfiguration::new(
+            Duration::from_seconds(1.0),
+            configuration(1.0e10, 1.0e10, 1.0e-15, 1.0, 1.0, 1.0),
+            Length::new::<meter>(1.0e-8),
+            Velocity::new::<meter_per_second>(1.0e-11),
+            20,
+            100,
+        )
+        .unwrap();
+        let gj = GaussJackson8::new(TimeAcceleration(epoch), settings);
+        for seconds in [-20.0, 20.0] {
+            let actual = gj
+                .propagate(
+                    Orbit::new(epoch, initial),
+                    epoch + Duration::from_seconds(seconds),
+                )
+                .unwrap();
+            // x''=2*t, exact cubic solution in SI relative to the fixture epoch.
+            assert_vector_close(
+                actual.as_ref().position().to_metres(),
+                [1.0 + 2.0 * seconds + seconds.powi(3) / 3.0, 0.0, 0.0],
+                1.0e-8,
+            );
+            assert_vector_close(
+                actual.as_ref().velocity().to_metres_per_second(),
+                [2.0 + seconds * seconds, 0.0, 0.0],
+                1.0e-10,
+            );
+        }
+        assert!(matches!(
+            gj.propagate(
+                Orbit::new(epoch, initial),
+                epoch + Duration::from_total_nanoseconds(20_000_000_001)
+            ),
+            Err(GaussJacksonPropagationError::TargetOffGrid)
+        ));
     }
 
     #[test]

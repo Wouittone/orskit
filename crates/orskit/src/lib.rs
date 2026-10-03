@@ -69,6 +69,11 @@ pub mod prelude {
     pub use crate::dynamics::{ComposedDynamics, PropagationState, Propagator};
     #[cfg(feature = "two-bodies")]
     pub use crate::dynamics::{EllipticKeplerPropagator, TwoBodyDynamics};
+    #[cfg(feature = "gauss-jackson")]
+    pub use crate::dynamics::{
+        GaussJackson8, GaussJacksonConfiguration, GaussJacksonConfigurationError,
+        GaussJacksonPropagationError,
+    };
     #[cfg(feature = "point-mass-gravity")]
     pub use crate::gravity::PointMass;
     #[cfg(feature = "measurement-range")]
