@@ -57,8 +57,11 @@ jointly iterates both position and velocity, including velocity-dependent forces
 
 Corrector thresholds bound per-component iteration changes; they are **not**
 local truncation-error tolerances, global accuracy certificates, or physical
-model uncertainties. There is no adaptive mature-step controller. Smooth
-non-stiff forces are required across the entire history. The method is not
+model uncertainties. There is no adaptive mature-step controller.
+Acceptance retains exactly the checked, compensated candidate and the
+acceleration ordinates used to produce it; no additional unchecked correction
+is applied after convergence.
+Smooth non-stiff forces are required across the entire history. The method is not
 A-stable; large steps, fast periapsis motion or stiff velocity dependence can
 be unstable even when an iteration converges. Small steps may instead encounter
 roundoff and startup error floors. Compare step-halved trajectories and an

@@ -130,6 +130,39 @@ do not infer a default-path regression or promote an external adapter.
 
 ## Validation record
 
+### Review correction: checked-state acceptance
+
+The original benchmark CSV above is historical evidence before PR review.
+Review identified an extra acceleration evaluation and unchecked state correction
+after the fixed-point threshold test. Acceptance now retains the checked
+candidate and its producing acceleration history, with compensated sums included
+in the iteration itself. A smooth, ill-conditioned velocity-coupled regression
+demonstrates that the removed extra correction could exceed both thresholds.
+Convergence still does not imply accuracy or stability for that artificial force.
+
+Post-fix commands (Rust 1.96.1, serial Cargo builds):
+
+- `cargo test -p dynamics-numerical --all-features --locked gauss_jackson -- --nocapture`:
+  all 10 Gauss-Jackson tests passed, including the independent long-arc budgets.
+- `cargo clippy -p dynamics-numerical --all-targets --all-features --locked -- -D warnings -D clippy::must-use-candidate`:
+  passed.
+- `cargo nextest run --workspace --all-targets --all-features --locked --test-threads 2 --status-level fail --final-status-level fail`:
+  235 tests passed across 34 binaries.
+- `cargo test -p dynamics-numerical --doc --all-features --locked`:
+  one doctest passed.
+- `cargo bench -p dynamics-numerical --features gauss-jackson --bench gauss_jackson --locked`:
+  all 54 samples completed; the unchanged physical budgets still pass.
+
+Post-fix three-day Gauss-Jackson position/velocity norm errors are
+6.426431948e-6 m / 7.379947423e-9 m/s (reduced ISS) and
+3.742562121e-5 m / 7.313233925e-9 m/s (reduced CRRES), with 20563 / 26433 RHS
+evaluations. Median elapsed times on the same uncontrolled host were
+7.3381 / 12.4632 ms; the paired native medians were 1.7207932 / 0.4412556 s
+with unchanged native errors. These are not replacement portable baselines;
+the original CSV is deliberately retained rather than overwritten.
+
+### Initial implementation checks
+
 All Rust checks use the pinned/MSRV Rust 1.96.1. The initial unrestricted parallel
 link failed from Windows memory exhaustion (`LNK1102` / `0xc000012d`), not a
 source diagnostic; serial Cargo builds resolved it.

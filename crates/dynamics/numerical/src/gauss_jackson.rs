@@ -290,6 +290,8 @@ impl<P: CartesianDynamics> Propagator<CartesianState> for GaussJackson8<P> {
                 self.position_weights,
                 self.velocity_weights,
                 h,
+                position_roundoff,
+                sum_roundoff,
             );
             let mut converged = false;
             for _ in 0..self.configuration.max_iterations {
@@ -302,6 +304,8 @@ impl<P: CartesianDynamics> Propagator<CartesianState> for GaussJackson8<P> {
                     self.position_weights,
                     self.velocity_weights,
                     h,
+                    position_roundoff,
+                    sum_roundoff,
                 );
                 let position_ok = (0..3).all(|axis| {
                     (next[axis] - candidate[axis]).abs()
@@ -326,7 +330,8 @@ impl<P: CartesianDynamics> Propagator<CartesianState> for GaussJackson8<P> {
                     iterations: self.configuration.max_iterations,
                 });
             }
-            next_history[0] = self.acceleration(next_epoch, frame, candidate)?;
+            // Retain the acceleration ordinates that produced the checked
+            // candidate; reevaluation here would introduce an unchecked correction.
             let next_correction = weighted(self.position_weights, next_history);
             for axis in 0..3 {
                 // Accumulate the second sum as position increments; do not
@@ -340,10 +345,7 @@ impl<P: CartesianDynamics> Propagator<CartesianState> for GaussJackson8<P> {
                     next_history[0][axis],
                 );
             }
-            let velocity_correction = weighted(self.velocity_weights, next_history);
-            for axis in 0..3 {
-                values[axis + 3] = h * (first_sum[axis] + velocity_correction[axis]);
-            }
+            values = candidate;
             array_to_state::<P::Error>(frame, values)?;
             history = next_history;
             correction = next_correction;
@@ -373,17 +375,28 @@ fn corrected(
     position_weights: [f64; POINTS],
     velocity_weights: [f64; POINTS],
     h: f64,
+    position_roundoff: [f64; 3],
+    sum_roundoff: [f64; 3],
 ) -> [f64; 6] {
     let position = weighted(position_weights, history);
     let velocity = weighted(velocity_weights, history);
     std::array::from_fn(|component| {
         if component < 3 {
-            current[component]
-                + h * h
-                    * (first_sum[component] + position[component] - previous_correction[component])
+            let mut value = current[component];
+            let mut roundoff = position_roundoff[component];
+            compensated_add(
+                &mut value,
+                &mut roundoff,
+                h * h
+                    * (first_sum[component] + position[component] - previous_correction[component]),
+            );
+            value
         } else {
             let axis = component - 3;
-            h * (first_sum[axis] + history[0][axis] + velocity[axis])
+            let mut sum = first_sum[axis];
+            let mut roundoff = sum_roundoff[axis];
+            compensated_add(&mut sum, &mut roundoff, history[0][axis]);
+            h * (sum + velocity[axis])
         }
     })
 }
@@ -449,6 +462,133 @@ fn summed_weights() -> ([f64; POINTS], [f64; POINTS]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use orbits::cartesian::FramedAcceleration;
+    use std::{
+        convert::Infallible,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+    use units::AccelerationVector;
+
+    #[derive(Debug)]
+    struct CoupledVelocityForce {
+        endpoint_evaluations: AtomicUsize,
+    }
+
+    impl CartesianDynamics for CoupledVelocityForce {
+        type Error = Infallible;
+
+        fn validate(&self, _: &CartesianState) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn acceleration(
+            &self,
+            epoch: Epoch,
+            state: &CartesianState,
+        ) -> Result<FramedAcceleration, Self::Error> {
+            let seconds = epoch.to_tai_seconds();
+            if epoch == Epoch::from_tai_seconds(9.0) {
+                self.endpoint_evaluations.fetch_add(1, Ordering::Relaxed);
+            }
+            // Smooth activation after the startup history. The deliberately
+            // ill-conditioned coupling amplifies an additional correction.
+            let activation = if seconds > 8.0 {
+                (1.0 - 1.0 / (seconds - 8.0)).exp()
+            } else {
+                0.0
+            };
+            let vx = state.velocity().to_metres_per_second()[0];
+            Ok(FramedAcceleration::new(
+                AccelerationVector::from_metres_per_second_squared(
+                    activation * 1.0e-6,
+                    activation * 1.0e12 * vx,
+                    0.0,
+                ),
+                state.frame(),
+            )
+            .unwrap())
+        }
+    }
+
+    #[test]
+    fn acceptance_retains_the_checked_compensated_candidate() {
+        let startup = IntegrationConfiguration::new(
+            Length::new::<meter>(1.0e-7),
+            Velocity::new::<meter_per_second>(1.0e-10),
+            Ratio::new::<ratio>(1.0e-15),
+            Duration::from_seconds(1.0),
+            Duration::from_seconds(1.0),
+            Duration::from_seconds(1.0),
+            100,
+            10,
+        )
+        .unwrap();
+        let configuration = GaussJacksonConfiguration::new(
+            Duration::from_seconds(1.0),
+            startup,
+            Length::new::<meter>(1.0),
+            Velocity::new::<meter_per_second>(1.0),
+            1,
+            100,
+        )
+        .unwrap();
+        let solver = GaussJackson8::new(
+            CoupledVelocityForce {
+                endpoint_evaluations: AtomicUsize::new(0),
+            },
+            configuration,
+        );
+        let initial = CartesianState::new(
+            ReferenceFrame::GCRF,
+            Position::from_metres(0.0, 0.0, 0.0),
+            VelocityVector::from_metres_per_second(0.0, 0.0, 0.0),
+        )
+        .unwrap();
+        let actual = solver
+            .propagate(
+                Orbit::new(Epoch::from_tai_seconds(0.0), initial),
+                Epoch::from_tai_seconds(9.0),
+            )
+            .unwrap();
+        let mut history = [[0.0; 3]; POINTS];
+        history[0][0] = 1.0e-6;
+        let expected = corrected(
+            [0.0; 6],
+            [0.0; 3],
+            [0.0; 3],
+            history,
+            solver.position_weights,
+            solver.velocity_weights,
+            1.0,
+            [0.0; 3],
+            [0.0; 3],
+        );
+        assert_eq!(state_to_array(*actual.as_ref()), expected);
+        assert_eq!(
+            solver
+                .problem()
+                .endpoint_evaluations
+                .load(Ordering::Relaxed),
+            1
+        );
+        let reeval = solver
+            .acceleration(actual.epoch(), initial.frame(), expected)
+            .unwrap();
+        history[0] = reeval;
+        let unchecked = corrected(
+            [0.0; 6],
+            [0.0; 3],
+            [0.0; 3],
+            history,
+            solver.position_weights,
+            solver.velocity_weights,
+            1.0,
+            [0.0; 3],
+            [0.0; 3],
+        );
+        assert!((unchecked[1] - expected[1]).abs() > 1.0);
+        assert!((unchecked[4] - expected[4]).abs() > 1.0);
+    }
 
     #[test]
     fn operator_coefficients_and_configuration_boundaries() {
