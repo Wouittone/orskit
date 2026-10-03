@@ -16,8 +16,9 @@
 //! The caller supplies samples and a versioned provenance descriptor. This
 //! crate performs no file access, network access, or implicit data selection.
 //! Samples must be UTC epochs and finite typed UT1−UTC durations in seconds.
-//! Requests may use any Hifitime time scale; their epochs are converted to UTC
-//! for data lookup and ERA evaluation.
+//! Requests may use any Hifitime time scale; their epochs are converted to TAI
+//! for coverage and interpolation. ERA is evaluated from elapsed TAI seconds
+//! relative to J2000 noon TAI plus the interpolated UT1−TAI offset.
 //!
 //! ```no_run
 //! use frames::{BodyFixedTransformDirection, BodyFixedTransformRequest, InertialFrame, ReferenceFrame};
@@ -63,7 +64,8 @@ use std::f64::consts::TAU;
 use frames::{
     BodyFixedTransform, BodyFixedTransformDirection, BodyFixedTransformError,
     BodyFixedTransformProvider, BodyFixedTransformProviderError, BodyFixedTransformRequest,
-    DirectionCosineMatrix, InertialFrame, ReferenceDataDescriptor, ReferenceFrame,
+    DirectionCosineMatrix, InertialFrame, ProvenancedBodyFixedTransform, ReferenceDataDescriptor,
+    ReferenceFrame,
 };
 use hifitime::{Epoch, TimeScale};
 use thiserror::Error;
@@ -73,7 +75,10 @@ use units::{AngularVelocityVector, Time};
 const ERA_REFERENCE_FRACTION: f64 = 0.779_057_273_264_0;
 const ERA_TURNS_PER_UT1_DAY: f64 = 1.002_737_811_911_354_6;
 const SECONDS_PER_DAY: f64 = 86_400.0;
-const UNIX_J2000_NOON_UTC_SECONDS: f64 = 946_728_000.0;
+
+fn j2000_noon_tai() -> Epoch {
+    Epoch::from_gregorian_tai(2000, 1, 1, 12, 0, 0, 0)
+}
 
 /// One caller-supplied Earth-orientation sample.
 ///
@@ -197,18 +202,14 @@ impl Iau2000EraProvider {
             });
         }
 
-        let epoch_utc = request.epoch().to_time_scale(TimeScale::UTC);
+        let epoch_tai = request.epoch().to_time_scale(TimeScale::TAI);
         let (ut1_minus_tai_seconds, ut1_minus_tai_rate) =
-            self.interpolate_ut1_minus_tai(epoch_utc, request)?;
-        let dut1_seconds = ut1_minus_tai_seconds + tai_minus_utc_seconds(epoch_utc);
-        let ut1_seconds_since_j2000_utc =
-            epoch_utc.to_unix_seconds() - UNIX_J2000_NOON_UTC_SECONDS + dut1_seconds;
+            self.interpolate_ut1_minus_tai(epoch_tai, request)?;
+        let ut1_seconds_since_j2000_tai =
+            (epoch_tai - j2000_noon_tai()).to_seconds() + ut1_minus_tai_seconds;
         let turns = ERA_REFERENCE_FRACTION
-            + ERA_TURNS_PER_UT1_DAY * (ut1_seconds_since_j2000_utc / SECONDS_PER_DAY);
-        if !dut1_seconds.is_finite()
-            || !ut1_seconds_since_j2000_utc.is_finite()
-            || !turns.is_finite()
-        {
+            + ERA_TURNS_PER_UT1_DAY * (ut1_seconds_since_j2000_tai / SECONDS_PER_DAY);
+        if !ut1_seconds_since_j2000_tai.is_finite() || !turns.is_finite() {
             return Err(EarthOrientationError::NonFiniteEvaluation {
                 request: Box::new(request),
             });
@@ -237,30 +238,32 @@ impl Iau2000EraProvider {
             AngularVelocityVector::from_radians_per_second(0.0, 0.0, angular_rate);
         let transform = BodyFixedTransform::new(request, rotation, angular_velocity)
             .map_err(EarthOrientationError::InvalidTransform)?;
-        Ok(ProvenancedEarthRotation {
+        Ok(ProvenancedEarthRotation::new(
             transform,
-            reference_data: &self.reference_data,
-        })
+            &self.reference_data,
+        ))
     }
 
     fn interpolate_ut1_minus_tai(
         &self,
-        epoch_utc: Epoch,
+        epoch_tai: Epoch,
         request: BodyFixedTransformRequest,
     ) -> Result<(f64, f64), EarthOrientationError> {
         let first = self.samples[0];
         let last = self.samples[self.samples.len() - 1];
-        if epoch_utc < first.epoch_utc || epoch_utc > last.epoch_utc {
+        let first_tai = first.epoch_utc.to_time_scale(TimeScale::TAI);
+        let last_tai = last.epoch_utc.to_time_scale(TimeScale::TAI);
+        if epoch_tai < first_tai || epoch_tai > last_tai {
             return Err(EarthOrientationError::EpochOutOfRange {
                 request: Box::new(request),
-                start: first.epoch_utc,
-                end: last.epoch_utc,
+                start: first_tai,
+                end: last_tai,
             });
         }
 
         let upper = self
             .samples
-            .partition_point(|sample| sample.epoch_utc <= epoch_utc);
+            .partition_point(|sample| sample.epoch_utc.to_time_scale(TimeScale::TAI) <= epoch_tai);
         let left_index = if upper == self.samples.len() {
             upper - 2
         } else {
@@ -271,9 +274,8 @@ impl Iau2000EraProvider {
         let interval_seconds = (right.epoch_utc.to_time_scale(TimeScale::TAI)
             - left.epoch_utc.to_time_scale(TimeScale::TAI))
         .to_seconds();
-        let elapsed_seconds = (epoch_utc.to_time_scale(TimeScale::TAI)
-            - left.epoch_utc.to_time_scale(TimeScale::TAI))
-        .to_seconds();
+        let elapsed_seconds =
+            (epoch_tai - left.epoch_utc.to_time_scale(TimeScale::TAI)).to_seconds();
         let left_ut1_tai = ut1_minus_tai_seconds(left);
         let right_ut1_tai = ut1_minus_tai_seconds(right);
         let ut1_tai_difference = right_ut1_tai - left_ut1_tai;
@@ -299,43 +301,20 @@ fn ut1_minus_tai_seconds(sample: EarthOrientationSample) -> f64 {
 }
 
 fn tai_minus_utc_seconds(epoch_utc: Epoch) -> f64 {
-    10.0 + f64::from(epoch_utc.leap_seconds_iers())
+    f64::from(epoch_utc.leap_seconds_iers())
 }
 
 /// One evaluated ERA transform with its immutable selected provenance.
 ///
-/// The borrowed descriptors are guaranteed to remain stable for the provider's
-/// lifetime. The underlying frame transform retains its original request,
-/// including epoch, time scale, direction, and frame identities.
-#[derive(Debug, Clone, Copy)]
-pub struct ProvenancedEarthRotation<'a> {
-    transform: BodyFixedTransform,
-    reference_data: &'a [ReferenceDataDescriptor],
-}
-
-impl<'a> ProvenancedEarthRotation<'a> {
-    /// Returns the underlying validated frame transform.
-    #[must_use]
-    pub const fn transform(self) -> BodyFixedTransform {
-        self.transform
-    }
-
-    /// Returns the exact EOP, convention, and time-scale provenance used.
-    #[must_use]
-    pub const fn reference_data(self) -> &'a [ReferenceDataDescriptor] {
-        self.reference_data
-    }
-}
-
-impl std::ops::Deref for ProvenancedEarthRotation<'_> {
-    type Target = BodyFixedTransform;
-
-    fn deref(&self) -> &Self::Target {
-        &self.transform
-    }
-}
+/// This is the frames-layer transform/provenance pair returned by an
+/// [`Iau2000EraProvider`] and remains usable through an object-safe provider.
+pub type ProvenancedEarthRotation<'a> = ProvenancedBodyFixedTransform<'a>;
 
 impl BodyFixedTransformProvider for Iau2000EraProvider {
+    fn reference_data(&self) -> &[ReferenceDataDescriptor] {
+        &self.reference_data
+    }
+
     fn body_fixed_transform(
         &self,
         request: BodyFixedTransformRequest,
@@ -519,6 +498,15 @@ mod tests {
     fn independent_iers_era_vector_at_j2000_is_reproduced() {
         // IERS Conventions (2010), §5.5.3, Eq. (5.15): at JD(UT1)=2451545.0,
         // ERA = 2π × 0.7790572732640 = 280.46061837504 degrees.
+        let j2000_utc = Epoch::from_gregorian_utc(2000, 1, 1, 12, 0, 0, 0);
+        assert_eq!(tai_minus_utc_seconds(j2000_utc), 32.0);
+        assert_eq!(
+            ut1_minus_tai_seconds(EarthOrientationSample {
+                epoch_utc: j2000_utc,
+                ut1_minus_utc: Time::new::<second>(0.0),
+            }),
+            -32.0
+        );
         let provider = provider(0.0, 0.0);
         let transform = provider
             .transform(request(
@@ -794,16 +782,34 @@ mod tests {
         let request_at = |epoch| {
             BodyFixedTransformRequest::new(
                 epoch,
-                TimeScale::UTC,
+                TimeScale::TAI,
                 InertialFrame::GCRF,
                 ReferenceFrame::ITRF2020,
                 BodyFixedTransformDirection::InertialToBodyFixed,
             )
             .expect("valid request")
         };
-        let before = Epoch::from_gregorian_utc(2016, 12, 31, 23, 59, 59, 0);
-        let leap = Epoch::from_gregorian_utc(2016, 12, 31, 23, 59, 60, 0);
-        let after = Epoch::from_gregorian_utc_at_midnight(2017, 1, 1);
+        let before = Epoch::from_gregorian_tai(2017, 1, 1, 0, 0, 35, 0);
+        let leap = Epoch::from_gregorian_tai(2017, 1, 1, 0, 0, 36, 0);
+        let after = Epoch::from_gregorian_tai(2017, 1, 1, 0, 0, 37, 0);
+        let eop_before = Epoch::from_gregorian_utc_at_midnight(2016, 12, 31);
+        let eop_after = Epoch::from_gregorian_utc_at_midnight(2017, 1, 1);
+        assert_eq!(tai_minus_utc_seconds(eop_before), 36.0);
+        assert_eq!(tai_minus_utc_seconds(eop_after), 37.0);
+        assert_eq!(
+            ut1_minus_tai_seconds(EarthOrientationSample {
+                epoch_utc: eop_before,
+                ut1_minus_utc: Time::new::<second>(-0.4),
+            }),
+            -36.4
+        );
+        assert_eq!(
+            ut1_minus_tai_seconds(EarthOrientationSample {
+                epoch_utc: eop_after,
+                ut1_minus_utc: Time::new::<second>(0.6),
+            }),
+            -36.4
+        );
         let before_transform = provider
             .transform(request_at(before))
             .expect("covered pre-leap epoch");
@@ -824,9 +830,10 @@ mod tests {
             let rows = transform.rotation().rows();
             rows[0][1].atan2(rows[0][0])
         };
-        let observed_advance = (angle(after_transform) - angle(before_transform)).rem_euclid(TAU);
-        let elapsed = (after - before).to_seconds();
-        assert!((observed_advance - rate * elapsed).abs() < 1.0e-8);
+        let before_to_leap = (angle(leap_transform) - angle(before_transform)).rem_euclid(TAU);
+        let leap_to_after = (angle(after_transform) - angle(leap_transform)).rem_euclid(TAU);
+        assert!((before_to_leap - rate * (leap - before).to_seconds()).abs() < 1.0e-8);
+        assert!((leap_to_after - rate * (after - leap).to_seconds()).abs() < 1.0e-8);
     }
 
     #[test]
@@ -856,9 +863,25 @@ mod tests {
 
     #[test]
     fn provider_trait_preserves_typed_coverage_and_frame_failures() {
-        let provider = provider(0.0, 0.0);
+        let eop_provider = provider(0.0, 0.0);
+        let object: &dyn BodyFixedTransformProvider = &eop_provider;
+        assert_eq!(object.reference_data(), eop_provider.reference_data());
+        let covered_request = request(
+            epoch_utc(1, 12),
+            BodyFixedTransformDirection::InertialToBodyFixed,
+        );
+        let resolved = object
+            .body_fixed_transform_with_provenance(covered_request)
+            .expect("trait-object resolution retains provenance");
+        assert_eq!(resolved.request(), covered_request);
+        assert_eq!(resolved.reference_data(), eop_provider.reference_data());
+        let boxed: Box<dyn BodyFixedTransformProvider> = Box::new(provider(0.0, 0.0));
+        assert_eq!(boxed.reference_data().len(), 3);
+        let shared: std::sync::Arc<dyn BodyFixedTransformProvider> =
+            std::sync::Arc::new(provider(0.0, 0.0));
+        assert_eq!(shared.reference_data().len(), 3);
         let coverage = BodyFixedTransformProvider::body_fixed_transform(
-            &provider,
+            &eop_provider,
             request(
                 epoch_utc(2, 0) + Duration::from_seconds(1.0),
                 BodyFixedTransformDirection::InertialToBodyFixed,

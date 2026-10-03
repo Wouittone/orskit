@@ -16,8 +16,11 @@ ERA = 2π (0.7790572732640 + 1.00273781191135448 × (JD_UT1 - 2451545.0))
 ```
 
 It forms `UT1−TAI` from each caller-supplied `UT1−UTC` sample and Hifitime's
-UTC/TAI leap-second conversion, then linearly interpolates that continuous
-offset in elapsed TAI seconds. The segment derivative scales the nominal ERA
+UTC/TAI leap-second table, then linearly interpolates that continuous offset
+in elapsed TAI seconds. Requests are converted to TAI for coverage lookup, so
+instants remain distinct across leap seconds. ERA is evaluated using elapsed
+TAI seconds relative to J2000 noon plus the interpolated `UT1−TAI` offset.
+The segment derivative scales the nominal ERA
 rate and is retained as the returned body angular velocity, so the frame
 provider's velocity transform includes a rate-consistent `ω × r` term.
 Samples are accepted only from 1972-01-01 UTC onward, must be finite,

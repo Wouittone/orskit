@@ -692,6 +692,35 @@ impl BodyFixedTransform {
 /// orientation context, and this trait does not imply any gravity, tide, drag,
 /// ephemeris, or dynamics implementation.
 pub trait BodyFixedTransformProvider: fmt::Debug + Send + Sync {
+    /// Returns the immutable reference data used for transform evaluations.
+    ///
+    /// Providers that do not depend on external or versioned data may return
+    /// an empty slice. Data-backed providers should return every artifact and
+    /// convention needed to reproduce their transforms; this value must remain
+    /// stable for the provider lifetime. The default preserves compatibility
+    /// for data-free providers.
+    fn reference_data(&self) -> &[ReferenceDataDescriptor] {
+        &[]
+    }
+
+    /// Resolves a transform together with the immutable provenance required
+    /// to reproduce it.
+    ///
+    /// This object-safe default calls [`Self::body_fixed_transform`] and
+    /// attaches [`Self::reference_data`]. Data-backed providers should
+    /// implement both methods consistently so the returned descriptors
+    /// identify the data and conventions actually used for the transform.
+    fn body_fixed_transform_with_provenance<'a>(
+        &'a self,
+        request: BodyFixedTransformRequest,
+    ) -> Result<ProvenancedBodyFixedTransform<'a>, BodyFixedTransformProviderError> {
+        let transform = self.body_fixed_transform(request)?;
+        Ok(ProvenancedBodyFixedTransform::new(
+            transform,
+            self.reference_data(),
+        ))
+    }
+
     /// Resolves one explicit inertial/body-fixed transform request.
     fn body_fixed_transform(
         &self,
@@ -699,7 +728,56 @@ pub trait BodyFixedTransformProvider: fmt::Debug + Send + Sync {
     ) -> Result<BodyFixedTransform, BodyFixedTransformProviderError>;
 }
 
+/// Body-fixed transform result paired with its provider's stable provenance.
+///
+/// Use [`BodyFixedTransformProvider::body_fixed_transform_with_provenance`]
+/// when a transform result must remain auditable after calling through a
+/// provider trait object.
+#[derive(Debug, Clone, Copy)]
+pub struct ProvenancedBodyFixedTransform<'a> {
+    transform: BodyFixedTransform,
+    reference_data: &'a [ReferenceDataDescriptor],
+}
+
+impl<'a> ProvenancedBodyFixedTransform<'a> {
+    /// Associates one transform with immutable provider reference data.
+    #[must_use]
+    pub const fn new(
+        transform: BodyFixedTransform,
+        reference_data: &'a [ReferenceDataDescriptor],
+    ) -> Self {
+        Self {
+            transform,
+            reference_data,
+        }
+    }
+
+    /// Returns the validated frame transform.
+    #[must_use]
+    pub const fn transform(self) -> BodyFixedTransform {
+        self.transform
+    }
+
+    /// Returns the immutable provenance artifacts associated with the transform.
+    #[must_use]
+    pub const fn reference_data(self) -> &'a [ReferenceDataDescriptor] {
+        self.reference_data
+    }
+}
+
+impl std::ops::Deref for ProvenancedBodyFixedTransform<'_> {
+    type Target = BodyFixedTransform;
+
+    fn deref(&self) -> &Self::Target {
+        &self.transform
+    }
+}
+
 impl<T: BodyFixedTransformProvider + ?Sized> BodyFixedTransformProvider for Box<T> {
+    fn reference_data(&self) -> &[ReferenceDataDescriptor] {
+        self.as_ref().reference_data()
+    }
+
     fn body_fixed_transform(
         &self,
         request: BodyFixedTransformRequest,
@@ -709,6 +787,10 @@ impl<T: BodyFixedTransformProvider + ?Sized> BodyFixedTransformProvider for Box<
 }
 
 impl<T: BodyFixedTransformProvider + ?Sized> BodyFixedTransformProvider for std::sync::Arc<T> {
+    fn reference_data(&self) -> &[ReferenceDataDescriptor] {
+        self.as_ref().reference_data()
+    }
+
     fn body_fixed_transform(
         &self,
         request: BodyFixedTransformRequest,
