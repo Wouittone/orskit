@@ -30,6 +30,12 @@ pub use dynamics_numerical::{
     VariationalConfiguration, VariationalConfigurationError, VariationalPropagation,
     VariationalPropagationError,
 };
+#[cfg(feature = "relativity")]
+pub use dynamics_relativity::{
+    ConfigurationError as RelativityConfigurationError,
+    EvaluationError as RelativityEvaluationError, RelativisticGravityForce,
+    Schwarzschild1PnCorrection,
+};
 #[cfg(feature = "spherical-harmonics")]
 pub use dynamics_spherical_harmonics::{
     CoefficientEpochSemantics, CoefficientNormalization,
@@ -121,6 +127,15 @@ pub mod srp {
         CannonballSolarRadiationPressure, EclipseGeometry, OpticalCoefficient, SolarFlux,
         SolarFluxProvider, SrpArea, SrpEvaluationError, SrpInputError, SrpMass, SrpSpacecraft,
         SPEED_OF_LIGHT_M_PER_S,
+    };
+}
+
+#[cfg(feature = "relativity")]
+pub mod relativity {
+    //! Correction-only Schwarzschild first post-Newtonian gravity.
+
+    pub use dynamics_relativity::{
+        ConfigurationError, EvaluationError, RelativisticGravityForce, Schwarzschild1PnCorrection,
     };
 }
 

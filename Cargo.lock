@@ -270,6 +270,7 @@ dependencies = [
  "dynamics-drag",
  "dynamics-harmonics",
  "dynamics-numerical",
+ "dynamics-relativity",
  "dynamics-spherical-harmonics",
  "dynamics-srp",
  "dynamics-third-bodies",
@@ -332,6 +333,19 @@ dependencies = [
  "orbits",
  "thiserror",
  "units",
+]
+
+[[package]]
+name = "dynamics-relativity"
+version = "0.0.0"
+dependencies = [
+ "dynamics-core",
+ "frames",
+ "hifitime",
+ "orbits",
+ "thiserror",
+ "units",
+ "utils",
 ]
 
 [[package]]

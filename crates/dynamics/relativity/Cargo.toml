@@ -1,0 +1,21 @@
+[package]
+name = "dynamics-relativity"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Explicit Schwarzschild 1PN gravity correction for Cartesian dynamics"
+
+[lib]
+name = "dynamics_relativity"
+
+[dependencies]
+dynamics = { package = "dynamics-core", path = "../core" }
+frames = { path = "../../frames" }
+hifitime.workspace = true
+orbits = { path = "../../orbits", features = ["cartesian"] }
+thiserror.workspace = true
+units = { path = "../../units" }
+utils = { path = "../../utils" }
