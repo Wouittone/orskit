@@ -39,8 +39,8 @@
 - [x] IERS independent reference-vector and regime/error tests
 - [x] Relativity guide, ADR, provenance and parity updates
 - [x] Tide prerequisites and blockers documented; no placeholder tide model
-- [ ] Rust 1.96.1 format, MSRV, all-feature check/lint/tests/docs and facade checks
-- [ ] Record exact main-based validation results below
+- [x] Rust 1.96.1 format, MSRV, all-feature check/lint/tests/docs and facade checks
+- [x] Record exact main-based validation results below
 
 ## Source PR #24 verification evidence (historical, not a main-based rerun)
 
@@ -60,3 +60,44 @@
 The independent non-radial IERS reference vector is tested in the new crate.
 Tides remain intentionally unimplemented pending the providers, semantics,
 and independent references described above.
+
+## Main-based PR #29 verification evidence
+
+- Toolchain: `rustc 1.96.1 (31fca3adb 2026-06-26)`.
+- `cargo +1.96.1 fmt --all --check` — passed.
+- `cargo +1.96.1 test -p dynamics-relativity --all-features --locked -j 1` —
+  passed, six unit tests and one doctest. The implementation and its tests are
+  unchanged from source commit `c71a9c93595d019db790c511f55d24950859c43f`.
+- A separate 70-digit decimal evaluation of the IERS equation confirms the
+  non-radial SI vector; reference rounding differs by less than
+  `2e-24 m/s²`, below the test's `3e-23 m/s²` comparison tolerance.
+- `cargo +1.96.1 nextest run --workspace --lib --bins --tests --all-features --locked --jobs 1` —
+  passed, 242 tests, zero skipped, using cargo-nextest 0.9.146 installed outside
+  the repository. This is the main-based count, not the source branch's 243.
+- `cargo +1.96.1 check --workspace --all-targets --all-features --locked -j 1` —
+  passed.
+- `cargo +1.96.1 clippy --workspace --all-targets --all-features --locked -j 1 -- -D warnings -D clippy::must-use-candidate` —
+  passed.
+- `cargo +1.96.1 test --workspace --doc --all-features --locked -j 1` and
+  `cargo +1.96.1 doc --workspace --all-features --no-deps --locked -j 1` —
+  passed (12 workspace doctests).
+- `cargo +1.96.1 check -p dynamics --no-default-features --features relativity --locked -j 1` —
+  passed.
+- `cargo +1.96.1 check -p orskit --no-default-features --features relativity --locked -j 1` —
+  passed.
+- `cargo +1.96.1 check -p orskit --features "relativity,spherical-harmonics,numerical,earth-rotation" --locked -j 1` —
+  passed.
+- Per-package `cargo +1.96.1 check --locked --manifest-path "$manifest" --no-default-features -j 1`
+  over every workspace manifest from Cargo metadata — passed; the existing
+  `measurements` minimal build reports unused `fmt` and `Position` imports.
+- `RUSTUP_TOOLCHAIN=1.96.1 pwsh -NoProfile -File scripts/check_crate_diagram.ps1 -Check`
+  and `git diff --check` — passed.
+- Full `nextest --all-targets` is intentionally not rerun here: the source
+  report above records the pre-existing 100 MiB CCSDS benchmark allocation
+  abort. Checking/compiling all targets is not evidence that those benchmarks
+  executed successfully.
+- Secret scanning of the changed files — no secrets detected.
+- Automated validation was attempted: its code-review binary was unavailable,
+  and CodeQL timed out. Neither is claimed as a completed clean scan.
+- PR CI reports `action_required`, with no jobs executed. Required approval
+  and branch rules remain unchanged; this PR is not merged.
