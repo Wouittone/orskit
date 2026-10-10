@@ -903,48 +903,10 @@ mod tests {
     }
 
     #[test]
-    fn full_cio_matrix_matches_independent_erfa_reference_vector() {
-        // Secondary 2025 fixture from the earlier PR's PyERFA comparison;
-        // its PyERFA/ERFA build version was not retained.
-        let epoch = Epoch::from_gregorian_utc(2025, 1, 1, 12, 0, 0, 0);
-        let provider = provider();
-        let transform = provider
-            .transform(request(
-                epoch,
-                BodyFixedTransformDirection::InertialToBodyFixed,
-            ))
-            .expect("covered GCRF to ITRF transform");
-        let expected = [
-            [
-                0.192_049_635_106_953_28,
-                -0.981_385_118_389_597_4,
-                -0.000_432_502_858_153_379,
-            ],
-            [
-                0.981_382_206_674_854_9,
-                0.192_050_118_975_223_84,
-                -0.002_390_862_521_080_701,
-            ],
-            [
-                0.002_429_419_123_669_515,
-                3.471_366_543_669_406e-5,
-                0.999_997_048_354_485_4,
-            ],
-        ];
-        for (actual_row, expected_row) in transform.rotation().rows().iter().zip(expected) {
-            for (actual, expected) in actual_row.iter().zip(expected_row) {
-                assert!(
-                    (actual - expected).abs() < 1.0e-11,
-                    "{actual} != {expected}"
-                );
-            }
-        }
-    }
-
-    #[test]
     fn cio_series_matches_sofa_xys06a_reference_vector() {
-        // ERFA's public t_erfa_c.c validation vector, eraXys06a test
-        // (revision 2013-08-07), at TT MJD 53736.0.
+        // ERFA v2.0.1, commit 9915ba38c9365f8b0738269b8c2ac1fdd5f8dee3:
+        // src/t_erfa_c.c, eraXys06a vector (revision 2013-08-07),
+        // TT JD = 2400000.5 + 53736.0. See the provenance ledger.
         let epoch_tt = Epoch::from_gregorian(2006, 1, 1, 0, 0, 0, 0, TimeScale::TT);
         let centuries = (epoch_tt - Epoch::from_gregorian(2000, 1, 1, 12, 0, 0, 0, TimeScale::TT))
             .to_seconds()
@@ -964,8 +926,9 @@ mod tests {
 
     #[test]
     fn cio_matrix_matches_sofa_c2t06a_reference_vector() {
-        // ERFA's public t_erfa_c.c validation vector, eraC2t06a test
-        // (revision 2013-08-07), with TT = UT1 = MJD 53736.0.
+        // ERFA v2.0.1, commit 9915ba38c9365f8b0738269b8c2ac1fdd5f8dee3:
+        // src/t_erfa_c.c, eraC2t06a vector (revision 2013-08-07),
+        // TT JD = UT1 JD = 2400000.5 + 53736.0. See the provenance ledger.
         let epoch_tt = Epoch::from_gregorian(2006, 1, 1, 0, 0, 0, 0, TimeScale::TT);
         let epoch_utc = epoch_tt.to_time_scale(TimeScale::UTC);
         let tt_minus_tai = 32.184;
@@ -1269,43 +1232,46 @@ mod tests {
             None,
         )
         .expect("valid changing EOP samples");
-        let epoch = start + Duration::from_seconds(300.0);
-        let step = 0.25;
-        let before = provider
-            .transform(request(
-                epoch - Duration::from_seconds(step),
-                BodyFixedTransformDirection::InertialToBodyFixed,
-            ))
-            .expect("earlier transform");
-        let centre = provider
-            .transform(request(
-                epoch,
-                BodyFixedTransformDirection::InertialToBodyFixed,
-            ))
-            .expect("central transform");
-        let after = provider
-            .transform(request(
-                epoch + Duration::from_seconds(step),
-                BodyFixedTransformDirection::InertialToBodyFixed,
-            ))
-            .expect("later transform");
-        let before = before.rotation().rows();
-        let centre_rows = centre.rotation().rows();
-        let after = after.rotation().rows();
-        let derivative =
-            |row: usize, column: usize| (after[row][column] - before[row][column]) / (2.0 * step);
-        let skew = |row: usize, column: usize| {
-            (0..3)
-                .map(|k| derivative(row, k) * centre_rows[column][k])
-                .sum::<f64>()
-        };
-        let finite_difference = [skew(1, 2), skew(2, 0), skew(0, 1)];
-        let analytic = centre.angular_velocity().to_radians_per_second();
-        for (actual, expected) in analytic.into_iter().zip(finite_difference) {
-            assert!(
-                (actual - expected).abs() < 2.0e-12,
-                "{actual:.16e} != {expected:.16e}"
-            );
+        for elapsed in [150.0, 300.0, 450.0] {
+            let epoch = start + Duration::from_seconds(elapsed);
+            let step = 0.25;
+            let before = provider
+                .transform(request(
+                    epoch - Duration::from_seconds(step),
+                    BodyFixedTransformDirection::InertialToBodyFixed,
+                ))
+                .expect("earlier transform");
+            let centre = provider
+                .transform(request(
+                    epoch,
+                    BodyFixedTransformDirection::InertialToBodyFixed,
+                ))
+                .expect("central transform");
+            let after = provider
+                .transform(request(
+                    epoch + Duration::from_seconds(step),
+                    BodyFixedTransformDirection::InertialToBodyFixed,
+                ))
+                .expect("later transform");
+            let before = before.rotation().rows();
+            let centre_rows = centre.rotation().rows();
+            let after = after.rotation().rows();
+            let derivative = |row: usize, column: usize| {
+                (after[row][column] - before[row][column]) / (2.0 * step)
+            };
+            let skew = |row: usize, column: usize| {
+                (0..3)
+                    .map(|k| derivative(row, k) * centre_rows[column][k])
+                    .sum::<f64>()
+            };
+            let finite_difference = [skew(1, 2), skew(2, 0), skew(0, 1)];
+            let analytic = centre.angular_velocity().to_radians_per_second();
+            for (actual, expected) in analytic.into_iter().zip(finite_difference) {
+                assert!(
+                    (actual - expected).abs() < 2.0e-12,
+                    "{actual:.16e} != {expected:.16e}"
+                );
+            }
         }
     }
 

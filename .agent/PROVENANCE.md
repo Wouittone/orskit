@@ -103,7 +103,76 @@ used. No dataset or paper text is redistributed.
 
 | Schwarzschild first post-Newtonian acceleration | [IERS Conventions (2010), Chapter 10, §10.2, Eq. 10.8](https://apps.dtic.mil/sti/html/tr/ADA535671/index.html) and [BIPM definition of the metre](https://www.bipm.org/en/si-base-units/metre) | Public scientific standard and SI definition | The test-particle Schwarzschild correction in harmonic coordinates, isolated spherical monopole assumptions, and exact speed of light. The correction is independently implemented and checked against a separately evaluated SI vector; no source code or test material is copied | `crates/dynamics/relativity/src/lib.rs`; `docs/guides/relativity.md`; ADR-0050; task 0050 |
 | CIO-based GCRF-to-ITRF transform | [IERS Conventions (2010), Chapter 5, Tables 5.2a, 5.2b, 5.2d and §5.4-5.5](https://iers-conventions.obspm.fr/content/chapter5/icc5.pdf); [IERS Conventions publication page](https://www.iers.org/iers/en/publications/technicalnotes/tn36) | Scientific standard and published numerical tables. TN 36 identifies ©2010 Verlag des Bundesamts für Kartographie und Geodäsie, Frankfurt am Main. No explicit license or permission authorizing redistribution of these tables was found in the official publication/site material reviewed. Public download availability is not treated as permission. | The standard supplies CIP `X`, `Y`, `s` series, fundamental arguments, TIO locator and transformation conventions. Original implementation; the table files remain bundled pending written permission or a separately substantiated legal basis. Do not represent the coefficient files as MIT/Apache-cleared or distribute a release containing them until resolved. | `crates/frames-eop/src/cio.rs`; `crates/frames-eop/data/iers-2010`; `docs/guides/earth-orientation.md`; ADR-0051; task 0051 |
-| CIO independent reference vectors | [ERFA v2.0.1 test suite, pinned commit `9915ba38c9365f8b0738269b8c2ac1fdd5f8dee3`, `src/t_erfa_c.c`](https://github.com/liberfa/erfa/blob/9915ba38c9365f8b0738269b8c2ac1fdd5f8dee3/src/t_erfa_c.c) and [IERS Conventions (2010), Chapter 5](https://iers-conventions.obspm.fr/content/chapter5/icc5.pdf) | Public validation outputs and scientific standard; numerical values only | Direct `X`, `Y`, `s` values from the ERFA `eraXys06a` case and the matrix from its `eraC2t06a` case at TT/UT1 MJD 53736.0. Expected values are recorded with their routine, input epoch, and upstream revision; no ERFA implementation or test code is copied. A separate 2025 matrix fixture retained from the earlier PyERFA comparison is also exercised, but its exact PyERFA version/build was not preserved and it is not the sole reference. | `crates/frames-eop/src/cio.rs`; `docs/guides/earth-orientation.md`; ADR-0051; task 0051 |
+| CIO independent reference vectors | [ERFA v2.0.1 test suite, pinned commit `9915ba38c9365f8b0738269b8c2ac1fdd5f8dee3`, `src/t_erfa_c.c`](https://github.com/liberfa/erfa/blob/9915ba38c9365f8b0738269b8c2ac1fdd5f8dee3/src/t_erfa_c.c) and [IERS Conventions (2010), Chapter 5](https://iers-conventions.obspm.fr/content/chapter5/icc5.pdf) | Public validation outputs and scientific standard; numerical values only | Direct `X`, `Y`, `s` values from the ERFA `eraXys06a` case and the matrix from its `eraC2t06a` case at TT/UT1 MJD 53736.0. Expected values are recorded with their routine, input epoch, and upstream revision; no ERFA implementation or test code is copied. The redundant unknown-version 2025 PyERFA matrix fixture was removed; finite-difference and round-trip tests at 2025 epochs remain. | `crates/frames-eop/src/cio.rs`; `docs/guides/earth-orientation.md`; ADR-0051; task 0051 |
+
+## CIO reference output record
+
+The reference producer is the unmodified ERFA v2.0.1 public validation suite,
+`src/t_erfa_c.c`, pinned above (both cases dated 2013-08-07). No locally run
+generator is claimed: these are published expected numerical outputs, verified
+against that exact upstream commit, rather than outputs inferred from orskit.
+`eraXys06a` takes TT JD `(2400000.5, 53736.0)` and returns `X`, `Y`, `s`
+in radians. `eraC2t06a` takes the same split JD for both TT and UT1,
+`xp = 2.55060238e-7 rad`, `yp = 1.860359247e-6 rad`, and returns the
+GCRS-to-ITRS column-vector matrix. The Rust tests contain rounded-to-f64
+expected outputs and independent request construction (TT-TAI = 32.184 s
+and leap-aware UT1-UTC samples). These original tests use public numerical
+values only, not upstream test logic. No ERFA dependency or copied code is
+shipped. The former 2025 fixture lacked a recoverable producer version and
+was removed rather than relabeled as a v2.0.1 result.
+
+## IERS table distribution review (2026-10-10)
+
+Exact primary sources examined:
+
+- [TN 36 PDF](https://iers-conventions.obspm.fr/content/tn36.pdf), front matter,
+  physical PDF page 2: copyright identifies Verlag des Bundesamts für
+  Kartographie und Geodäsie, Frankfurt am Main 2010; provides IERS Central
+  Bureau contact `central_bureau@iers.org`. No affirmative table redistribution
+  grant was located. Download SHA-256:
+  `fdb5b74c5a6135c9d20fd99191741e8b62ac8d712eb96f046e7eeb8fb4236f51`.
+- [Official packaged v1.0.0](https://iers-conventions.obspm.fr/packaged_versions/iersconventions_v1_0_0.tar.gz),
+  SHA-256 `99a67ce5b1432362ea175142c7054aee66092bdc3655e40641a618eec567498d`:
+  examined its member list and the three `2010_official/chapter5/additional_info/`
+  table files. No package-level `LICENSE`/`COPYING` or general `README` was
+  listed (an unrelated software-specific README exists); no license,
+  copyright or redistribution notice appeared in those three table texts.
+  This is evidence of no located grant, not a conclusion about all package
+  members or the legal status of numbers.
+- [Centre home page](https://iers-conventions.obspm.fr/) and
+  [Chapter 5 page](https://iers-conventions.obspm.fr/chapter5.php): identify the
+  official packaged edition, distinguish the updated pages as under
+  development, and attribute Tables 5.2a/5.2b/5.2d to N. Capitaine (footnote
+  4). These availability/attribution statements are not redistribution terms.
+- [Table 5.2a](https://iers-conventions.obspm.fr/content/chapter5/additional_info/tab5.2a.txt),
+  [Table 5.2b](https://iers-conventions.obspm.fr/content/chapter5/additional_info/tab5.2b.txt),
+  [Table 5.2d](https://iers-conventions.obspm.fr/content/chapter5/additional_info/tab5.2d.txt):
+  scientific descriptions, numerical coefficients, argument multipliers,
+  units and block counts; no explicit redistribution license located.
+
+**Material distinction:** individual equations, coefficients and physical facts
+are not the same thing as copyrighted prose, code or a potentially protected
+selection/arrangement/database. Absence of an open license does not establish
+that numerical facts require one. The actual bundled `.dat` files, however,
+retain source-derived table-title prose, column headers, coefficient ordering
+and numerical rows. Most explanatory prose and block headings were omitted;
+no IERS program, PDF, figures or archive packaging is shipped, and the Rust
+implementation is original. The legal review must address the actual copied
+collection and headers, not conflate them with implementation code or declare
+all numbers copyrighted.
+
+**Smallest owner decision before publishing PR #38:** approve and record a
+specific basis for distributing these three actual `.dat` artifacts under the
+project's intended distribution, covering their source-derived headers and
+any applicable collection/database rights. Either obtain an applicable
+written grant through IERS Central Bureau (request clarification of the table
+contributor/publisher's rights and commercial redistribution conditions), or
+record qualified legal review supporting numerical-facts reuse and identifying
+any required header replacement/formatting/attribution changes. Mere public
+access or silence is not clearance. Until this decision is recorded, keep
+publication/merge blocked. No critical tables were removed. If neither basis
+can be substantiated, a separately approved caller-supplied-table design is a
+concrete fallback, not an implicit download or silent deletion in this fix.
 
 ## Dependency policy
 

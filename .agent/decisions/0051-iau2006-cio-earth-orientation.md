@@ -42,20 +42,22 @@ celestial-to-terrestrial chain, including polar motion.
 
 ## Verification
 
-- The complete 3 x 3 matrix is checked at a 2025 epoch against the original
-  ERFA/PyERFA differential fixture (1e-11 tolerance; exact PyERFA version/build
-  was not retained) and at TT/UT1 MJD 53736.0 against the published ERFA v2.0.1
-  `eraC2t06a` test vector (5e-12 tolerance). Direct `X`, `Y`, `s` outputs are
+- The complete 3 x 3 matrix is checked at TT/UT1 MJD 53736.0 against the
+  published ERFA v2.0.1 `eraC2t06a` test vector (5e-12 tolerance).
+  Direct `X`, `Y`, `s` outputs are
   checked against the pinned ERFA v2.0.1 `eraXys06a` test at that MJD using
   5e-12 rad tolerance. The public test outputs are recorded in
   `crates/frames-eop/src/cio.rs`; the latter tolerance is about 1
   microarcsecond, consistent with the precision of the coefficient tables.
 - An order-sensitive polar-motion cross-term test covers the active
   TIRS-to-ITRS product and its derivative. Analytic angular velocity is
-  compared with central differences while UT1-TAI, `dX`, `dY`, `xp` and `yp`
-  all have nonzero slopes. Forward/reverse state round trips, inclusive
-  coverage, a UT1-TAI-continuous leap-second boundary and typed failures are
-  unit tested.
+  compared with central differences at three 2025 epochs while UT1-TAI,
+  `dX`, `dY`, `xp` and `yp` all have nonzero slopes. Forward/reverse state
+  round trips, inclusive coverage, a UT1-TAI-continuous leap-second boundary
+  and typed failures are unit tested.
+- The redundant 2025 PyERFA matrix fixture with an unknown generator version
+  was removed. Only pinned public reference outputs establish the numerical
+  reference claim; the 2025 finite-difference and round-trip coverage remains.
 
 ## Distribution limitation
 
@@ -64,5 +66,7 @@ TN 36 identifies ©2010 Verlag des Bundesamts für Kartographie und Geodäsie,
 Frankfurt am Main, but the official publication and site reviewed did not
 provide an explicit license or permission to redistribute the tables. Their
 presence in the repository is not a claim of MIT/Apache compatibility or legal
-clearance. Obtain written permission or document another substantiated legal
-basis before merging or distributing the bundled files.
+clearance. The blocker concerns the actual bundled files (numerical collection
+and source-derived title/column headers), not a conclusion that individual
+scientific numbers or equations require a license. See the detailed
+[research and owner decision record](../PROVENANCE.md#iers-table-distribution-review-2026-10-10).
