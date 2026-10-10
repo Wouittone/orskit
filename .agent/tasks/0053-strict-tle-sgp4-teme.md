@@ -82,3 +82,5 @@ and lossless-writing adapters are original project code; the approved external
 dependency parses/stores the orbital data and supplies propagation. It is
 linked unmodified; no implementation source, tests, or examples from it or
 another astrodynamics library are copied.
+
+Post-merge revalidation (remote 324391a merged; Rust 1.96.1): fmt, check, clippy, nextest (288 passed), doctests, docs, minimal feature gates and diagram check all passed.
