@@ -10,6 +10,8 @@
 //! [`BodyFixedTransformProvider`]; each evaluation requests the configured
 //! inertial-to-body-fixed rotation at its exact Hifitime epoch and time scale,
 //! then rotates the SI acceleration back to the input state frame.
+//! [`TimeVaryingSphericalHarmonicGravityModel`] composes explicit epoch-dependent
+//! normalized coefficient deltas onto an existing static model.
 //!
 //! Coefficients use the geodetic fully normalized 4π convention with
 //! `P̄₀₀ = 1`. The potential is
@@ -27,8 +29,9 @@
 //! tide system already includes them.
 //!
 //! No coefficient data is bundled, fetched, parsed, or selected implicitly.
-//! This crate does not implement time-varying coefficients, tides, or a frame
-//! realization; the caller-provided transform must be suitable for the
+//! The crate supplies a generic linear secular-rate delta provider, but does
+//! not supply a gravity product, tide model, or frame realization; the
+//! caller-provided transform must be suitable for the
 //! requested epoch, frames, and accuracy. Evaluation assumes the selected
 //! finite expansion is valid at the requested position; the crate does not
 //! infer a body's surface or enforce an external-field radius.
@@ -150,8 +153,9 @@ use frames::{
 use hifitime::{Epoch, TimeScale};
 use orbits::cartesian::{CartesianState, FramedAcceleration};
 use thiserror::Error;
+use units::uom::si::frequency::hertz;
 use units::uom::si::length::meter;
-use units::{AccelerationVector, GravitationalParameter, Length};
+use units::{AccelerationVector, Frequency, GravitationalParameter, Length};
 
 /// Normalization convention of a gravity coefficient set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -241,6 +245,205 @@ pub trait HarmonicCoefficientProvider: fmt::Debug + Send + Sync {
 
     /// Returns one coefficient, or `None` when the provider lacks coverage.
     fn coefficient(&self, degree: u32, order: u32) -> Option<HarmonicCoefficient>;
+}
+
+/// Closed validity interval and time scale for epoch-dependent coefficient
+/// deltas.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CoefficientDeltaCoverage {
+    /// Inclusive beginning of the validity interval.
+    pub start: Epoch,
+    /// Inclusive end of the validity interval.
+    pub end: Epoch,
+    /// Time scale used to compare evaluation epochs with the interval.
+    pub time_scale: TimeScale,
+}
+
+/// Provenance and conventions declared by an epoch-dependent coefficient
+/// delta provider.
+#[derive(Debug, PartialEq)]
+pub struct HarmonicCoefficientDeltaMetadata {
+    /// Immutable source/product/revision identity for the selected delta data.
+    pub source: ReferenceDataDescriptor,
+    /// Normalization used by every coefficient delta.
+    pub normalization: CoefficientNormalization,
+    /// Tide convention to which the deltas apply.
+    pub tide_system: TideSystem,
+    /// Frame whose body-fixed axes define coefficient longitude and latitude.
+    pub coefficient_frame: ReferenceFrame,
+    /// Highest degree represented by this provider.
+    pub maximum_degree: u32,
+    /// Highest order represented by this provider.
+    pub maximum_order: u32,
+    /// Closed epoch validity interval.
+    pub coverage: CoefficientDeltaCoverage,
+}
+
+/// Caller-owned, immutable epoch-dependent normalized coefficient deltas.
+///
+/// Delta values are dimensionless changes to fully normalized coefficients;
+/// each request uses an absolute Hifitime epoch. Implementations must return
+/// `None` when the epoch is outside their declared coverage or the coefficient
+/// is outside their declared triangular degree/order region.
+pub trait HarmonicCoefficientDeltaProvider: fmt::Debug + Send + Sync {
+    /// Returns stable provenance, conventions, frame, and closed coverage.
+    fn metadata(&self) -> &HarmonicCoefficientDeltaMetadata;
+
+    /// Returns the normalized cosine/sine delta at `epoch`, or `None` when the
+    /// coefficient is not covered.
+    fn coefficient_delta(
+        &self,
+        epoch: Epoch,
+        degree: u32,
+        order: u32,
+    ) -> Option<HarmonicCoefficient>;
+}
+
+/// Rate of change of one dimensionless normalized harmonic coefficient.
+///
+/// Frequencies use SI reciprocal seconds, so multiplying by elapsed seconds
+/// yields a dimensionless coefficient delta.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HarmonicCoefficientRate {
+    /// Cosine-coefficient rate, in s⁻¹.
+    pub cosine: Frequency,
+    /// Sine-coefficient rate, in s⁻¹.
+    pub sine: Frequency,
+}
+
+/// Linear secular coefficient-delta provider relative to a reference epoch.
+///
+/// Each coefficient evolves as `ΔC̄ₙₘ(t) = Ċ̄ₙₘ (t - t₀)` and similarly for
+/// `S̄ₙₘ`. Rates are SI reciprocal seconds and epochs are absolute Hifitime
+/// instants. Evaluation is valid only within the metadata's inclusive coverage
+/// and declared triangular degree/order region; requests outside either return
+/// `None`.
+pub struct LinearSecularRateProvider {
+    metadata: HarmonicCoefficientDeltaMetadata,
+    reference_epoch: Epoch,
+    rates: Vec<Vec<HarmonicCoefficientRate>>,
+}
+
+impl fmt::Debug for LinearSecularRateProvider {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LinearSecularRateProvider")
+            .field("metadata", &self.metadata)
+            .field("reference_epoch", &self.reference_epoch)
+            .finish_non_exhaustive()
+    }
+}
+
+impl LinearSecularRateProvider {
+    /// Validates and snapshots a complete triangular table of per-second
+    /// coefficient rates.
+    pub fn new(
+        metadata: HarmonicCoefficientDeltaMetadata,
+        reference_epoch: Epoch,
+        rates: Vec<Vec<HarmonicCoefficientRate>>,
+    ) -> Result<Self, ConstructionError> {
+        validate_delta_metadata(&metadata)?;
+        let reference = reference_epoch.to_time_scale(metadata.coverage.time_scale);
+        let start = metadata
+            .coverage
+            .start
+            .to_time_scale(metadata.coverage.time_scale);
+        let end = metadata
+            .coverage
+            .end
+            .to_time_scale(metadata.coverage.time_scale);
+        if reference < start || reference > end {
+            return Err(ConstructionError::DeltaReferenceEpochOutOfRange);
+        }
+        for degree in 0..=metadata.maximum_degree {
+            let expected_order = degree.min(metadata.maximum_order);
+            for order in 0..=expected_order {
+                let rate = rates
+                    .get(
+                        usize::try_from(degree)
+                            .map_err(|_| ConstructionError::CoefficientTableTooLarge)?,
+                    )
+                    .and_then(|row| usize::try_from(order).ok().and_then(|order| row.get(order)))
+                    .ok_or(ConstructionError::MissingCoefficientRate { degree, order })?;
+                if !rate.cosine.get::<hertz>().is_finite() || !rate.sine.get::<hertz>().is_finite()
+                {
+                    return Err(ConstructionError::NonFiniteCoefficientRate { degree, order });
+                }
+                if degree == 0
+                    && order == 0
+                    && (rate.cosine.get::<hertz>() != 0.0 || rate.sine.get::<hertz>() != 0.0)
+                {
+                    return Err(ConstructionError::NonZeroCentralCoefficientRate);
+                }
+            }
+        }
+        Ok(Self {
+            metadata,
+            reference_epoch,
+            rates,
+        })
+    }
+
+    /// Returns the reference epoch from which all secular rates are measured.
+    #[must_use]
+    pub const fn reference_epoch(&self) -> Epoch {
+        self.reference_epoch
+    }
+}
+
+impl HarmonicCoefficientDeltaProvider for LinearSecularRateProvider {
+    fn metadata(&self) -> &HarmonicCoefficientDeltaMetadata {
+        &self.metadata
+    }
+
+    fn coefficient_delta(
+        &self,
+        epoch: Epoch,
+        degree: u32,
+        order: u32,
+    ) -> Option<HarmonicCoefficient> {
+        if degree > self.metadata.maximum_degree
+            || order > degree
+            || order > self.metadata.maximum_order
+        {
+            return None;
+        }
+        let coverage = self.metadata.coverage;
+        let requested = epoch.to_time_scale(coverage.time_scale);
+        let valid_from = coverage.start.to_time_scale(coverage.time_scale);
+        let valid_to = coverage.end.to_time_scale(coverage.time_scale);
+        if requested < valid_from || requested > valid_to {
+            return None;
+        }
+        let rate = self
+            .rates
+            .get(usize::try_from(degree).ok()?)?
+            .get(usize::try_from(order).ok()?)?;
+        let elapsed_seconds = (epoch - self.reference_epoch).to_seconds();
+        Some(HarmonicCoefficient {
+            cosine: rate.cosine.get::<hertz>().mul_add(elapsed_seconds, 0.0),
+            sine: rate.sine.get::<hertz>().mul_add(elapsed_seconds, 0.0),
+        })
+    }
+}
+
+fn validate_delta_metadata(
+    metadata: &HarmonicCoefficientDeltaMetadata,
+) -> Result<(), ConstructionError> {
+    if metadata.maximum_order > metadata.maximum_degree {
+        return Err(ConstructionError::InvalidDeltaProviderDegreeOrder);
+    }
+    if metadata.coverage.end < metadata.coverage.start {
+        return Err(ConstructionError::InvalidDeltaCoverage);
+    }
+    if let Some(field) = invalid_provenance_field(&metadata.source) {
+        return Err(ConstructionError::InvalidProvenance {
+            provider: ProvenanceProvider::CoefficientDeltas,
+            record: 0,
+            field,
+        });
+    }
+    Ok(())
 }
 
 /// A frame-transform provider together with its caller-declared provenance.
@@ -352,6 +555,46 @@ pub enum ConstructionError {
     /// Coefficient provider declares internally inconsistent dimensions.
     #[error("coefficient provider maximum order exceeds its maximum degree")]
     InvalidProviderDegreeOrder,
+    /// Delta provider declares internally inconsistent dimensions.
+    #[error("coefficient-delta provider maximum order exceeds its maximum degree")]
+    InvalidDeltaProviderDegreeOrder,
+    /// Delta validity coverage has reversed endpoints.
+    #[error("coefficient-delta validity interval end precedes its start")]
+    InvalidDeltaCoverage,
+    /// Linear-rate reference epoch is outside declared validity coverage.
+    #[error("coefficient-rate reference epoch is outside its declared coverage")]
+    DeltaReferenceEpochOutOfRange,
+    /// A rate is missing from the selected triangular region.
+    #[error("coefficient rate ({degree},{order}) is missing from the selected data")]
+    MissingCoefficientRate {
+        /// Missing degree.
+        degree: u32,
+        /// Missing order.
+        order: u32,
+    },
+    /// A rate has a NaN or infinite value.
+    #[error("coefficient rate ({degree},{order}) is not finite")]
+    NonFiniteCoefficientRate {
+        /// Invalid degree.
+        degree: u32,
+        /// Invalid order.
+        order: u32,
+    },
+    /// A rate would change the unit central coefficient.
+    #[error("coefficient rate for C̄₀₀/S̄₀₀ must be zero")]
+    NonZeroCentralCoefficientRate,
+    /// The delta provider uses a normalization different from the static set.
+    #[error("coefficient deltas use a different normalization than the static field")]
+    DeltaNormalizationMismatch,
+    /// The delta provider declares a different tide convention.
+    #[error("coefficient deltas use a different tide system than the static field")]
+    DeltaTideSystemMismatch,
+    /// The delta provider declares a different coefficient frame.
+    #[error("coefficient deltas use a different coefficient frame than the static field")]
+    DeltaCoefficientFrameMismatch,
+    /// The selected model truncation exceeds delta-provider coverage.
+    #[error("coefficient-delta provider does not cover the selected degree/order")]
+    InsufficientDeltaCoverage,
     /// The provider uses a convention not implemented by this evaluator.
     #[error("only fully normalized 4π coefficients are supported")]
     UnsupportedNormalization,
@@ -410,6 +653,8 @@ pub enum ConstructionError {
 pub enum ProvenanceProvider {
     /// Gravity coefficient source.
     GravityCoefficients,
+    /// Epoch-dependent coefficient-delta source.
+    CoefficientDeltas,
     /// Body-fixed frame transform source.
     FrameTransform,
 }
@@ -466,6 +711,43 @@ pub enum EvaluationError {
         /// Inclusive end of coefficient validity.
         valid_to: Epoch,
     },
+    /// Epoch lies outside the delta provider's inclusive coverage interval.
+    #[error("coefficient deltas are not valid at requested epoch {requested:?}")]
+    CoefficientDeltaEpochOutOfRange {
+        /// Requested evaluation epoch, expressed in the coverage time scale.
+        requested: Epoch,
+        /// Inclusive beginning of delta coverage.
+        valid_from: Epoch,
+        /// Inclusive end of delta coverage.
+        valid_to: Epoch,
+    },
+    /// Delta provider omitted a selected coefficient.
+    #[error("coefficient delta C/S({degree},{order}) is missing at the requested epoch")]
+    MissingCoefficientDelta {
+        /// Missing degree.
+        degree: u32,
+        /// Missing order.
+        order: u32,
+    },
+    /// A returned coefficient delta is NaN or infinite.
+    #[error("coefficient delta C/S({degree},{order}) is not finite")]
+    NonFiniteCoefficientDelta {
+        /// Invalid degree.
+        degree: u32,
+        /// Invalid order.
+        order: u32,
+    },
+    /// A provider attempted to change the unit central coefficient.
+    #[error("coefficient delta for C̄₀₀/S̄₀₀ must be zero")]
+    NonZeroCentralCoefficientDelta,
+    /// Adding finite static and time-varying coefficients overflowed.
+    #[error("composed coefficient C/S({degree},{order}) is not finite")]
+    NonFiniteComposedCoefficient {
+        /// Invalid degree.
+        degree: u32,
+        /// Invalid order.
+        order: u32,
+    },
     /// Position is non-finite or coincides with the gravity origin.
     #[error("position radius must be finite and non-zero")]
     SingularPosition,
@@ -491,6 +773,13 @@ pub struct SphericalHarmonicGravityModel {
     transform_provider: SourcedBodyFixedTransformProvider,
 }
 
+/// Spherical-harmonic gravity with epoch-dependent coefficient deltas added
+/// to a retained static field.
+pub struct TimeVaryingSphericalHarmonicGravityModel {
+    static_model: SphericalHarmonicGravityModel,
+    delta_provider: Arc<dyn HarmonicCoefficientDeltaProvider>,
+}
+
 impl fmt::Debug for SphericalHarmonicGravityModel {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -499,6 +788,16 @@ impl fmt::Debug for SphericalHarmonicGravityModel {
             .field("metadata", &self.metadata)
             .field("transform_provider", &self.transform_provider)
             .finish_non_exhaustive()
+    }
+}
+
+impl fmt::Debug for TimeVaryingSphericalHarmonicGravityModel {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TimeVaryingSphericalHarmonicGravityModel")
+            .field("static_model", &self.static_model)
+            .field("delta_provider", &self.delta_provider)
+            .finish()
     }
 }
 
@@ -630,6 +929,38 @@ impl SphericalHarmonicGravityModel {
         })
     }
 
+    /// Composes an epoch-dependent coefficient-delta provider onto this
+    /// unchanged static field.
+    ///
+    /// The provider must use the same normalization, tide system, and
+    /// coefficient frame as this model, cover its selected degree/order, and
+    /// declare non-empty provenance and a closed validity interval.
+    pub fn with_coefficient_deltas(
+        self,
+        delta_provider: Arc<dyn HarmonicCoefficientDeltaProvider>,
+    ) -> Result<TimeVaryingSphericalHarmonicGravityModel, ConstructionError> {
+        let delta = delta_provider.metadata();
+        validate_delta_metadata(delta)?;
+        if delta.normalization != self.metadata.normalization {
+            return Err(ConstructionError::DeltaNormalizationMismatch);
+        }
+        if delta.tide_system != self.metadata.tide_system {
+            return Err(ConstructionError::DeltaTideSystemMismatch);
+        }
+        if delta.coefficient_frame != self.metadata.coefficient_frame {
+            return Err(ConstructionError::DeltaCoefficientFrameMismatch);
+        }
+        if delta.maximum_degree < self.field.maximum_degree
+            || delta.maximum_order < self.field.maximum_order
+        {
+            return Err(ConstructionError::InsufficientDeltaCoverage);
+        }
+        Ok(TimeVaryingSphericalHarmonicGravityModel {
+            static_model: self,
+            delta_provider,
+        })
+    }
+
     /// Returns the physical constants, frame identities, and truncation.
     #[must_use]
     pub const fn field(&self) -> SphericalHarmonicField {
@@ -662,6 +993,34 @@ impl SphericalHarmonicGravityModel {
         epoch: Epoch,
         state: &CartesianState,
     ) -> Result<FramedAcceleration, EvaluationError> {
+        self.evaluate_with_coefficients(epoch, state, &self.coefficients)
+    }
+
+    fn evaluate_with_coefficients(
+        &self,
+        epoch: Epoch,
+        state: &CartesianState,
+        coefficients: &[Vec<HarmonicCoefficient>],
+    ) -> Result<FramedAcceleration, EvaluationError> {
+        self.evaluate_with_coefficient_accessor(epoch, state, |degree, order| {
+            usize::try_from(degree)
+                .ok()
+                .and_then(|degree| coefficients.get(degree))
+                .and_then(|row| usize::try_from(order).ok().and_then(|order| row.get(order)))
+                .copied()
+                .ok_or(EvaluationError::NonFiniteAcceleration)
+        })
+    }
+
+    fn evaluate_with_coefficient_accessor<F>(
+        &self,
+        epoch: Epoch,
+        state: &CartesianState,
+        mut coefficient: F,
+    ) -> Result<FramedAcceleration, EvaluationError>
+    where
+        F: FnMut(u32, u32) -> Result<HarmonicCoefficient, EvaluationError>,
+    {
         if state.frame().origin() != self.field.origin {
             return Err(EvaluationError::OriginMismatch);
         }
@@ -703,7 +1062,7 @@ impl SphericalHarmonicGravityModel {
         if !radius_squared.is_finite() || radius_squared <= 0.0 {
             return Err(EvaluationError::SingularPosition);
         }
-        let potential = evaluate_potential_gradient(
+        let body_acceleration = evaluate_potential_gradient(
             body_position,
             self.field
                 .gravitational_parameter
@@ -711,9 +1070,8 @@ impl SphericalHarmonicGravityModel {
             self.field.reference_radius.get::<meter>(),
             self.field.maximum_degree,
             self.field.maximum_order,
-            &self.coefficients,
-        );
-        let body_acceleration = potential.ok_or(EvaluationError::NonFiniteAcceleration)?;
+            &mut coefficient,
+        )?;
         if body_acceleration.iter().any(|value| !value.is_finite()) {
             return Err(EvaluationError::NonFiniteAcceleration);
         }
@@ -809,18 +1167,125 @@ impl EvaluableCartesianForceModel for SphericalHarmonicGravityModel {
     }
 }
 
-fn evaluate_potential_gradient(
+impl TimeVaryingSphericalHarmonicGravityModel {
+    /// Returns the static field retained by this composition.
+    #[must_use]
+    pub const fn static_model(&self) -> &SphericalHarmonicGravityModel {
+        &self.static_model
+    }
+
+    /// Returns the selected coefficient-delta provider.
+    #[must_use]
+    pub fn delta_provider(&self) -> &dyn HarmonicCoefficientDeltaProvider {
+        self.delta_provider.as_ref()
+    }
+
+    fn evaluate(
+        &self,
+        epoch: Epoch,
+        state: &CartesianState,
+    ) -> Result<FramedAcceleration, EvaluationError> {
+        let coverage = self.delta_provider.metadata().coverage;
+        let requested = epoch.to_time_scale(coverage.time_scale);
+        let valid_from = coverage.start.to_time_scale(coverage.time_scale);
+        let valid_to = coverage.end.to_time_scale(coverage.time_scale);
+        if requested < valid_from || requested > valid_to {
+            return Err(EvaluationError::CoefficientDeltaEpochOutOfRange {
+                requested,
+                valid_from,
+                valid_to,
+            });
+        }
+
+        self.static_model
+            .evaluate_with_coefficient_accessor(epoch, state, |degree, order| {
+                let static_coefficient = self
+                    .static_model
+                    .coefficient(degree, order)
+                    .ok_or(EvaluationError::NonFiniteAcceleration)?;
+                let delta = self
+                    .delta_provider
+                    .coefficient_delta(epoch, degree, order)
+                    .ok_or(EvaluationError::MissingCoefficientDelta { degree, order })?;
+                if !delta.cosine.is_finite() || !delta.sine.is_finite() {
+                    return Err(EvaluationError::NonFiniteCoefficientDelta { degree, order });
+                }
+                if degree == 0 && order == 0 && (delta.cosine != 0.0 || delta.sine != 0.0) {
+                    return Err(EvaluationError::NonZeroCentralCoefficientDelta);
+                }
+                let coefficient = HarmonicCoefficient {
+                    cosine: if delta.cosine == 0.0 {
+                        static_coefficient.cosine
+                    } else {
+                        static_coefficient.cosine + delta.cosine
+                    },
+                    sine: if delta.sine == 0.0 {
+                        static_coefficient.sine
+                    } else {
+                        static_coefficient.sine + delta.sine
+                    },
+                };
+                if !coefficient.cosine.is_finite() || !coefficient.sine.is_finite() {
+                    return Err(EvaluationError::NonFiniteComposedCoefficient { degree, order });
+                }
+                Ok(coefficient)
+            })
+    }
+}
+
+impl ForceModel for TimeVaryingSphericalHarmonicGravityModel {
+    fn model_name(&self) -> &str {
+        "time-varying spherical-harmonic gravity model"
+    }
+
+    fn force(&self) -> &dyn Force {
+        &FORCE
+    }
+
+    fn state_requirements(&self) -> SpacecraftStateRequirements {
+        SpacecraftStateRequirements::POSITION
+    }
+}
+
+impl EvaluableCartesianForceModel for TimeVaryingSphericalHarmonicGravityModel {
+    fn validate_cartesian(&self, state: &CartesianState) -> Result<(), CartesianForceModelError> {
+        let error = if state.frame().origin() != self.static_model.field.origin {
+            EvaluationError::OriginMismatch
+        } else if state.frame() != self.static_model.field.inertial_frame.reference_frame() {
+            EvaluationError::FrameMismatch
+        } else {
+            return Ok(());
+        };
+        Err(CartesianForceModelError::new(self.model_name(), error))
+    }
+
+    fn cartesian_acceleration(
+        &self,
+        epoch: Epoch,
+        state: &CartesianState,
+    ) -> Result<FramedAcceleration, CartesianForceModelError> {
+        self.evaluate(epoch, state)
+            .map_err(|error| CartesianForceModelError::new(self.model_name(), error))
+    }
+}
+
+fn evaluate_potential_gradient<F>(
     position: [f64; 3],
     gravitational_parameter: f64,
     reference_radius: f64,
     maximum_degree: u32,
     maximum_order: u32,
-    coefficients: &[Vec<HarmonicCoefficient>],
-) -> Option<[f64; 3]> {
+    mut coefficient: F,
+) -> Result<[f64; 3], EvaluationError>
+where
+    F: FnMut(u32, u32) -> Result<HarmonicCoefficient, EvaluationError>,
+{
     let x = Dual::variable(position[0], 0);
     let y = Dual::variable(position[1], 1);
     let z = Dual::variable(position[2], 2);
-    let radius = (x * x + y * y + z * z).sqrt()?;
+    let radius = (x * x + y * y + z * z)
+        .sqrt()
+        .ok_or(EvaluationError::NonFiniteAcceleration)?;
     let inverse_radius = Dual::constant(1.0) / radius;
     let radial_ratio = Dual::constant(reference_radius) * inverse_radius;
     let unit_x = x * inverse_radius;
@@ -871,16 +1336,16 @@ fn evaluate_potential_gradient(
                     * (previous_degree * previous_degree - order_f * order_f)
                     / ((2.0 * degree_f - 3.0) * denominator))
                     .sqrt();
-                let next =
-                    previous.multiply_real(unit_z).scale(first) - previous_previous?.scale(second);
+                let next = previous.multiply_real(unit_z).scale(first)
+                    - previous_previous
+                        .ok_or(EvaluationError::NonFiniteAcceleration)?
+                        .scale(second);
                 previous_previous = Some(previous);
                 previous = next;
                 next
             };
 
-            let coefficient = coefficients
-                .get(usize::try_from(degree).ok()?)?
-                .get(usize::try_from(order).ok()?)?;
+            let coefficient = coefficient(degree, order)?;
             harmonic_sum = harmonic_sum
                 + (current.real * coefficient.cosine + current.imaginary * coefficient.sine)
                     * radial_power;
@@ -889,9 +1354,11 @@ fn evaluate_potential_gradient(
     }
 
     let potential = harmonic_sum * inverse_radius * gravitational_parameter;
-    potential
-        .derivative_is_finite()
-        .then_some(potential.derivative)
+    if potential.derivative_is_finite() {
+        Ok(potential.derivative)
+    } else {
+        Err(EvaluationError::NonFiniteAcceleration)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1079,6 +1546,27 @@ mod tests {
     }
 
     #[derive(Debug)]
+    struct FixedDeltas {
+        metadata: HarmonicCoefficientDeltaMetadata,
+        value: Option<HarmonicCoefficient>,
+    }
+
+    impl HarmonicCoefficientDeltaProvider for FixedDeltas {
+        fn metadata(&self) -> &HarmonicCoefficientDeltaMetadata {
+            &self.metadata
+        }
+
+        fn coefficient_delta(
+            &self,
+            _epoch: Epoch,
+            _degree: u32,
+            _order: u32,
+        ) -> Option<HarmonicCoefficient> {
+            self.value
+        }
+    }
+
+    #[derive(Debug)]
     struct RotationProvider {
         angular_rate: f64,
         bad_request: bool,
@@ -1179,6 +1667,57 @@ mod tests {
             maximum_degree: degree,
             maximum_order: order,
             epoch_semantics,
+        }
+    }
+
+    fn delta_metadata(
+        degree: u32,
+        order: u32,
+        normalization: CoefficientNormalization,
+        tide_system: TideSystem,
+        coefficient_frame: ReferenceFrame,
+    ) -> HarmonicCoefficientDeltaMetadata {
+        HarmonicCoefficientDeltaMetadata {
+            source: ReferenceDataDescriptor {
+                authority: "synthetic independent test data".into(),
+                product: "coefficient-delta test rates".into(),
+                revision: "delta-test-1".into(),
+                checksum: None,
+            },
+            normalization,
+            tide_system,
+            coefficient_frame,
+            maximum_degree: degree,
+            maximum_order: order,
+            coverage: CoefficientDeltaCoverage {
+                start: Epoch::from_tai_seconds(0.0),
+                end: Epoch::from_tai_seconds(20_000.0),
+                time_scale: TimeScale::TAI,
+            },
+        }
+    }
+
+    fn linear_delta_provider(
+        rates: Vec<Vec<HarmonicCoefficientRate>>,
+    ) -> LinearSecularRateProvider {
+        LinearSecularRateProvider::new(
+            delta_metadata(
+                u32::try_from(rates.len() - 1).expect("degree"),
+                u32::try_from(rates.last().expect("rate rows").len() - 1).expect("order"),
+                CoefficientNormalization::FullyNormalized4Pi,
+                TideSystem::TideFree,
+                ReferenceFrame::ITRF2020,
+            ),
+            Epoch::from_tai_seconds(0.0),
+            rates,
+        )
+        .expect("linear delta provider")
+    }
+
+    fn coefficient_rate(cosine: f64, sine: f64) -> HarmonicCoefficientRate {
+        HarmonicCoefficientRate {
+            cosine: Frequency::new::<hertz>(cosine),
+            sine: Frequency::new::<hertz>(sine),
         }
     }
 
@@ -1468,6 +2007,464 @@ mod tests {
                 acceleration[axis],
                 expected[axis]
             );
+        }
+    }
+
+    #[test]
+    fn zero_coefficient_deltas_are_bit_identical_to_the_static_model() {
+        let coefficients = synthetic_coefficients(2, 1);
+        let static_model = model(
+            2,
+            1,
+            coefficients.clone(),
+            CoefficientEpochSemantics::TimeInvariant,
+            3.0e-5,
+        );
+        let rates = vec![
+            vec![coefficient_rate(0.0, 0.0)],
+            vec![coefficient_rate(0.0, 0.0), coefficient_rate(0.0, 0.0)],
+            vec![coefficient_rate(0.0, 0.0), coefficient_rate(0.0, 0.0)],
+        ];
+        let time_varying = model(
+            2,
+            1,
+            coefficients,
+            CoefficientEpochSemantics::TimeInvariant,
+            3.0e-5,
+        )
+        .with_coefficient_deltas(Arc::new(linear_delta_provider(rates)))
+        .expect("matching zero-rate provider");
+
+        for epoch in [
+            Epoch::from_tai_seconds(0.0),
+            Epoch::from_tai_seconds(5_000.0),
+            Epoch::from_tai_seconds(20_000.0),
+        ] {
+            let position = [7_000_000.0, -1_200_000.0, 2_000_000.0];
+            let static_acceleration = static_model
+                .cartesian_acceleration(epoch, &state(position))
+                .expect("static acceleration")
+                .value()
+                .to_metres_per_second_squared();
+            let composed_acceleration = time_varying
+                .cartesian_acceleration(epoch, &state(position))
+                .expect("zero-delta acceleration")
+                .value()
+                .to_metres_per_second_squared();
+            assert_eq!(
+                static_acceleration.map(f64::to_bits),
+                composed_acceleration.map(f64::to_bits)
+            );
+        }
+    }
+
+    #[test]
+    fn linear_secular_provider_rejects_uncovered_terms_and_epochs() {
+        let zero = coefficient_rate(0.0, 0.0);
+        let rate = coefficient_rate(2.0e-12, -3.0e-12);
+        let mut metadata = delta_metadata(
+            2,
+            1,
+            CoefficientNormalization::FullyNormalized4Pi,
+            TideSystem::TideFree,
+            ReferenceFrame::ITRF2020,
+        );
+        metadata.coverage.end = Epoch::from_tai_seconds(20.0);
+        let provider = LinearSecularRateProvider::new(
+            metadata,
+            Epoch::from_tai_seconds(10.0),
+            vec![
+                vec![zero, rate],
+                vec![zero, rate, rate],
+                vec![zero, rate, rate],
+                vec![zero],
+            ],
+        )
+        .expect("valid covered triangular rates");
+
+        for (epoch, expected_elapsed_seconds) in [
+            (Epoch::from_tai_seconds(0.0), -10.0),
+            (Epoch::from_tai_seconds(20.0), 10.0),
+        ] {
+            let delta = provider
+                .coefficient_delta(epoch, 2, 1)
+                .expect("inclusive coverage endpoint");
+            assert_eq!(
+                delta.cosine,
+                rate.cosine.get::<hertz>() * expected_elapsed_seconds
+            );
+            assert_eq!(
+                delta.sine,
+                rate.sine.get::<hertz>() * expected_elapsed_seconds
+            );
+        }
+
+        for epoch in [Epoch::from_tai_seconds(-0.1), Epoch::from_tai_seconds(20.1)] {
+            assert_eq!(provider.coefficient_delta(epoch, 1, 0), None);
+        }
+
+        let covered_epoch = Epoch::from_tai_seconds(10.0);
+        for (degree, order) in [(0, 1), (1, 2), (2, 2), (3, 0)] {
+            assert_eq!(
+                provider.coefficient_delta(covered_epoch, degree, order),
+                None,
+                "uncovered coefficient ({degree},{order})"
+            );
+        }
+    }
+
+    #[test]
+    fn linear_secular_deltas_match_a_static_sum_and_independent_gradient() {
+        let degree = 2;
+        let order = 1;
+        let static_coefficients = synthetic_coefficients(degree, order);
+        let static_model = model(
+            degree,
+            order,
+            static_coefficients.clone(),
+            CoefficientEpochSemantics::TimeInvariant,
+            0.0,
+        );
+        let rates = vec![
+            vec![coefficient_rate(0.0, 0.0)],
+            vec![coefficient_rate(0.0, 0.0), coefficient_rate(0.0, 0.0)],
+            vec![
+                coefficient_rate(2.0e-12, 0.0),
+                coefficient_rate(3.0e-12, -4.0e-12),
+            ],
+        ];
+        let provider = linear_delta_provider(rates);
+        let epoch = Epoch::from_tai_seconds(10_000.0);
+        let expected_coefficients = static_coefficients
+            .iter()
+            .enumerate()
+            .map(|(n, row)| {
+                row.iter()
+                    .enumerate()
+                    .map(|(m, coefficient)| {
+                        let delta = provider
+                            .coefficient_delta(epoch, n as u32, m as u32)
+                            .expect("rate coverage");
+                        HarmonicCoefficient {
+                            cosine: coefficient.cosine + delta.cosine,
+                            sine: coefficient.sine + delta.sine,
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let time_varying = static_model
+            .with_coefficient_deltas(Arc::new(provider))
+            .expect("matching rate provider");
+        let summed_static = model(
+            degree,
+            order,
+            expected_coefficients.clone(),
+            CoefficientEpochSemantics::TimeInvariant,
+            0.0,
+        );
+        let position = [7_000_000.0, -1_200_000.0, 2_000_000.0];
+        let varying_acceleration = time_varying
+            .cartesian_acceleration(epoch, &state(position))
+            .expect("time-varying acceleration")
+            .value()
+            .to_metres_per_second_squared();
+        let summed_acceleration = summed_static
+            .cartesian_acceleration(epoch, &state(position))
+            .expect("summed static acceleration")
+            .value()
+            .to_metres_per_second_squared();
+        assert_eq!(
+            varying_acceleration.map(f64::to_bits),
+            summed_acceleration.map(f64::to_bits)
+        );
+
+        let expected = independent_gradient(position, degree, order, &expected_coefficients);
+        for axis in 0..3 {
+            let tolerance = 2.0e-9_f64.max(expected[axis].abs() * 2.0e-9);
+            assert!(
+                (varying_acceleration[axis] - expected[axis]).abs() <= tolerance,
+                "axis={axis}, actual={}, expected={}",
+                varying_acceleration[axis],
+                expected[axis]
+            );
+        }
+    }
+
+    #[test]
+    fn delta_metadata_mismatches_and_coverage_are_typed() {
+        let build = |normalization, tide_system, frame, degree, order| {
+            let metadata = delta_metadata(degree, order, normalization, tide_system, frame);
+            model(
+                2,
+                1,
+                synthetic_coefficients(2, 1),
+                CoefficientEpochSemantics::TimeInvariant,
+                0.0,
+            )
+            .with_coefficient_deltas(Arc::new(FixedDeltas {
+                metadata,
+                value: Some(HarmonicCoefficient {
+                    cosine: 0.0,
+                    sine: 0.0,
+                }),
+            }))
+        };
+
+        assert!(matches!(
+            build(
+                CoefficientNormalization::Unnormalized,
+                TideSystem::TideFree,
+                ReferenceFrame::ITRF2020,
+                2,
+                1
+            ),
+            Err(ConstructionError::DeltaNormalizationMismatch)
+        ));
+        assert!(matches!(
+            build(
+                CoefficientNormalization::FullyNormalized4Pi,
+                TideSystem::MeanTide,
+                ReferenceFrame::ITRF2020,
+                2,
+                1
+            ),
+            Err(ConstructionError::DeltaTideSystemMismatch)
+        ));
+        assert!(matches!(
+            build(
+                CoefficientNormalization::FullyNormalized4Pi,
+                TideSystem::TideFree,
+                ReferenceFrame::GCRF,
+                2,
+                1
+            ),
+            Err(ConstructionError::DeltaCoefficientFrameMismatch)
+        ));
+        assert!(matches!(
+            build(
+                CoefficientNormalization::FullyNormalized4Pi,
+                TideSystem::TideFree,
+                ReferenceFrame::ITRF2020,
+                1,
+                0
+            ),
+            Err(ConstructionError::InsufficientDeltaCoverage)
+        ));
+
+        let mut invalid_coverage = delta_metadata(
+            2,
+            1,
+            CoefficientNormalization::FullyNormalized4Pi,
+            TideSystem::TideFree,
+            ReferenceFrame::ITRF2020,
+        );
+        invalid_coverage.coverage.start = Epoch::from_tai_seconds(10.0);
+        invalid_coverage.coverage.end = Epoch::from_tai_seconds(5.0);
+        assert!(matches!(
+            model(
+                2,
+                1,
+                synthetic_coefficients(2, 1),
+                CoefficientEpochSemantics::TimeInvariant,
+                0.0,
+            )
+            .with_coefficient_deltas(Arc::new(FixedDeltas {
+                metadata: invalid_coverage,
+                value: None,
+            })),
+            Err(ConstructionError::InvalidDeltaCoverage)
+        ));
+    }
+
+    #[test]
+    fn linear_rate_provider_rejects_incomplete_invalid_and_out_of_coverage_rates() {
+        let metadata = delta_metadata(
+            0,
+            0,
+            CoefficientNormalization::FullyNormalized4Pi,
+            TideSystem::TideFree,
+            ReferenceFrame::ITRF2020,
+        );
+        assert!(matches!(
+            LinearSecularRateProvider::new(metadata, Epoch::from_tai_seconds(0.0), Vec::new()),
+            Err(ConstructionError::MissingCoefficientRate {
+                degree: 0,
+                order: 0
+            })
+        ));
+
+        let metadata = delta_metadata(
+            0,
+            0,
+            CoefficientNormalization::FullyNormalized4Pi,
+            TideSystem::TideFree,
+            ReferenceFrame::ITRF2020,
+        );
+        assert!(matches!(
+            LinearSecularRateProvider::new(
+                metadata,
+                Epoch::from_tai_seconds(0.0),
+                vec![vec![coefficient_rate(1.0e-12, 0.0)]]
+            ),
+            Err(ConstructionError::NonZeroCentralCoefficientRate)
+        ));
+
+        let metadata = delta_metadata(
+            0,
+            0,
+            CoefficientNormalization::FullyNormalized4Pi,
+            TideSystem::TideFree,
+            ReferenceFrame::ITRF2020,
+        );
+        assert!(matches!(
+            LinearSecularRateProvider::new(
+                metadata,
+                Epoch::from_tai_seconds(0.0),
+                vec![vec![coefficient_rate(f64::INFINITY, 0.0)]]
+            ),
+            Err(ConstructionError::NonFiniteCoefficientRate {
+                degree: 0,
+                order: 0
+            })
+        ));
+
+        let mut metadata = delta_metadata(
+            0,
+            0,
+            CoefficientNormalization::FullyNormalized4Pi,
+            TideSystem::TideFree,
+            ReferenceFrame::ITRF2020,
+        );
+        metadata.coverage.end = Epoch::from_tai_seconds(10.0);
+        assert!(matches!(
+            LinearSecularRateProvider::new(
+                metadata,
+                Epoch::from_tai_seconds(10.1),
+                vec![vec![coefficient_rate(0.0, 0.0)]]
+            ),
+            Err(ConstructionError::DeltaReferenceEpochOutOfRange)
+        ));
+
+        let mut metadata = delta_metadata(
+            0,
+            0,
+            CoefficientNormalization::FullyNormalized4Pi,
+            TideSystem::TideFree,
+            ReferenceFrame::ITRF2020,
+        );
+        metadata.source.authority.clear();
+        assert!(matches!(
+            LinearSecularRateProvider::new(
+                metadata,
+                Epoch::from_tai_seconds(0.0),
+                vec![vec![coefficient_rate(0.0, 0.0)]]
+            ),
+            Err(ConstructionError::InvalidProvenance {
+                provider: ProvenanceProvider::CoefficientDeltas,
+                field: ProvenanceField::Authority,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn delta_evaluation_rejects_coverage_missing_nonfinite_and_central_changes() {
+        let make_model = |metadata, value| {
+            model(
+                0,
+                0,
+                synthetic_coefficients(0, 0),
+                CoefficientEpochSemantics::TimeInvariant,
+                0.0,
+            )
+            .with_coefficient_deltas(Arc::new(FixedDeltas { metadata, value }))
+            .expect("valid delta model")
+        };
+        let mut metadata = delta_metadata(
+            0,
+            0,
+            CoefficientNormalization::FullyNormalized4Pi,
+            TideSystem::TideFree,
+            ReferenceFrame::ITRF2020,
+        );
+        metadata.coverage.start = Epoch::from_tai_seconds(2.0);
+        metadata.coverage.end = Epoch::from_tai_seconds(10.0);
+        let position = state([7.0e6, 0.0, 0.0]);
+
+        let outside = make_model(metadata, None)
+            .cartesian_acceleration(Epoch::from_tai_seconds(1.0), &position)
+            .expect_err("outside delta coverage");
+        assert!(std::error::Error::source(&outside)
+            .and_then(|source| source.downcast_ref::<EvaluationError>())
+            .is_some_and(|source| matches!(
+                source,
+                EvaluationError::CoefficientDeltaEpochOutOfRange { .. }
+            )));
+
+        let mut metadata = delta_metadata(
+            0,
+            0,
+            CoefficientNormalization::FullyNormalized4Pi,
+            TideSystem::TideFree,
+            ReferenceFrame::ITRF2020,
+        );
+        metadata.coverage.end = Epoch::from_tai_seconds(10.0);
+        let missing = make_model(metadata, None)
+            .cartesian_acceleration(Epoch::from_tai_seconds(1.0), &position)
+            .expect_err("missing delta");
+        assert!(std::error::Error::source(&missing)
+            .and_then(|source| source.downcast_ref::<EvaluationError>())
+            .is_some_and(|source| matches!(
+                source,
+                EvaluationError::MissingCoefficientDelta {
+                    degree: 0,
+                    order: 0
+                }
+            )));
+
+        for (coefficient, expected) in [
+            (
+                HarmonicCoefficient {
+                    cosine: f64::NAN,
+                    sine: 0.0,
+                },
+                "non-finite",
+            ),
+            (
+                HarmonicCoefficient {
+                    cosine: 1.0e-6,
+                    sine: 0.0,
+                },
+                "central",
+            ),
+        ] {
+            let metadata = delta_metadata(
+                0,
+                0,
+                CoefficientNormalization::FullyNormalized4Pi,
+                TideSystem::TideFree,
+                ReferenceFrame::ITRF2020,
+            );
+            let error = make_model(metadata, Some(coefficient))
+                .cartesian_acceleration(Epoch::from_tai_seconds(1.0), &position)
+                .expect_err("invalid coefficient delta");
+            let cause = std::error::Error::source(&error)
+                .and_then(|source| source.downcast_ref::<EvaluationError>())
+                .expect("typed evaluation error");
+            match expected {
+                "non-finite" => {
+                    assert!(matches!(
+                        cause,
+                        EvaluationError::NonFiniteCoefficientDelta { .. }
+                    ))
+                }
+                "central" => assert!(matches!(
+                    cause,
+                    EvaluationError::NonZeroCentralCoefficientDelta
+                )),
+                _ => unreachable!(),
+            }
         }
     }
 

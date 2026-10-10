@@ -64,14 +64,90 @@ alongside sources for the other transformation components. ERA alone does not
 include polar motion, precession-nutation/CIP motion, or terrestrial-realization
 corrections; do not relabel its CIRS/TIRS rotation as GCRF/ITRF.
 
+## Time-varying coefficient deltas
+
+`SphericalHarmonicGravityModel::with_coefficient_deltas` composes a separate
+epoch-dependent provider over the original static coefficient snapshot. The
+provider returns dimensionless, fully normalized `ΔC̄ₙₘ` and `ΔS̄ₙₘ` values;
+its metadata declares normalization, tide system, coefficient frame,
+maximum degree/order, source/product/revision, and an inclusive epoch-coverage
+interval with an explicit time scale. Composition rejects convention, frame,
+provenance, and truncation mismatches at construction. An evaluation outside
+the declared interval, or a missing/non-finite coefficient delta, returns a
+typed error rather than extrapolating or substituting zero. `C̄₀₀` and `S̄₀₀`
+cannot be changed.
+
+The built-in `LinearSecularRateProvider` evaluates
+`ΔC̄ₙₘ = Ċ̄ₙₘ (t - t₀)` and the corresponding sine expression. Rates are
+typed SI frequencies (`s⁻¹`), elapsed time is measured from the explicit
+Hifitime reference epoch in SI seconds, and that epoch must lie inside the
+provider's closed coverage. Direct rate-provider queries return `None` when
+the requested epoch or coefficient lies outside the declared coverage; the
+composed force model reports typed coverage errors for evaluations outside
+that interval. This is a general first-order secular-rate mechanism, not a
+published gravity rate product or a tide model. Applications must supply
+source-backed rates and select those consistent with the static coefficient
+tide system.
+
+```rust
+use std::sync::Arc;
+
+use dynamics_spherical_harmonics::{
+    CoefficientDeltaCoverage, CoefficientNormalization, HarmonicCoefficientDeltaMetadata,
+    HarmonicCoefficientRate, LinearSecularRateProvider, SphericalHarmonicGravityModel,
+    TideSystem,
+};
+use frames::{ReferenceDataDescriptor, ReferenceFrame};
+use hifitime::{Epoch, TimeScale};
+use units::uom::si::frequency::hertz;
+use units::Frequency;
+
+# fn compose(
+#     static_model: SphericalHarmonicGravityModel,
+# ) -> Result<(), Box<dyn std::error::Error>> {
+let metadata = HarmonicCoefficientDeltaMetadata {
+    source: ReferenceDataDescriptor {
+        authority: "mission gravity-data provider".into(),
+        product: "secular coefficient rates".into(),
+        revision: "release-1".into(),
+        checksum: None,
+    },
+    normalization: CoefficientNormalization::FullyNormalized4Pi,
+    tide_system: TideSystem::TideFree,
+    coefficient_frame: ReferenceFrame::ITRF2020,
+    maximum_degree: 2,
+    maximum_order: 0,
+    coverage: CoefficientDeltaCoverage {
+        start: Epoch::from_tai_seconds(0.0),
+        end: Epoch::from_tai_seconds(31_557_600.0),
+        time_scale: TimeScale::TAI,
+    },
+};
+let zero_rate = HarmonicCoefficientRate {
+    cosine: Frequency::new::<hertz>(0.0),
+    sine: Frequency::new::<hertz>(0.0),
+};
+let provider = LinearSecularRateProvider::new(
+    metadata,
+    Epoch::from_tai_seconds(0.0),
+    vec![vec![zero_rate], vec![zero_rate], vec![zero_rate]],
+)?;
+let time_varying = static_model.with_coefficient_deltas(Arc::new(provider))?;
+# let _ = time_varying;
+# Ok(())
+# }
+```
+
 ## Tide and data policy
 
 `TideSystem` records the convention embedded in the chosen gravity
 coefficients. This model never converts tide systems and never applies
 permanent, solid-Earth, ocean, or pole tides. Select coefficient data and any
 separately configured tide model consistently so that a permanent-tide
-correction is not applied twice. Time-variable coefficients and tide forces
-are outside this implementation slice (#15).
+correction is not applied twice. Time-varying normalized coefficient deltas are
+available through the explicit provider contract above; solid-Earth, ocean, and
+pole-tide formulas, data, and force implementations remain outside this slice
+(#15).
 
 No gravity coefficients or Earth-orientation series are bundled, parsed, or
 downloaded. Applications control data loading, checksums, revisions, offline
@@ -88,4 +164,6 @@ See [ADR-0047](../../.agent/decisions/0047-low-degree-spherical-harmonics-bounda
 [ADR-0049](../../.agent/decisions/0049-general-spherical-harmonics-gravity.md),
 [the provenance ledger](../../.agent/PROVENANCE.md), and
 [the parity ledger](../../.agent/PARITY.md) for the evidence and declared
-limitations.
+limitations. See [ADR-0052](../../.agent/decisions/0052-time-varying-harmonic-coefficient-deltas.md)
+and [task 0052](../../.agent/tasks/0052-time-varying-harmonic-coefficient-deltas.md)
+for the composition decision and validation record.
