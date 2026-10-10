@@ -21,9 +21,8 @@ const ERA_REFERENCE_FRACTION: f64 = 0.779_057_273_264_0;
 const ERA_EXCESS_TURNS_PER_DAY: f64 = 0.002_737_811_911_354_48;
 const ERA_TURNS_PER_DAY: f64 = 1.0 + ERA_EXCESS_TURNS_PER_DAY;
 
-const X_TABLE: &str = include_str!("../data/iers-2010/iau06xtab5.2.a.dat");
-const Y_TABLE: &str = include_str!("../data/iers-2010/iau06ytab5.2.b.dat");
-const S_TABLE: &str = include_str!("../data/iers-2010/iau06stab5.2.d.dat");
+const J2000_JD: f64 = 2_451_545.0;
+const CELESTIAL_RATE_STEP_SECONDS: f64 = 512.0;
 
 /// One caller-owned sample of the Earth-orientation parameters used by the
 /// IAU 2006/2000A CIO transformation.
@@ -50,15 +49,17 @@ pub struct CioEarthOrientationSample {
 /// IAU 2006/2000A CIO-based Earth-orientation provider.
 ///
 /// The provider evaluates the full CIO-based GCRF↔ITRF2020 rotation using the
-/// IERS 2010 X, Y, and s+XY/2 tables, caller-supplied dX/dY and xp/yp, ERA,
+/// unmodified `erfa` 0.2.1 IAU 2006/2000A model, caller-supplied dX/dY and xp/yp, ERA,
 /// and the TIO locator s'. Samples are immutable, versioned by caller-supplied
 /// provenance, and define closed coverage; extrapolation is rejected. No EOP
-/// time series is bundled or fetched.
+/// time series is bundled or fetched. Celestial rates use a sixth-order
+/// centered derivative in TT; all other rates and the rotation-chain product
+/// rule are analytic. See the Earth-orientation guide for numerical evidence
+/// and the dependency's separate MPL-2.0 and ERFA license notices.
 #[derive(Debug)]
 pub struct Iau2006CioProvider {
     samples: Vec<CioEarthOrientationSample>,
     reference_data: Vec<ReferenceDataDescriptor>,
-    model: CioSeries,
 }
 
 impl Iau2006CioProvider {
@@ -140,16 +141,10 @@ impl Iau2006CioProvider {
             reference_data: vec![
                 eop,
                 descriptor(
-                    "International Earth Rotation and Reference Systems Service",
-                    "IERS Conventions 2010 Tables 5.2a and 5.2b: IAU 2006/2000A_R06 X and Y",
-                    "Technical Note 36 (2010)",
-                    Some("sha256:7e1b0933afb3aa5c4e1e34e72d0592f215bad6e6afd919bab2fe6312b86e02ee;sha256:56be4e178fd6aa07a5871bdec6cfa5bd6574320f7eb50475775d3817d1d9701c"),
-                ),
-                descriptor(
-                    "International Earth Rotation and Reference Systems Service",
-                    "IERS Conventions 2010 Table 5.2d: CIO locator s+XY/2",
-                    "Technical Note 36 (2010)",
-                    Some("sha256:8f247a429ed0a82dbcb3b6a326c7f24ec9e28f4f00dedcda01d9f9f0841b024b"),
+                    "Christopher H. Jordan; ERFA / NumFOCUS",
+                    "erfa: IAU 2006/2000A CIP X, Y and CIO locator s",
+                    "0.2.1; source 83190c4a59f61ca6e6e3958592d581ccae20481c",
+                    Some("sha256:f63880def87bd7d612b89f9046f5db0961949417f88d831d24596eae555915e5"),
                 ),
                 descriptor(
                     "International Astronomical Union",
@@ -157,18 +152,12 @@ impl Iau2006CioProvider {
                     "IAU 2000; IERS TN 36 (2010)",
                     None,
                 ),
-                descriptor(
-                    "Hifitime",
-                    "UTC-to-TAI leap-second table",
-                    "4.3.0",
-                    None,
-                ),
+                descriptor("Hifitime", "UTC-to-TAI leap-second table", "4.3.0", None),
             ],
-            model: CioSeries::from_iers_tables(),
         })
     }
 
-    /// Returns the immutable EOP, IERS-series, convention, and time-scale
+    /// Returns the immutable EOP, ERFA dependency, convention, and time-scale
     /// provenance records used by this provider.
     #[must_use]
     pub fn reference_data(&self) -> &[ReferenceDataDescriptor] {
@@ -190,10 +179,11 @@ impl Iau2006CioProvider {
         let epoch_tai = request.epoch().to_time_scale(TimeScale::TAI);
         let eop = self.interpolate(epoch_tai, request)?;
         let epoch_tt = request.epoch().to_time_scale(TimeScale::TT);
-        let centuries = (epoch_tt - Epoch::from_gregorian(2000, 1, 1, 12, 0, 0, 0, TimeScale::TT))
+        let days = (epoch_tt - Epoch::from_gregorian(2000, 1, 1, 12, 0, 0, 0, TimeScale::TT))
             .to_seconds()
-            / SECONDS_PER_CENTURY;
-        let celestial = self.model.evaluate(centuries);
+            / SECONDS_PER_DAY;
+        let centuries = days / 36_525.0;
+        let celestial = celestial_pole(days);
         let x = celestial.x + eop.dx;
         let y = celestial.y + eop.dy;
         let x_rate = celestial.x_rate + eop.dx_rate;
@@ -454,103 +444,39 @@ fn earth_rotation_angle(epoch_tai: Epoch, ut1_minus_tai: f64) -> f64 {
     TAU * turns.rem_euclid(1.0)
 }
 
-#[derive(Debug, Clone, Copy)]
-struct Term {
-    sine: f64,
-    cosine: f64,
-    arguments: [i8; 14],
+fn celestial_coordinates(days: f64) -> [f64; 3] {
+    let (x, y) = erfa::prenut::bpn_to_xy(erfa::prenut::pn_matrix_06a(J2000_JD, days));
+    let s = erfa::time::S06(J2000_JD, days, x, y);
+    [x, y, s]
 }
 
-fn read_table(source: &str, expected_terms: usize) -> Vec<Term> {
-    let terms: Vec<_> = source
-        .lines()
-        .filter(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#'))
-        .map(|line| {
-            let values: Vec<_> = line
-                .split_whitespace()
-                .map(|value| value.parse::<f64>().expect("valid IERS table number"))
-                .collect();
-            assert_eq!(values.len(), 17, "valid IERS table row");
-            let mut arguments = [0i8; 14];
-            for (target, value) in arguments.iter_mut().zip(&values[3..]) {
-                *target = *value as i8;
-            }
-            Term {
-                sine: values[1],
-                cosine: values[2],
-                arguments,
-            }
-        })
-        .collect();
-    assert_eq!(
-        terms.len(),
-        expected_terms,
-        "complete IERS coefficient table"
-    );
-    terms
-}
-
-#[derive(Debug)]
-struct CioSeries {
-    x: Vec<Term>,
-    y: Vec<Term>,
-    s: Vec<Term>,
-}
-
-impl CioSeries {
-    fn from_iers_tables() -> Self {
-        Self {
-            x: read_table(X_TABLE, 1600),
-            y: read_table(Y_TABLE, 1275),
-            s: read_table(S_TABLE, 66),
-        }
+fn celestial_pole(days: f64) -> CelestialPole {
+    let [x, y, s] = celestial_coordinates(days);
+    let [x_rate, y_rate, s_rate] = celestial_rates(days, CELESTIAL_RATE_STEP_SECONDS);
+    CelestialPole {
+        x,
+        y,
+        s,
+        x_rate,
+        y_rate,
+        s_rate,
     }
+}
 
-    fn evaluate(&self, t: f64) -> CelestialPole {
-        let arguments = fundamental_arguments(t);
-        let mut x = polynomial(
-            &[
-                -0.016_617,
-                2_004.191_898,
-                -0.429_782_9,
-                -0.198_618_34,
-                0.000_007_578,
-                0.000_005_928_5,
-            ],
-            t,
-            ARCSEC_TO_RAD,
-        );
-        let mut y = polynomial(
-            &[
-                -0.006_951,
-                -0.025_896,
-                -22.407_274_7,
-                0.001_900_59,
-                0.001_112_526,
-                0.000_000_135_8,
-            ],
-            t,
-            ARCSEC_TO_RAD,
-        );
-        let mut s_plus_xy = polynomial(
-            &[94.0, 3808.65, -122.68, -72_574.11, 27.98, 15.62],
-            t,
-            MICROARCSEC_TO_RAD,
-        );
-        add_series(&mut x, &self.x, &X_BLOCKS, t, &arguments);
-        add_series(&mut y, &self.y, &Y_BLOCKS, t, &arguments);
-        add_series(&mut s_plus_xy, &self.s, &S_BLOCKS, t, &arguments);
-        let s = s_plus_xy.0 - x.0 * y.0 / 2.0;
-        let s_rate = s_plus_xy.1 - (x.1 * y.0 + x.0 * y.1) / 2.0;
-        CelestialPole {
-            x: x.0,
-            y: y.0,
-            s,
-            x_rate: x.1,
-            y_rate: y.1,
-            s_rate,
-        }
-    }
+fn celestial_rates(days: f64, step_seconds: f64) -> [f64; 3] {
+    // Sixth-order centered stencil, derived by cancelling the odd Taylor
+    // terms through degree five. Difference pairs avoid subtracting large
+    // secular offsets in the weighted sum. Only the smooth TT model is sampled:
+    // EOP slopes, ERA, s' and the matrix product rule remain analytic.
+    let pairs: [[f64; 3]; 3] = std::array::from_fn(|index| {
+        let delta = (index + 1) as f64 * step_seconds / SECONDS_PER_DAY;
+        let before = celestial_coordinates(days - delta);
+        let after = celestial_coordinates(days + delta);
+        std::array::from_fn(|axis| after[axis] - before[axis])
+    });
+    std::array::from_fn(|axis| {
+        (45.0 * pairs[0][axis] - 9.0 * pairs[1][axis] + pairs[2][axis]) / (60.0 * step_seconds)
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -561,133 +487,6 @@ struct CelestialPole {
     x_rate: f64,
     y_rate: f64,
     s_rate: f64,
-}
-
-fn polynomial(coefficients: &[f64], t: f64, scale: f64) -> (f64, f64) {
-    let mut value = 0.0_f64;
-    let mut derivative = 0.0_f64;
-    for coefficient in coefficients.iter().rev() {
-        derivative = derivative.mul_add(t, value);
-        value = value.mul_add(t, *coefficient);
-    }
-    (value * scale, derivative * scale / SECONDS_PER_CENTURY)
-}
-
-fn fundamental_arguments(t: f64) -> [(f64, f64); 14] {
-    let arcsec = [
-        [
-            485_868.249_036,
-            1_717_915_923.217_8,
-            31.879_2,
-            0.051_635,
-            -0.000_244_70,
-        ],
-        [
-            1_287_104.793_05,
-            129_596_581.048_1,
-            -0.553_2,
-            0.000_136,
-            -0.000_011_49,
-        ],
-        [
-            335_779.526_232,
-            1_739_527_262.847_8,
-            -12.751_2,
-            -0.001_037,
-            0.000_004_17,
-        ],
-        [
-            1_072_260.703_69,
-            1_602_961_601.209_0,
-            -6.370_6,
-            0.006_593,
-            -0.000_031_69,
-        ],
-        [
-            450_160.398_036,
-            -6_962_890.543_1,
-            7.472_2,
-            0.007_702,
-            -0.000_059_39,
-        ],
-    ];
-    let mut result = [(0.0, 0.0); 14];
-    for (index, coefficients) in arcsec.iter().enumerate() {
-        let (value, rate) = polynomial(coefficients, t, ARCSEC_TO_RAD);
-        result[index] = (value.rem_euclid(TAU), rate);
-    }
-    let planetary = [
-        [4.402_608_842, 2_608.790_314_157_4, 0.0],
-        [3.176_146_697, 1_021.328_554_621_1, 0.0],
-        [1.753_470_314, 628.307_584_999_1, 0.0],
-        [6.203_480_913, 334.061_242_670_0, 0.0],
-        [0.599_546_497, 52.969_096_264_1, 0.0],
-        [0.874_016_757, 21.329_910_496_0, 0.0],
-        [5.481_293_872, 7.478_159_856_7, 0.0],
-        [5.311_886_287, 3.813_303_563_8, 0.0],
-        [0.0, 0.024_381_750, 0.000_005_386_91],
-    ];
-    for (offset, coefficients) in planetary.iter().enumerate() {
-        let (value, rate) = polynomial(coefficients, t, 1.0);
-        result[offset + 5] = (value.rem_euclid(TAU), rate);
-    }
-    result
-}
-
-/// Term counts of the t^j blocks (j = 0..=4) of IERS Conventions (2010) Tables 5.2a, 5.2b and 5.2d.
-const X_BLOCKS: [usize; 5] = [1306, 253, 36, 4, 1];
-const Y_BLOCKS: [usize; 5] = [962, 277, 30, 5, 1];
-const S_BLOCKS: [usize; 5] = [33, 3, 25, 4, 1];
-
-fn add_series(
-    sum: &mut (f64, f64),
-    terms: &[Term],
-    blocks: &[usize; 5],
-    t: f64,
-    arguments: &[(f64, f64); 14],
-) {
-    let (mut value, mut value_correction) = (sum.0, 0.0);
-    let (mut rate, mut rate_correction) = (sum.1, 0.0);
-    let mut power = 0usize;
-    let mut remaining = *blocks.first().expect("block table");
-    for term in terms {
-        while remaining == 0 {
-            power += 1;
-            remaining = blocks[power];
-        }
-        remaining -= 1;
-        let (phase, phase_rate) = term.arguments.iter().zip(arguments).fold(
-            (0.0, 0.0),
-            |(phase, rate), (multiplier, (argument, argument_rate))| {
-                (
-                    phase + f64::from(*multiplier) * argument,
-                    rate + f64::from(*multiplier) * argument_rate,
-                )
-            },
-        );
-        let (sin_phase, cos_phase) = phase.sin_cos();
-        let amplitude = (term.sine * sin_phase + term.cosine * cos_phase) * MICROARCSEC_TO_RAD;
-        let amplitude_rate =
-            (term.sine * cos_phase - term.cosine * sin_phase) * phase_rate * MICROARCSEC_TO_RAD;
-        let t_power = t.powi(power as i32);
-        let term_value = amplitude * t_power;
-        let term_rate = amplitude_rate * t_power
-            + if power == 0 {
-                0.0
-            } else {
-                amplitude * power as f64 * t.powi(power as i32 - 1) / SECONDS_PER_CENTURY
-            };
-        kahan_add(&mut value, &mut value_correction, term_value);
-        kahan_add(&mut rate, &mut rate_correction, term_rate);
-    }
-    *sum = (value, rate);
-}
-
-fn kahan_add(sum: &mut f64, correction: &mut f64, value: f64) {
-    let adjusted = value - *correction;
-    let next = *sum + adjusted;
-    *correction = (next - *sum) - adjusted;
-    *sum = next;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -903,19 +702,163 @@ mod tests {
     }
 
     #[test]
+    fn full_model_preserves_the_previous_analytical_rate_regressions() {
+        // Black-box outputs of orskit 836fec5's original analytic evaluator,
+        // captured before replacement. These are regression observations, not
+        // an independent SOFA reference or redistributed coefficient tables.
+        let cases = [
+            (
+                -10_227.5,
+                [
+                    -2.693_700_041_935_697_4e-3,
+                    1.526_867_496_628_253_6e-5,
+                    3.388_825_999_372_527e-8,
+                ],
+                [
+                    6.971_366_732_384_832e-12,
+                    1.665_898_288_408_496e-12,
+                    2.295_960_774_171_829_6e-15,
+                ],
+            ),
+            (
+                0.0,
+                [
+                    -2.694_637_956_852_230_6e-5,
+                    -2.800_472_282_279_197_2e-5,
+                    -1.013_396_519_177_576_2e-8,
+                ],
+                [
+                    3.242_961_564_165_550_2e-12,
+                    -1.152_177_960_555_024_2e-12,
+                    -6.286_239_511_296_65e-17,
+                ],
+            ),
+            (
+                2_191.5,
+                [
+                    5.791_308_486_706_512e-4,
+                    4.020_579_816_734_917_5e-5,
+                    -1.220_032_213_076_960_2e-8,
+                ],
+                [
+                    7.328_429_855_874_865e-12,
+                    2.981_989_458_824_976_3e-12,
+                    -7.227_762_238_711_812e-16,
+                ],
+            ),
+            (
+                9_131.5,
+                [
+                    2.429_600_921_731_267_3e-3,
+                    3.437_084_850_624_645e-5,
+                    -4.252_194_300_395_270_6e-8,
+                ],
+                [
+                    6.409_839_542_152_867e-12,
+                    2.684_104_857_543_004_5e-12,
+                    -3.147_070_255_749_303_5e-15,
+                ],
+            ),
+            (
+                18_262.5,
+                [
+                    4.886_533_763_528_418e-3,
+                    -5.341_831_990_200_602_4e-5,
+                    1.058_366_160_189_923_4e-7,
+                ],
+                [
+                    2.447_188_716_582_037_6e-12,
+                    -1.860_380_271_181_446e-12,
+                    4.484_862_624_196_736_5e-15,
+                ],
+            ),
+            (
+                36_524.5,
+                [
+                    9.720_602_149_458_657e-3,
+                    -6.740_577_573_360_242e-5,
+                    -4.315_960_021_234_412e-9,
+                ],
+                [
+                    2.613_994_710_044_114e-12,
+                    2.616_126_249_698_375e-12,
+                    -1.280_649_544_749_513e-14,
+                ],
+            ),
+        ];
+        let mut maximum_value_shift = 0.0_f64;
+        let mut maximum_rate_shift = 0.0_f64;
+        for (days, values, rates) in cases {
+            let actual = celestial_pole(days);
+            for (actual, expected) in [actual.x, actual.y, actual.s].into_iter().zip(values) {
+                let shift = (actual - expected).abs();
+                maximum_value_shift = maximum_value_shift.max(shift);
+                assert!(
+                    shift < 6.0e-12,
+                    "value shift at TT offset {days}: {shift:e}"
+                );
+            }
+            for (actual, expected) in [actual.x_rate, actual.y_rate, actual.s_rate]
+                .into_iter()
+                .zip(rates)
+            {
+                let shift = (actual - expected).abs();
+                maximum_rate_shift = maximum_rate_shift.max(shift);
+                assert!(shift < 4.0e-17, "rate shift at TT offset {days}: {shift:e}");
+            }
+        }
+        println!("maximum legacy coordinate/rate shifts: {maximum_value_shift:e} rad, {maximum_rate_shift:e} rad/s");
+    }
+
+    #[test]
+    fn celestial_rates_converge_across_the_modern_epoch_range() {
+        let mut maximum_difference = [0.0_f64; 3];
+        // 1972-01-01 TT to 2100-01-01 TT, with fractional-day samples.
+        // This evidence interval does not impose a new EOP coverage restriction.
+        for index in 0..=256 {
+            let days = -10_227.5 + 46_752.0 * f64::from(index) / 256.0;
+            let rates = celestial_rates(days, CELESTIAL_RATE_STEP_SECONDS);
+            let refined = celestial_rates(days, 256.0);
+            // Independent fourth-order stencil and a larger step test both
+            // truncation and floating-point cancellation, rather than only
+            // comparing a stencil with itself.
+            let step = 1_024.0;
+            let before = celestial_coordinates(days - step / SECONDS_PER_DAY);
+            let after = celestial_coordinates(days + step / SECONDS_PER_DAY);
+            let before_two = celestial_coordinates(days - 2.0 * step / SECONDS_PER_DAY);
+            let after_two = celestial_coordinates(days + 2.0 * step / SECONDS_PER_DAY);
+            for axis in 0..3 {
+                let fourth_order = (8.0 * (after[axis] - before[axis])
+                    - (after_two[axis] - before_two[axis]))
+                    / (12.0 * step);
+                for other in [refined[axis], fourth_order] {
+                    let difference = (rates[axis] - other).abs();
+                    maximum_difference[axis] = maximum_difference[axis].max(difference);
+                    let tolerance = if axis == 2 { 2.0e-20 } else { 2.0e-18 };
+                    assert!(
+                        difference < tolerance,
+                        "TT offset {days}, axis {axis}: {difference:e} rad/s"
+                    );
+                }
+            }
+        }
+        println!("maximum celestial rate convergence differences (rad/s): {maximum_difference:?}");
+    }
+
+    #[test]
     fn cio_series_matches_sofa_xys06a_reference_vector() {
         // ERFA v2.0.1, commit 9915ba38c9365f8b0738269b8c2ac1fdd5f8dee3:
         // src/t_erfa_c.c, eraXys06a vector (revision 2013-08-07),
         // TT JD = 2400000.5 + 53736.0. See the provenance ledger.
         let epoch_tt = Epoch::from_gregorian(2006, 1, 1, 0, 0, 0, 0, TimeScale::TT);
-        let centuries = (epoch_tt - Epoch::from_gregorian(2000, 1, 1, 12, 0, 0, 0, TimeScale::TT))
+        let days = (epoch_tt - Epoch::from_gregorian(2000, 1, 1, 12, 0, 0, 0, TimeScale::TT))
             .to_seconds()
-            / SECONDS_PER_CENTURY;
-        let actual = CioSeries::from_iers_tables().evaluate(centuries);
+            / SECONDS_PER_DAY;
+        let actual = celestial_pole(days);
         for (actual, expected, tolerance) in [
-            (actual.x, 5.791_308_482_835_292e-4, 5.0e-12),
-            (actual.y, 4.020_580_099_454_020_5e-5, 5.0e-12),
-            (actual.s, -1.220_032_294_164_58e-8, 5.0e-12),
+            (actual.x, 5.791_308_482_835_292e-4, 1.0e-14),
+            (actual.y, 4.020_580_099_454_020_5e-5, 1.0e-14),
+            (actual.s, -1.220_032_294_164_58e-8, 1.0e-18),
         ] {
             assert!(
                 (actual - expected).abs() <= tolerance,
