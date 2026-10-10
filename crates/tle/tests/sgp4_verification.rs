@@ -73,6 +73,62 @@ fn epoch_conversion_retains_utc_fractional_seconds() {
     );
 }
 
+#[test]
+fn named_serde_records_preserve_model_epoch_and_teme_state() {
+    let named = "0 VANGUARD 1\n\
+                 1 00005U 58002B   00179.78495062  .00000023  00000-0  28098-4 0  4753\n\
+                 2 00005  34.2682 348.7242 1859667 331.7664  19.3264 10.82419157413667";
+    let tle: TwoLineElement = named.parse().expect("named Vallado record");
+    let restored: TwoLineElement =
+        serde_json::from_str(&serde_json::to_string(&tle).unwrap()).unwrap();
+    let first = Sgp4Propagator::try_from(&tle).unwrap();
+    let second = Sgp4Propagator::try_from(&restored).unwrap();
+    assert_eq!(first.epoch(), second.epoch());
+    assert_eq!(first.initial_orbit(), second.initial_orbit());
+}
+
+#[test]
+fn calendar_adapter_uses_exact_tle_ticks_across_leap_days_and_year_end() {
+    let original = "1 00005U 58002B   00179.78495062  .00000023  00000-0  28098-4 0  4753";
+    let line_two = "2 00005  34.2682 348.7242 1859667 331.7664  19.3264 10.82419157413667";
+    for (epoch_field, expected) in [
+        (
+            "00060.00000000",
+            Epoch::from_gregorian_utc_at_midnight(2000, 2, 29),
+        ),
+        (
+            "56366.99999999",
+            Epoch::from_gregorian_utc(2056, 12, 31, 23, 59, 59, 999_136_000),
+        ),
+        (
+            "57001.00000001",
+            Epoch::from_gregorian_utc(1957, 1, 1, 0, 0, 0, 864_000),
+        ),
+        (
+            "16366.00000000",
+            Epoch::from_gregorian_utc_at_midnight(2016, 12, 31),
+        ),
+        (
+            "17001.00000000",
+            Epoch::from_gregorian_utc_at_midnight(2017, 1, 1),
+        ),
+    ] {
+        let mut line = original.to_owned();
+        line.replace_range(18..32, epoch_field);
+        let checksum: u32 = line.as_bytes()[..68]
+            .iter()
+            .map(|byte| match byte {
+                b'0'..=b'9' => u32::from(byte - b'0'),
+                b'-' => 1,
+                _ => 0,
+            })
+            .sum();
+        line.replace_range(68..69, &(checksum % 10).to_string());
+        let tle = TwoLineElement::parse(&line, line_two).expect("valid calendar record");
+        assert_eq!(Sgp4Propagator::try_from(&tle).unwrap().epoch(), expected);
+    }
+}
+
 fn assert_vector_close(actual: [f64; 3], expected: [f64; 3], tolerance: f64) {
     for (actual, expected) in actual.into_iter().zip(expected) {
         assert!((actual - expected).abs() <= tolerance);

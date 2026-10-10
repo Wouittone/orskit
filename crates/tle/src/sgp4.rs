@@ -1,12 +1,13 @@
 use std::f64::consts::TAU;
 
+use ::sgp4::chrono::{Datelike, Timelike};
 use dynamics::sgp4::{Sgp4Elements, Sgp4ElementsError, Sgp4Error, Sgp4Propagator};
 use hifitime::Epoch;
 use thiserror::Error;
 use units::uom::si::{angle::radian, angular_velocity::radian_per_second, ratio::ratio};
 use units::{Angle, AngularVelocity, Ratio};
 
-use crate::{days_in_year, TwoLineElement, SCALE_8};
+use crate::TwoLineElement;
 
 /// Failure converting a validated TLE into an SGP4 propagator.
 #[derive(Debug, Error)]
@@ -51,34 +52,14 @@ impl TryFrom<&TwoLineElement> for Sgp4Propagator {
 }
 
 fn tle_epoch(tle: &TwoLineElement) -> Epoch {
-    let year = tle.epoch_year();
-    let scaled = tle.epoch_day_scaled;
-    let ordinal = (scaled / SCALE_8) as u16;
-    let day_fraction = scaled % SCALE_8;
-    let nanoseconds = day_fraction * 864_000;
-    let seconds = nanoseconds / 1_000_000_000;
-    let subsecond = (nanoseconds % 1_000_000_000) as u32;
-    let (month, day) = month_day(year, ordinal);
+    let datetime = tle.as_ref().datetime;
     Epoch::from_gregorian_utc(
-        i32::from(year),
-        month,
-        day,
-        (seconds / 3_600) as u8,
-        ((seconds % 3_600) / 60) as u8,
-        (seconds % 60) as u8,
-        subsecond,
+        datetime.year(),
+        datetime.month() as u8,
+        datetime.day() as u8,
+        datetime.hour() as u8,
+        datetime.minute() as u8,
+        datetime.second() as u8,
+        datetime.nanosecond(),
     )
-}
-
-fn month_day(year: u16, ordinal: u16) -> (u8, u8) {
-    let february = if days_in_year(year) == 366 { 29 } else { 28 };
-    let lengths = [31_u16, february, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let mut remaining = ordinal;
-    for (index, length) in lengths.into_iter().enumerate() {
-        if remaining <= length {
-            return ((index + 1) as u8, remaining as u8);
-        }
-        remaining -= length;
-    }
-    (12, 31)
 }

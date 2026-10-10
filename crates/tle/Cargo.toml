@@ -22,5 +22,14 @@ sgp4 = [
 dynamics = { path = "../dynamics", optional = true }
 frames = { path = "../frames", optional = true }
 hifitime = { workspace = true, optional = true }
+serde.workspace = true
+sgp4 = { workspace = true, features = ["serde"] }
 thiserror.workspace = true
 units = { path = "../units", optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[[test]]
+name = "sgp4_verification"
+required-features = ["sgp4"]
