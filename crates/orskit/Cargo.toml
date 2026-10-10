@@ -24,6 +24,8 @@ orbit-determination = ["dep:orbit_determination"]
 point-mass-gravity = ["dep:gravity", "gravity/point-mass"]
 relativity = ["cartesian", "dynamics", "dynamics/relativity"]
 spherical-harmonics = ["cartesian", "dynamics", "dynamics/spherical-harmonics"]
+tle = ["dep:tle"]
+sgp4 = ["cartesian", "dynamics", "dynamics/sgp4", "dep:tle", "tle/sgp4"]
 two-bodies = ["cartesian", "dynamics", "point-mass-gravity", "dynamics/point-mass"]
 measurements = ["dep:measurements"]
 quaternion-attitude = ["orskit_core/quaternion-attitude"]
@@ -72,3 +74,4 @@ frames-eop = { path = "../frames-eop", optional = true }
 measurements = { path = "../measurements", optional = true, default-features = false }
 orbits = { path = "../orbits", optional = true }
 units = { path = "../units" }
+tle = { path = "../tle", optional = true }

@@ -343,6 +343,10 @@ state groups remain deferred. The variational extension integrates a
 acceleration partials; it does not establish a generic public ODE vector.
 Future state groups must preserve explicit component identity, data, and
 event/reset semantics.
+The opt-in `dynamics/sgp4` sub-crate adapts the independently maintained,
+unmodified SGP4 dependency to the common Cartesian propagation contract and
+returns TEME states; `tle` owns strict format parsing and its optional adapter
+to that propagator, never the propagation implementation.
 Third-body descriptions remain unavailable until their acceleration-assembly
 and composed-evaluation contracts exist. The Cartesian orbit layer now
 provides only the explicit body/epoch/frame ephemeris-provider prerequisite;

@@ -24,6 +24,7 @@ drag = ["dep:dynamics_drag"]
 srp = ["dep:dynamics_srp"]
 relativity = ["dep:dynamics_relativity"]
 spherical-harmonics = ["dep:dynamics_spherical_harmonics"]
+sgp4 = ["dep:dynamics_sgp4"]
 
 [dependencies]
 dynamics_core = { package = "dynamics-core", path = "core" }
@@ -32,6 +33,7 @@ dynamics_harmonics = { package = "dynamics-harmonics", path = "harmonics", optio
 dynamics_numerical = { package = "dynamics-numerical", path = "numerical", optional = true }
 dynamics_relativity = { package = "dynamics-relativity", path = "relativity", optional = true }
 dynamics_spherical_harmonics = { package = "dynamics-spherical-harmonics", path = "spherical-harmonics", optional = true }
+dynamics_sgp4 = { package = "dynamics-sgp4", path = "sgp4", optional = true }
 dynamics_srp = { package = "dynamics-srp", path = "srp", optional = true }
 dynamics_third_bodies = { package = "dynamics-third-bodies", path = "third-bodies", optional = true }
 dynamics_two_bodies = { package = "dynamics-two-bodies", path = "two-bodies", optional = true }
