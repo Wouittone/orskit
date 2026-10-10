@@ -837,9 +837,11 @@ fn polar_motion_matrix(
     yp_rate: f64,
     s_prime_rate: f64,
 ) -> MatrixRate {
-    rotation_z(-s_prime, -s_prime_rate)
+    // Active column-vector TIRS-to-ITRS order (IERS TN 36, Chapter 5, §5.4);
+    // MatrixRate::multiply applies the product rule at each factor.
+    rotation_x(yp, yp_rate)
         .multiply(rotation_y(xp, xp_rate))
-        .multiply(rotation_x(yp, yp_rate))
+        .multiply(rotation_z(-s_prime, -s_prime_rate))
 }
 
 #[cfg(test)]
@@ -902,6 +904,8 @@ mod tests {
 
     #[test]
     fn full_cio_matrix_matches_independent_erfa_reference_vector() {
+        // Secondary 2025 fixture from the earlier PR's PyERFA comparison;
+        // its PyERFA/ERFA build version was not retained.
         let epoch = Epoch::from_gregorian_utc(2025, 1, 1, 12, 0, 0, 0);
         let provider = provider();
         let transform = provider
@@ -935,6 +939,146 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn cio_series_matches_sofa_xys06a_reference_vector() {
+        // ERFA's public t_erfa_c.c validation vector, eraXys06a test
+        // (revision 2013-08-07), at TT MJD 53736.0.
+        let epoch_tt = Epoch::from_gregorian(2006, 1, 1, 0, 0, 0, 0, TimeScale::TT);
+        let centuries = (epoch_tt - Epoch::from_gregorian(2000, 1, 1, 12, 0, 0, 0, TimeScale::TT))
+            .to_seconds()
+            / SECONDS_PER_CENTURY;
+        let actual = CioSeries::from_iers_tables().evaluate(centuries);
+        for (actual, expected, tolerance) in [
+            (actual.x, 5.791_308_482_835_292e-4, 5.0e-12),
+            (actual.y, 4.020_580_099_454_020_5e-5, 5.0e-12),
+            (actual.s, -1.220_032_294_164_58e-8, 5.0e-12),
+        ] {
+            assert!(
+                (actual - expected).abs() <= tolerance,
+                "{actual:.18e} != {expected:.18e}"
+            );
+        }
+    }
+
+    #[test]
+    fn cio_matrix_matches_sofa_c2t06a_reference_vector() {
+        // ERFA's public t_erfa_c.c validation vector, eraC2t06a test
+        // (revision 2013-08-07), with TT = UT1 = MJD 53736.0.
+        let epoch_tt = Epoch::from_gregorian(2006, 1, 1, 0, 0, 0, 0, TimeScale::TT);
+        let epoch_utc = epoch_tt.to_time_scale(TimeScale::UTC);
+        let tt_minus_tai = 32.184;
+        let left_epoch = epoch_utc - Duration::from_seconds(86_400.0);
+        let right_epoch = epoch_utc + Duration::from_seconds(86_400.0);
+        let left_dut1 = tt_minus_tai + f64::from(left_epoch.leap_seconds_iers());
+        let right_dut1 = tt_minus_tai + f64::from(right_epoch.leap_seconds_iers());
+        let xp = 2.550_602_38e-7;
+        let yp = 1.860_359_247e-6;
+        let provider = Iau2006CioProvider::new(
+            vec![
+                sample(left_epoch, left_dut1, 0.0, 0.0, xp, yp),
+                sample(right_epoch, right_dut1, 0.0, 0.0, xp, yp),
+            ],
+            "IERS",
+            "SOFA/ERFA published validation case",
+            "ERFA t_erfa_c.c revision 2013-08-07",
+            None,
+        )
+        .expect("valid reference-case samples");
+        let reference_eop = provider
+            .interpolate(
+                epoch_tt.to_time_scale(TimeScale::TAI),
+                BodyFixedTransformRequest::new(
+                    epoch_tt,
+                    TimeScale::TT,
+                    InertialFrame::GCRF,
+                    ReferenceFrame::ITRF2020,
+                    BodyFixedTransformDirection::InertialToBodyFixed,
+                )
+                .expect("valid TT reference request"),
+            )
+            .expect("reference epoch is covered");
+        assert!(
+            (reference_eop.ut1_minus_tai - tt_minus_tai).abs() < 1.0e-9,
+            "{reference_eop:?} vs TT−TAI {tt_minus_tai}"
+        );
+        let actual_era = earth_rotation_angle(
+            epoch_tt.to_time_scale(TimeScale::TAI),
+            reference_eop.ut1_minus_tai,
+        );
+        let expected_era = (TAU
+            * (ERA_REFERENCE_FRACTION + ERA_TURNS_PER_DAY * 2_191.5).rem_euclid(1.0))
+        .rem_euclid(TAU);
+        assert!(
+            (actual_era - expected_era).abs() < 1.0e-12,
+            "ERA {actual_era} != {expected_era}"
+        );
+        let transform = provider
+            .transform(
+                BodyFixedTransformRequest::new(
+                    epoch_tt,
+                    TimeScale::TT,
+                    InertialFrame::GCRF,
+                    ReferenceFrame::ITRF2020,
+                    BodyFixedTransformDirection::InertialToBodyFixed,
+                )
+                .expect("valid TT reference request"),
+            )
+            .expect("reference epoch is covered");
+        let expected = [
+            [
+                -0.181_033_212_830_589_73,
+                0.983_476_980_693_859_2,
+                6.555_550_962_998_436e-5,
+            ],
+            [
+                -0.983_476_813_413_621_5,
+                -0.181_033_220_364_913_1,
+                5.749_800_844_905_594e-4,
+            ],
+            [
+                5.773_474_024_748_546e-4,
+                3.961_816_829_632_690_6e-5,
+                0.999_999_832_550_174_8,
+            ],
+        ];
+        for (actual_row, expected_row) in transform.rotation().rows().iter().zip(expected) {
+            for (actual, expected) in actual_row.iter().zip(expected_row) {
+                assert!(
+                    (actual - expected).abs() < 5.0e-12,
+                    "{actual:.16e} != {expected:.16e}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn polar_motion_uses_the_tirs_to_itrs_active_rotation_order() {
+        let (xp, yp, s_prime) = (0.013, -0.021, 0.008);
+        let (xp_rate, yp_rate, s_prime_rate) = (2.0e-5, -3.0e-5, 1.0e-5);
+        let actual = polar_motion_matrix(xp, yp, s_prime, xp_rate, yp_rate, s_prime_rate);
+        let expected = rotation_x(yp, yp_rate)
+            .multiply(rotation_y(xp, xp_rate))
+            .multiply(rotation_z(-s_prime, -s_prime_rate));
+        for row in 0..3 {
+            for column in 0..3 {
+                assert!(
+                    (actual.value.0[row][column] - expected.value.0[row][column]).abs() < 1.0e-15
+                );
+                assert!(
+                    (actual.derivative.0[row][column] - expected.derivative.0[row][column]).abs()
+                        < 1.0e-15
+                );
+            }
+        }
+        let reversed = rotation_z(-s_prime, -s_prime_rate)
+            .multiply(rotation_y(xp, xp_rate))
+            .multiply(rotation_x(yp, yp_rate));
+        assert!(
+            (actual.value.0[0][2] - reversed.value.0[0][2]).abs() > 1.0e-6,
+            "the test angles must make the cross-term order observable"
+        );
     }
 
     #[test]
@@ -1102,5 +1246,131 @@ mod tests {
             .expect("covered transform");
         assert!(transform.angular_velocity().is_finite());
         assert!(transform.angular_velocity().to_radians_per_second()[2] > 7.0e-5);
+    }
+
+    #[test]
+    fn angular_velocity_matches_finite_difference_with_all_changing_eop_fields() {
+        let start = Epoch::from_gregorian_utc(2025, 1, 1, 0, 0, 0, 0);
+        let provider = Iau2006CioProvider::new(
+            vec![
+                sample(start, -0.2, -2.0e-4, 3.0e-4, -5.0e-4, 7.0e-4),
+                sample(
+                    start + Duration::from_seconds(600.0),
+                    0.4,
+                    2.0e-4,
+                    -3.0e-4,
+                    5.0e-4,
+                    -7.0e-4,
+                ),
+            ],
+            "IERS",
+            "synthetic changing EOP",
+            "finite-difference fixture",
+            None,
+        )
+        .expect("valid changing EOP samples");
+        let epoch = start + Duration::from_seconds(300.0);
+        let step = 0.25;
+        let before = provider
+            .transform(request(
+                epoch - Duration::from_seconds(step),
+                BodyFixedTransformDirection::InertialToBodyFixed,
+            ))
+            .expect("earlier transform");
+        let centre = provider
+            .transform(request(
+                epoch,
+                BodyFixedTransformDirection::InertialToBodyFixed,
+            ))
+            .expect("central transform");
+        let after = provider
+            .transform(request(
+                epoch + Duration::from_seconds(step),
+                BodyFixedTransformDirection::InertialToBodyFixed,
+            ))
+            .expect("later transform");
+        let before = before.rotation().rows();
+        let centre_rows = centre.rotation().rows();
+        let after = after.rotation().rows();
+        let derivative =
+            |row: usize, column: usize| (after[row][column] - before[row][column]) / (2.0 * step);
+        let skew = |row: usize, column: usize| {
+            (0..3)
+                .map(|k| derivative(row, k) * centre_rows[column][k])
+                .sum::<f64>()
+        };
+        let finite_difference = [skew(1, 2), skew(2, 0), skew(0, 1)];
+        let analytic = centre.angular_velocity().to_radians_per_second();
+        for (actual, expected) in analytic.into_iter().zip(finite_difference) {
+            assert!(
+                (actual - expected).abs() < 2.0e-12,
+                "{actual:.16e} != {expected:.16e}"
+            );
+        }
+    }
+
+    #[test]
+    fn leap_boundary_keeps_ut1_tai_continuous_with_closed_coverage() {
+        let before_leap = Epoch::from_gregorian_utc(2016, 12, 31, 0, 0, 0, 0);
+        let after_leap = Epoch::from_gregorian_utc(2017, 1, 1, 0, 0, 0, 0);
+        let provider = Iau2006CioProvider::new(
+            vec![
+                sample(before_leap, -0.4, 0.0, 0.0, 0.0, 0.0),
+                sample(after_leap, 0.6, 0.0, 0.0, 0.0, 0.0),
+            ],
+            "IERS",
+            "leap-boundary fixture",
+            "test",
+            None,
+        )
+        .expect("valid leap-boundary EOP samples");
+        let first = provider
+            .interpolate(
+                before_leap.to_time_scale(TimeScale::TAI),
+                request(
+                    before_leap,
+                    BodyFixedTransformDirection::InertialToBodyFixed,
+                ),
+            )
+            .expect("first coverage endpoint is included");
+        let last = provider
+            .interpolate(
+                after_leap.to_time_scale(TimeScale::TAI),
+                request(after_leap, BodyFixedTransformDirection::InertialToBodyFixed),
+            )
+            .expect("last coverage endpoint is included");
+        assert!((first.ut1_minus_tai + 36.4).abs() < 1.0e-12);
+        assert!((last.ut1_minus_tai + 36.4).abs() < 1.0e-12);
+
+        let before = Epoch::from_gregorian_utc(2016, 12, 31, 23, 59, 59, 0);
+        let after = Epoch::from_gregorian_utc(2017, 1, 1, 0, 0, 0, 0);
+        let before_angle =
+            earth_rotation_angle(before.to_time_scale(TimeScale::TAI), first.ut1_minus_tai);
+        let after_angle =
+            earth_rotation_angle(after.to_time_scale(TimeScale::TAI), last.ut1_minus_tai);
+        let angle_step = (after_angle - before_angle).rem_euclid(TAU);
+        let expected_step = TAU * ERA_TURNS_PER_DAY * 2.0 / SECONDS_PER_DAY;
+        assert!((angle_step - expected_step).abs() < 1.0e-12);
+
+        assert!(matches!(
+            provider.interpolate(
+                before_leap.to_time_scale(TimeScale::TAI) - Duration::from_seconds(1.0e-9),
+                request(
+                    before_leap - Duration::from_seconds(1.0e-9),
+                    BodyFixedTransformDirection::InertialToBodyFixed,
+                ),
+            ),
+            Err(Iau2006CioError::EpochOutOfRange { .. })
+        ));
+        assert!(matches!(
+            provider.interpolate(
+                after_leap.to_time_scale(TimeScale::TAI) + Duration::from_seconds(1.0e-9),
+                request(
+                    after_leap + Duration::from_seconds(1.0e-9),
+                    BodyFixedTransformDirection::InertialToBodyFixed,
+                ),
+            ),
+            Err(Iau2006CioError::EpochOutOfRange { .. })
+        ));
     }
 }

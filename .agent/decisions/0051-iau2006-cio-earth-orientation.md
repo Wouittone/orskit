@@ -42,9 +42,27 @@ celestial-to-terrestrial chain, including polar motion.
 
 ## Verification
 
-- The complete 3 x 3 matrix is checked to 1e-11 against an independent
-  ERFA/SOFA (`pyerfa`) evaluation of `xys06a`, `c2ixys`, `era00`, `sp00`,
-  `pom00` and `c2tcio`; CIP `X`, `Y`, `s` agree to about 3e-13 rad.
-- The analytic angular velocity is compared with a central finite
-  difference of the rotation; forward/reverse state round trips, coverage,
-  leap-second behavior and typed failures are unit tested.
+- The complete 3 x 3 matrix is checked at a 2025 epoch against the original
+  ERFA/PyERFA differential fixture (1e-11 tolerance; exact PyERFA version/build
+  was not retained) and at TT/UT1 MJD 53736.0 against the published ERFA v2.0.1
+  `eraC2t06a` test vector (5e-12 tolerance). Direct `X`, `Y`, `s` outputs are
+  checked against the pinned ERFA v2.0.1 `eraXys06a` test at that MJD using
+  5e-12 rad tolerance. The public test outputs are recorded in
+  `crates/frames-eop/src/cio.rs`; the latter tolerance is about 1
+  microarcsecond, consistent with the precision of the coefficient tables.
+- An order-sensitive polar-motion cross-term test covers the active
+  TIRS-to-ITRS product and its derivative. Analytic angular velocity is
+  compared with central differences while UT1-TAI, `dX`, `dY`, `xp` and `yp`
+  all have nonzero slopes. Forward/reverse state round trips, inclusive
+  coverage, a UT1-TAI-continuous leap-second boundary and typed failures are
+  unit tested.
+
+## Distribution limitation
+
+The included IERS Tables 5.2a/5.2b/5.2d are essential to this implementation.
+TN 36 identifies ©2010 Verlag des Bundesamts für Kartographie und Geodäsie,
+Frankfurt am Main, but the official publication and site reviewed did not
+provide an explicit license or permission to redistribute the tables. Their
+presence in the repository is not a claim of MIT/Apache compatibility or legal
+clearance. Obtain written permission or document another substantiated legal
+basis before merging or distributing the bundled files.

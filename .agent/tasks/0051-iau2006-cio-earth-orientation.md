@@ -14,6 +14,9 @@
 ## Completion record
 
 - [x] CIP `X, Y, s`, ERA, TIO locator and polar motion; analytic rotation rate
-- [x] Matrix verified against ERFA to 1e-11; finite-difference angular velocity
+- [x] Active TIRS-to-ITRS polar-motion order and derivative cross terms tested
+- [x] Direct `X`, `Y`, `s` and full matrix compared with pinned ERFA v2.0.1 test vectors at MJD 53736.0; a second full-matrix epoch retained
+- [x] UT1-TAI continuity and inclusive coverage tested across the 2016 leap boundary; changing-slope derivatives compared with finite differences
 - [x] Guide, ADR, provenance and parity updates
 - [x] Facade exposure through the existing `earth-rotation` feature
+- [ ] Redistribution rights for bundled IERS coefficient tables substantiated (blocker: permission/license not found; see PROVENANCE and ADR-0051)

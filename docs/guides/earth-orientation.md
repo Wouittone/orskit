@@ -59,8 +59,33 @@ provide versioned UT1-UTC, `xp`, `yp`, `dX` and `dY` samples; values are
 linearly interpolated with closed coverage and no extrapolation. The returned
 transform carries the EOP provenance and the analytic angular velocity.
 
-Validation: the 3 x 3 matrix agrees with an independent ERFA evaluation
-(`xys06a`, `c2ixys`, `era00`, `sp00`, `pom00`, `c2tcio`) to 1e-11; the angular
-velocity matches a central finite difference of the rotation. Tides and
-equinox-based or truncated variants are out of scope. See
+For active column-vector rotations, the TIRS-to-ITRS polar-motion product is
+`Rx(yp) Ry(xp) Rz(-s')`; its derivative uses the same ordered product rule.
+This is the reverse product order from applying the individual active
+rotations as `Rz(-s') Ry(xp) Rx(yp)`. The convention is grounded in the
+IERS Chapter 5 `W R Q` chain and is checked by an order-sensitive cross-term
+test and the independent full-matrix vector below.
+
+Validation includes the 2025 differential fixture (full matrix, 1e-11
+tolerance; originally recorded as a PyERFA comparison, but its exact PyERFA
+version/build was not retained) and the ERFA v2.0.1 validation cases in
+`src/t_erfa_c.c` at
+TT/UT1 MJD 53736.0: direct `X`, `Y`, `s` comparisons and a full `eraC2t06a`
+matrix check. The ERFA source revision, inputs and expected values are recorded
+in the tests and [provenance ledger](../../.agent/PROVENANCE.md). The current
+tabulated-series comparison uses a 5e-12 rad tolerance (about 1 microarcsecond)
+to account for the precision represented by the bundled IERS coefficient
+tables. The analytic angular velocity is checked against central differences
+with nonzero slopes in UT1-TAI, `dX`, `dY`, `xp` and `yp`; a 2016 leap-boundary
+case verifies UT1-TAI continuity and inclusive sample endpoints.
+
+**Redistribution blocker:** IERS Technical Note 36 identifies ©2010 Verlag des
+Bundesamts für Kartographie und Geodäsie, Frankfurt am Main, but the official
+publication and site reviewed do not state an applicable open-data license or
+permission to redistribute Tables 5.2a/5.2b/5.2d. The files are retained in
+this PR rather than silently removed, but their inclusion is not cleared for
+release. Obtain written permission or document an independently substantiated
+legal basis before merging or distributing these bundled tables.
+
+Tides and equinox-based or truncated variants are out of scope. See
 [ADR-0051](../../.agent/decisions/0051-iau2006-cio-earth-orientation.md).
