@@ -82,9 +82,15 @@ test-only C comparisons are not built into orskit.
 
 Maintenance caveat: the registry release and upstream push are from November
 2022. The repository is not archived and had zero open issues at review, but
-this is **not evidence of active maintenance**. A maintainer must accept this
-dormant dependency before publishing if active maintenance is required.
+this is **not evidence of active maintenance**. The owner's clarification
+confirms that active maintenance was a preference, not a hard publication gate.
+The repository requires a maintenance review, which is satisfied by accepting
+the pinned fixed-standard implementation with verified licensing/API,
+independent reference tests, derivative convergence and the full Rust 1.96.1
+workspace gates. Inactivity is an explicitly retained future bug-fix/compiler
+compatibility risk; updates require renewed review and validation.
 The reviewed actively developed alternatives either have additional SOFA
 license restrictions or lack a verified coefficient licensing chain; they
 were not silently substituted. No IERS table redistribution clearance is
-claimed for historical commits.
+claimed for historical commits. No unresolved scientific, provenance or
+safe-Rust gate remains for the current replacement.

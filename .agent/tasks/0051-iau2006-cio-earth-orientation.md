@@ -23,8 +23,10 @@
 - [x] Facade exposure through the existing `earth-rotation` feature
 - [x] Unverified bundled IERS tables/evaluator deliberately replaced with an
   unmodified licensed dependency; actual MPL/ERFA package notices verified
-- [ ] Active-maintenance criterion satisfied: `erfa` has no release/push since
-  November 2022; explicit acceptance of dormancy is still required
+- [x] Maintenance review recorded: `erfa` has no release/push since November
+  2022; accepted as a pinned fixed-standard dependency with verified API,
+  independent reference tests and full Rust 1.96.1 gates, without claiming
+  active maintenance
 
 ## PR #38 follow-up validation (2026-10-10)
 
@@ -66,10 +68,14 @@ Maximum six-epoch shifts from the former analytic table evaluator are
 5.846e-12 rad and 2.744e-17 rad/s. This is numerical evidence, not a claim
 that table redistribution was retroactively authorized.
 
-Remaining blocker: the requested active maintenance is not established;
-upstream is dormant since 2022. No verified maintained replacement was found
-with the full API, licensing and safe-Rust requirements. Maintainer acceptance
-of this narrow dependency exception is needed before publishing. Do not push.
+Maintenance clarification: active maintenance is not established, but the
+owner confirms it was a preference rather than a hard gate. Repository policy
+requires review, not automatically excluding dormant standardized libraries.
+The fixed-standard pinned dependency is accepted with the verified
+license/API, independent reference tests and complete Rust 1.96.1 gates.
+Upstream inactivity is retained as a future fixes/compatibility risk. No actual
+scientific, provenance or safe-Rust blocker remains for this replacement.
+Binary notice/source-availability obligations still apply. Do not push.
 
 ### Replacement validation results
 
@@ -93,5 +99,6 @@ with Rust 1.96.1; no push, merge, rebase or other worktree changes occurred.
 | `cargo +1.96.1 nextest list --workspace --all-targets --all-features --locked --message-format json` | Passed; confirms 272-test inventory |
 | `git diff --check` | Passed |
 
-All requested numerical/build/documentation gates pass. Passing them does not
-waive the explicitly recorded dormant-dependency maintenance blocker.
+All requested numerical/build/documentation gates pass. They support the
+bounded maintenance acceptance above; they do not imply active maintenance or
+waive dependency distributor license obligations.

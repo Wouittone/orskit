@@ -120,12 +120,14 @@ including downstream users of `earth-rotation`, must retain
 attribution/disclaimer, and the dependency's MPL source-availability notices.
 The full source and license are linked there. No SOFA endorsement is claimed.
 
-**Remaining maintenance decision:** the dependency's upstream is not archived,
+**Maintenance rationale:** the dependency's upstream is not archived,
 but its last push/release is from November 2022. Active maintenance has not been
-verified; a maintainer must explicitly accept this dormant dependency before
-publication if active maintenance remains a requirement. No actively
-maintained alternative with the required fully verified licensing/API/safety
-combination was established. The
+verified or claimed. Active releases were a preference, not a publication
+requirement. The pinned implementation of the fixed IAU standard is accepted
+on the verified license/API, independent reference cases, derivative
+convergence and complete Rust 1.96.1 test gates. Inactivity retains a risk of
+delayed fixes and future compiler compatibility; updates require renewed
+review and validation. Tests do not guarantee absence of unknown defects. The
 [exact artifact audit](../../.agent/PROVENANCE.md#erfa-dependency-replacement-review-2026-10-10)
 records hashes, public APIs, license terms, rejected alternatives and evidence.
 

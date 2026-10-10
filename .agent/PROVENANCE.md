@@ -261,12 +261,31 @@ The 5e-12 full-matrix tolerance and existing changing-EOP velocity/leap/frame
 regressions are retained. Legacy observations are not mislabeled as external
 reference vectors and do not redistribute the original coefficient collection.
 
-Maintenance limitation / remaining publication decision: upstream
+Maintenance review and acceptance rationale: upstream
 [`cjordan/rust-erfa`](https://github.com/cjordan/rust-erfa) is not archived,
 with zero open issues observed, but last push is 2022-11-23; active maintenance
 has **not** been established. This is a mature pinned implementation of a fixed
-standard, not an actively released crate. Explicit maintainer acceptance of
-that dormancy is still needed to satisfy the requested maintenance criterion.
+standard, not an actively released crate. The repository requires license,
+API and maintenance **review**, not active releases or an automatic ban on
+dormant libraries. The owner's clarification confirms that maintenance was a
+preference, not an additional publication gate.
+
+Unmodified `erfa` 0.2.1 is accepted for this narrow use: exact release/source
+hash pinning prevents unnoticed upstream changes; IAU 2006/2000A is a fixed
+standard; full-series API and embedded software licensing are verified; the
+independent ERFA values, derivative convergence/regressions and all 272
+workspace tests establish the exercised behavior on Rust 1.96.1. Upstream
+inactivity remains a risk of delayed bug fixes and future compiler
+compatibility, not evidence of correctness or a reason to claim active
+maintenance. Any update requires renewed license/API review and these gates;
+future discovered scientific or compatibility defects must be addressed
+before shipping affected behavior. Tests support this bounded acceptance,
+not a guarantee that no unknown defect exists.
+
+No unresolved scientific, provenance or safe-Rust gate was identified for
+this replacement. MPL source availability and ERFA notice retention remain
+ordinary distributor obligations, not waived requirements. Historical table
+files remain uncleared in Git history; current package contents exclude them.
 Alternatives reviewed, not adopted: `erfars` requires C/FFI; `rfa` 0.5.9 is
 LGPL-3.0-or-later; `sofars` 0.6.0's nominal MIT metadata omits additional SOFA
 terms in its actual LICENSE; `oxiephemeris-bodies` 0.1.1 explicitly imports
