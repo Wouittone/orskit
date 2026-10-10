@@ -283,7 +283,8 @@ pub struct HarmonicCoefficientDeltaMetadata {
 ///
 /// Delta values are dimensionless changes to fully normalized coefficients;
 /// each request uses an absolute Hifitime epoch. Implementations must return
-/// `None` for coefficients not covered by their declared degree/order region.
+/// `None` when the epoch is outside their declared coverage or the coefficient
+/// is outside their declared triangular degree/order region.
 pub trait HarmonicCoefficientDeltaProvider: fmt::Debug + Send + Sync {
     /// Returns stable provenance, conventions, frame, and closed coverage.
     fn metadata(&self) -> &HarmonicCoefficientDeltaMetadata;
@@ -314,7 +315,9 @@ pub struct HarmonicCoefficientRate {
 ///
 /// Each coefficient evolves as `ΔC̄ₙₘ(t) = Ċ̄ₙₘ (t - t₀)` and similarly for
 /// `S̄ₙₘ`. Rates are SI reciprocal seconds and epochs are absolute Hifitime
-/// instants. Evaluation is valid only within the metadata's inclusive coverage.
+/// instants. Evaluation is valid only within the metadata's inclusive coverage
+/// and declared triangular degree/order region; requests outside either return
+/// `None`.
 pub struct LinearSecularRateProvider {
     metadata: HarmonicCoefficientDeltaMetadata,
     reference_epoch: Epoch,
@@ -399,6 +402,19 @@ impl HarmonicCoefficientDeltaProvider for LinearSecularRateProvider {
         degree: u32,
         order: u32,
     ) -> Option<HarmonicCoefficient> {
+        if degree > self.metadata.maximum_degree
+            || order > degree
+            || order > self.metadata.maximum_order
+        {
+            return None;
+        }
+        let coverage = self.metadata.coverage;
+        let requested = epoch.to_time_scale(coverage.time_scale);
+        let valid_from = coverage.start.to_time_scale(coverage.time_scale);
+        let valid_to = coverage.end.to_time_scale(coverage.time_scale);
+        if requested < valid_from || requested > valid_to {
+            return None;
+        }
         let rate = self
             .rates
             .get(usize::try_from(degree).ok()?)?
@@ -2038,6 +2054,61 @@ mod tests {
             assert_eq!(
                 static_acceleration.map(f64::to_bits),
                 composed_acceleration.map(f64::to_bits)
+            );
+        }
+    }
+
+    #[test]
+    fn linear_secular_provider_rejects_uncovered_terms_and_epochs() {
+        let zero = coefficient_rate(0.0, 0.0);
+        let rate = coefficient_rate(2.0e-12, -3.0e-12);
+        let mut metadata = delta_metadata(
+            2,
+            1,
+            CoefficientNormalization::FullyNormalized4Pi,
+            TideSystem::TideFree,
+            ReferenceFrame::ITRF2020,
+        );
+        metadata.coverage.end = Epoch::from_tai_seconds(20.0);
+        let provider = LinearSecularRateProvider::new(
+            metadata,
+            Epoch::from_tai_seconds(10.0),
+            vec![
+                vec![zero, rate],
+                vec![zero, rate, rate],
+                vec![zero, rate, rate],
+                vec![zero],
+            ],
+        )
+        .expect("valid covered triangular rates");
+
+        for (epoch, expected_elapsed_seconds) in [
+            (Epoch::from_tai_seconds(0.0), -10.0),
+            (Epoch::from_tai_seconds(20.0), 10.0),
+        ] {
+            let delta = provider
+                .coefficient_delta(epoch, 2, 1)
+                .expect("inclusive coverage endpoint");
+            assert_eq!(
+                delta.cosine,
+                rate.cosine.get::<hertz>() * expected_elapsed_seconds
+            );
+            assert_eq!(
+                delta.sine,
+                rate.sine.get::<hertz>() * expected_elapsed_seconds
+            );
+        }
+
+        for epoch in [Epoch::from_tai_seconds(-0.1), Epoch::from_tai_seconds(20.1)] {
+            assert_eq!(provider.coefficient_delta(epoch, 1, 0), None);
+        }
+
+        let covered_epoch = Epoch::from_tai_seconds(10.0);
+        for (degree, order) in [(0, 1), (1, 2), (2, 2), (3, 0)] {
+            assert_eq!(
+                provider.coefficient_delta(covered_epoch, degree, order),
+                None,
+                "uncovered coefficient ({degree},{order})"
             );
         }
     }

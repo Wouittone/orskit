@@ -81,10 +81,13 @@ The built-in `LinearSecularRateProvider` evaluates
 `ΔC̄ₙₘ = Ċ̄ₙₘ (t - t₀)` and the corresponding sine expression. Rates are
 typed SI frequencies (`s⁻¹`), elapsed time is measured from the explicit
 Hifitime reference epoch in SI seconds, and that epoch must lie inside the
-provider's closed coverage. This is a general first-order secular-rate
-mechanism, not a published gravity rate product or a tide model. Applications
-must supply source-backed rates and select those consistent with the static
-coefficient tide system.
+provider's closed coverage. Direct rate-provider queries return `None` when
+the requested epoch or coefficient lies outside the declared coverage; the
+composed force model reports typed coverage errors for evaluations outside
+that interval. This is a general first-order secular-rate mechanism, not a
+published gravity rate product or a tide model. Applications must supply
+source-backed rates and select those consistent with the static coefficient
+tide system.
 
 ```rust
 use std::sync::Arc;
