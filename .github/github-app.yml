@@ -1,0 +1,40 @@
+instructions: |
+  Read .agent/AGENTS.md before implementation and follow .agent/ROADMAP.md,
+  .agent/PARITY.md, and .agent/PROVENANCE.md. Keep capability claims bounded
+  by independent validation and record scientific sources and dependency rationale.
+  Use the pinned Rust 1.96.1 toolchain and the checks in .github/workflows/build.yml.
+  Preserve physical units, reference frames, time scales, orbital invariants,
+  integration tolerances, covariance semantics, parsing compatibility, and
+  floating-point stability. Document public APIs and check shared-crate effects.
+  For reviews, use Rust Analyzer MCP for symbol-aware navigation and diagnostics,
+  docs.rs MCP for external crate APIs, and GitHub MCP for PR and workflow context
+  when available. State tool limitations rather than claiming unavailable checks.
+  Follow .github/copilot-instructions.md for publishing. Keep the human account
+  signed in for integrated reviews; never persist tokens or change global Git
+  identity. Commit and push only when authorized, without bypassing protections.
+
+scripts:
+  - name: Check formatting
+    command: cargo fmt --all -- --check
+  - name: Check workspace
+    command: cargo check --workspace --all-targets --all-features --locked
+  - name: Lint workspace
+    command: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings -D clippy::must-use-candidate
+  - name: Test workspace
+    command: cargo nextest run --workspace --all-targets --all-features --locked
+  - name: Test documentation
+    command: cargo test --workspace --doc --all-features --locked
+  - name: Build documentation
+    command: cargo doc --workspace --all-features --no-deps --locked
+  - name: Check crate diagram
+    command: pwsh -NoProfile -File .\scripts\check_crate_diagram.ps1 -Check
+  - name: Test bot publisher
+    command: pwsh -NoProfile -File .\scripts\test_publish_bot.ps1
+  - name: Check bot authentication
+    command: pwsh -NoProfile -File .\scripts\publish_bot.ps1 -Check
+
+auto_open_in_browser: false
+
+automation:
+  auto_issue_session: true
+  remote_control: true
