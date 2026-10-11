@@ -65,6 +65,19 @@ explicitly authorized publishing path.
 
 ## Review in the app
 
+The repository's `.github/github-app.yml` supplies project instructions and
+manual commands for Rust quality gates, the crate diagram, publisher regression
+tests, and read-only bot authentication. Accept the updated configuration in
+the app before using these commands. `cargo nextest` and PowerShell 7 (`pwsh`)
+must already be installed; the configuration does not install tools or run
+commands automatically on session creation or archival. Publishing remains an
+explicit action, not a lifecycle trigger or a replacement for native credentials.
+
+Issue sessions and remote control retain the enabled settings selected in the
+app. Remote control also requires the applicable account/organization policy.
+Automatic browser opening is disabled because this repository is a library,
+not a web server.
+
 Open the printed PR URL through **My work** in the Copilot app and submit reviews
 as your human account. The app's native **Create PR** button still uses its own
 selected account: do not use that button for bot publication. Shell-created PRs
