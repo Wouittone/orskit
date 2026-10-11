@@ -6,9 +6,20 @@
 //! `numerical` for adaptive Cartesian propagation and `two-bodies` for
 //! point-mass dynamics and the analytical elliptic Kepler propagator.
 //! Independently opt in to `gauss-jackson` for fixed-step long arcs without
-//! dense output; the native adaptive method is unchanged.
+//! dense output; the native adaptive method is unchanged. The `sgp4` feature
+//! adds model-specific mean-element propagation to TEME.
 
 pub use dynamics_core::*;
+
+#[cfg(feature = "sgp4")]
+pub use dynamics_sgp4::{Sgp4Elements, Sgp4ElementsError, Sgp4Error, Sgp4Propagator};
+
+#[cfg(feature = "sgp4")]
+pub mod sgp4 {
+    //! Analytical SGP4/SDP4 propagation using WGS-72 constants.
+
+    pub use dynamics_sgp4::{Sgp4Elements, Sgp4ElementsError, Sgp4Error, Sgp4Propagator};
+}
 
 #[cfg(feature = "gauss-jackson")]
 pub use dynamics_numerical::{

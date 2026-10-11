@@ -1,0 +1,35 @@
+[package]
+name = "tle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Strict Two-Line Element parsing and formatting for orskit"
+
+[features]
+default = []
+sgp4 = [
+    "dep:dynamics",
+    "dynamics/sgp4",
+    "dep:hifitime",
+    "dep:frames",
+    "dep:units",
+]
+
+[dependencies]
+dynamics = { path = "../dynamics", optional = true }
+frames = { path = "../frames", optional = true }
+hifitime = { workspace = true, optional = true }
+serde.workspace = true
+sgp4 = { workspace = true, features = ["serde"] }
+thiserror.workspace = true
+units = { path = "../units", optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[[test]]
+name = "sgp4_verification"
+required-features = ["sgp4"]
