@@ -69,3 +69,9 @@ solid/ocean/pole tide formula, or tide data is included. Numerical tests use
 manufactured rates and independently evaluate the potential gradient; they
 validate coefficient composition and the evaluator, not a particular gravity
 model or tide product.
+
+Follow-up: ADR/task 0054 add an independently implemented IERS 2010
+frequency-independent solid-Earth formula using caller-selected Moon/Sun
+ephemerides and gravitational parameters. That separate tide model has
+analytic/invariant checks, not an external tide-product reference vector.
+Frequency-dependent, ocean, and pole-tide models remain pending.

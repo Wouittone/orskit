@@ -377,6 +377,7 @@ dependencies = [
 name = "dynamics-spherical-harmonics"
 version = "0.0.0"
 dependencies = [
+ "bodies",
  "dynamics-core",
  "frames",
  "hifitime",

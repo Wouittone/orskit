@@ -138,16 +138,87 @@ let time_varying = static_model.with_coefficient_deltas(Arc::new(provider))?;
 # }
 ```
 
+## Frequency-independent solid-Earth tides
+
+`SphericalHarmonicGravityModel::with_iers2010_solid_earth_tides` composes the
+frequency-independent solid-Earth response from IERS Conventions (2010),
+Chapter 6, §6.2, Step 1 (Eqs. 6.6–6.7). For degree 2 and 3,
+
+```text
+ΔC̄ₙₘ - i ΔS̄ₙₘ =
+  kₙₘ/(2n+1) Σⱼ [3 GMⱼ/GMₑ (Rₑ/rⱼ)ⁿ⁺¹
+                  P̄ₙₘ(sin φⱼ) exp(-i m λⱼ)]
+```
+
+where `j` is the Moon or Sun, `GMₑ` and `Rₑ` are the selected field's Earth
+gravitational parameter and reference radius, and `r`, `φ`, and `λ` are each
+body's geocentric distance, latitude, and east longitude in ITRF2020. The
+fully-normalized `P̄ₙₘ` uses this crate's geodetic 4π convention. The nominal
+frequency-independent Love numbers `k₂₀`, `k₂₁`, `k₂₂` are `0.29525`,
+`0.29470`, `0.29801`; `k₃₀`, `k₃₁`, `k₃₂`, `k₃₃` are `0.093`, `0.093`,
+`0.093`, `0.094`. The degree-2 tide also induces degree-4 coefficients:
+
+```text
+ΔC̄₄ₘ - i ΔS̄₄ₘ =
+  k₂ₘ⁽⁺⁾/5 Σⱼ [3 GMⱼ/GMₑ (Rₑ/rⱼ)³
+                P̄₂ₘ(sin φⱼ) exp(-i m λⱼ)]
+```
+
+with `k₂₀⁽⁺⁾ = -0.00087`, `k₂₁⁽⁺⁾ = -0.00079`, and
+`k₂₂⁽⁺⁾ = -0.00057`. The code computes these as dimensionless coefficient
+deltas before the existing potential-gradient evaluation; it does not add an
+independent acceleration.
+
+The caller supplies the Moon and Sun `GravitationalParameter` values, their
+source records, an epoch-bounded `BodyEphemerisProvider`, and provenance for
+that provider. Every epoch requests exactly one Moon and one Sun state in the
+Earth-centered ITRF2020 coefficient frame. The requested Hifitime time scale,
+closed coverage, body identity, epoch, returned frame, and exterior geocentric
+distances are checked. Missing ephemeris coverage and provider errors remain
+typed evaluation failures; no fallback vector, online fetch, or implicit
+ephemeris is used.
+
+Permanent-tide handling follows IERS Eqs. 6.13–6.14. A `TideFree` coefficient
+set receives the full Step 1 response, including the permanent degree-2
+zonal term. For `ZeroTide`, the model subtracts the time-independent part
+`ΔC̄₂₀ᵖᵉʳᵐ = (4.4228 × 10⁻⁸)(-0.31460)(0.29525)` from the Step 1 `C̄₂₀`
+delta, because that part is already embedded in zero-tide coefficients.
+`MeanTide` is rejected: this slice does not implement its permanent
+external-potential convention. These checks prevent accidental double
+application; they do not convert the selected static coefficients.
+
+This is specifically the frequency-independent Step 1 response. The
+constituent-specific frequency-dependent corrections (Step 2), other
+solid-Earth tide refinements, ocean tides, pole tides, and alternative
+terrestrial realizations remain follow-ups. The implementation does not claim
+complete #15 tide parity.
+
+```rust,ignore
+let time_varying = static_model.with_iers2010_solid_earth_tides(
+    coverage,
+    caller_ephemeris,
+    ephemeris_reference_data,
+    moon_tide_raiser,
+    sun_tide_raiser,
+)?;
+```
+
+The IERS solid-tide tests use independently reduced closed-form evaluations of
+the published coefficient equations: degree-2 zonal, degree-2 tesseral,
+degree-3 zonal, degree-4 response ratio, and the zero-tide permanent-term
+invariant. This is analytic/invariant evidence, not an external ephemeris
+reference vector; no independent numerical tide output is claimed.
+
 ## Tide and data policy
 
 `TideSystem` records the convention embedded in the chosen gravity
-coefficients. This model never converts tide systems and never applies
-permanent, solid-Earth, ocean, or pole tides. Select coefficient data and any
-separately configured tide model consistently so that a permanent-tide
-correction is not applied twice. Time-varying normalized coefficient deltas are
-available through the explicit provider contract above; solid-Earth, ocean, and
-pole-tide formulas, data, and force implementations remain outside this slice
-(#15).
+coefficients. The static model never converts tide systems. Frequency-independent
+solid-Earth corrections are available only through the explicit opt-in
+composition described above; they preserve the static tide-system metadata.
+Other coefficient-delta providers remain general and caller-sourced. Select
+coefficient data and separately configured corrections consistently so that
+permanent tide is not applied twice. Frequency-dependent solid-Earth,
+ocean, and pole-tide formulas and data remain outside this slice (#15).
 
 No gravity coefficients or Earth-orientation series are bundled, parsed, or
 downloaded. Applications control data loading, checksums, revisions, offline
@@ -162,6 +233,7 @@ particular external gravity product or a complete terrestrial frame.
 
 See [ADR-0047](../../.agent/decisions/0047-low-degree-spherical-harmonics-boundary.md),
 [ADR-0049](../../.agent/decisions/0049-general-spherical-harmonics-gravity.md),
+[ADR-0054](../../.agent/decisions/0054-frequency-independent-solid-earth-tides.md),
 [the provenance ledger](../../.agent/PROVENANCE.md), and
 [the parity ledger](../../.agent/PARITY.md) for the evidence and declared
 limitations. See [ADR-0052](../../.agent/decisions/0052-time-varying-harmonic-coefficient-deltas.md)

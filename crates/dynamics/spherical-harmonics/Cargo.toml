@@ -12,6 +12,7 @@ description = "Validated caller-supplied spherical-harmonic gravity"
 name = "dynamics_spherical_harmonics"
 
 [dependencies]
+bodies = { path = "../../bodies" }
 dynamics = { package = "dynamics-core", path = "../core" }
 frames = { path = "../../frames" }
 hifitime.workspace = true

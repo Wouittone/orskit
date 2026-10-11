@@ -73,10 +73,10 @@ pub mod prelude {
     };
     #[cfg(feature = "spherical-harmonics")]
     pub use crate::dynamics::{
-        CoefficientEpochSemantics, CoefficientNormalization, HarmonicCoefficient,
-        HarmonicCoefficientMetadata, HarmonicCoefficientProvider,
-        SourcedBodyFixedTransformProvider, SphericalHarmonicField, SphericalHarmonicGravityModel,
-        TideSystem,
+        CoefficientDeltaCoverage, CoefficientEpochSemantics, CoefficientNormalization,
+        HarmonicCoefficient, HarmonicCoefficientDeltaMetadata, HarmonicCoefficientMetadata,
+        HarmonicCoefficientProvider, SourcedBodyFixedTransformProvider, SphericalHarmonicField,
+        SphericalHarmonicGravityModel, TideRaiser, TideSystem,
     };
     #[cfg(feature = "dynamics")]
     pub use crate::dynamics::{ComposedDynamics, PropagationState, Propagator};

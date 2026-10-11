@@ -83,6 +83,11 @@ missing abstraction or an incorrectly placed type.
   orientation, and inertia. Environmental bodies and other parameters belong
   to force-model configuration and explicit future data providers. Dynamics
   composes heterogeneous model trait objects without matching model types.
+  `dynamics-spherical-harmonics` composes epoch-scoped, fully normalized
+  coefficient deltas inside the selected potential; its opt-in IERS 2010
+  frequency-independent solid-Earth response uses explicit Sun/Moon
+  ephemerides and never adds a separate tide acceleration. Frequency-dependent,
+  ocean, and pole tides remain separate follow-ups.
 - **Propagation:** `Propagator<State>` owns both its solution method and the
   physical problem it advances. `PropagationState<Problem>` lets a concrete
   propagator resolve a caller-selected state into the representation it

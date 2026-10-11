@@ -23,15 +23,22 @@
 //!
 //! and acceleration is the Cartesian gradient of `V`. A Cartesian
 //! differentiated solid-harmonic recurrence avoids longitude singularities at
-//! the poles. The model applies no tide-system conversion or tide correction:
-//! the selected coefficient set's tide convention is retained as metadata.
-//! Do not combine permanent-tide corrections with coefficients whose selected
-//! tide system already includes them.
+//! the poles. The static model applies no tide-system conversion and retains
+//! the selected coefficient convention as metadata. Its explicit IERS
+//! frequency-independent solid-tide composition handles the permanent degree-2
+//! term only for tide-free and zero-tide coefficients; generic delta providers
+//! must remain consistent with the static set.
+//! [`SphericalHarmonicGravityModel::with_iers2010_solid_earth_tides`] adds the
+//! frequency-independent IERS Chapter 6 solid-Earth response as coefficient
+//! deltas using caller-supplied Sun/Moon ephemerides and gravitational
+//! parameters. Frequency-dependent, ocean, and pole-tide corrections are not
+//! included.
 //!
-//! No coefficient data is bundled, fetched, parsed, or selected implicitly.
-//! The crate supplies a generic linear secular-rate delta provider, but does
-//! not supply a gravity product, tide model, or frame realization; the
-//! caller-provided transform must be suitable for the
+//! No coefficient or ephemeris data is bundled, fetched, parsed, or selected
+//! implicitly. The crate supplies a generic linear secular-rate provider and
+//! the IERS frequency-independent solid-Earth tide formula, but does not supply
+//! gravity coefficients, tide-raiser parameters, ephemerides, or a frame
+//! realization. The caller-provided transform must be suitable for the
 //! requested epoch, frames, and accuracy. Evaluation assumes the selected
 //! finite expansion is valid at the requested position; the crate does not
 //! infer a body's surface or enforce an external-field radius.
@@ -137,6 +144,7 @@
 //! ```
 
 use std::{
+    error::Error as StdError,
     fmt,
     ops::{Add, Div, Mul, Neg, Sub},
     sync::Arc,
@@ -156,6 +164,10 @@ use thiserror::Error;
 use units::uom::si::frequency::hertz;
 use units::uom::si::length::meter;
 use units::{AccelerationVector, Frequency, GravitationalParameter, Length};
+
+mod solid_earth_tides;
+
+pub use solid_earth_tides::{SolidEarthTideEvaluationError, TideRaiser};
 
 /// Normalization convention of a gravity coefficient set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -297,6 +309,73 @@ pub trait HarmonicCoefficientDeltaProvider: fmt::Debug + Send + Sync {
         degree: u32,
         order: u32,
     ) -> Option<HarmonicCoefficient>;
+
+    /// Creates an epoch-scoped evaluator for repeated coefficient requests.
+    ///
+    /// Implementations with expensive epoch-dependent inputs may resolve them
+    /// once here. The default adapter preserves the original coefficient
+    /// callback behavior. Provider failures are preserved as error sources by
+    /// the composed gravity model.
+    fn evaluator_at(
+        &self,
+        epoch: Epoch,
+    ) -> Result<Box<dyn HarmonicCoefficientDeltaEvaluator + '_>, CoefficientDeltaProviderError>
+    {
+        Ok(Box::new(BorrowedCoefficientDeltaEvaluator {
+            provider: self,
+            epoch,
+        }))
+    }
+
+    /// Returns provenance records for all selected delta inputs.
+    ///
+    /// The default reports the provider's primary model/data record. Concrete
+    /// models can additionally report independently sourced ephemerides and
+    /// physical parameters.
+    fn reference_data(&self) -> &[ReferenceDataDescriptor] {
+        std::slice::from_ref(&self.metadata().source)
+    }
+}
+
+/// Error returned when an epoch-scoped coefficient provider cannot evaluate.
+pub type CoefficientDeltaProviderError = Box<dyn StdError + Send + Sync + 'static>;
+
+/// Reusable, epoch-scoped view of normalized coefficient deltas.
+pub trait HarmonicCoefficientDeltaEvaluator: fmt::Debug {
+    /// Returns one coefficient delta, or `None` when that term is not covered.
+    fn coefficient_delta(
+        &self,
+        degree: u32,
+        order: u32,
+    ) -> Result<Option<HarmonicCoefficient>, CoefficientDeltaProviderError>;
+}
+
+struct BorrowedCoefficientDeltaEvaluator<'a, P: ?Sized> {
+    provider: &'a P,
+    epoch: Epoch,
+}
+
+impl<P: HarmonicCoefficientDeltaProvider + ?Sized> fmt::Debug
+    for BorrowedCoefficientDeltaEvaluator<'_, P>
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("BorrowedCoefficientDeltaEvaluator")
+            .field("epoch", &self.epoch)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<P: HarmonicCoefficientDeltaProvider + ?Sized> HarmonicCoefficientDeltaEvaluator
+    for BorrowedCoefficientDeltaEvaluator<'_, P>
+{
+    fn coefficient_delta(
+        &self,
+        degree: u32,
+        order: u32,
+    ) -> Result<Option<HarmonicCoefficient>, CoefficientDeltaProviderError> {
+        Ok(self.provider.coefficient_delta(self.epoch, degree, order))
+    }
 }
 
 /// Rate of change of one dimensionless normalized harmonic coefficient.
@@ -595,6 +674,24 @@ pub enum ConstructionError {
     /// The selected model truncation exceeds delta-provider coverage.
     #[error("coefficient-delta provider does not cover the selected degree/order")]
     InsufficientDeltaCoverage,
+    /// This Earth tide model requires an Earth-origin gravity field.
+    #[error("IERS solid-Earth tides require an Earth-centered gravity field")]
+    SolidEarthTideRequiresEarthOrigin,
+    /// This Earth tide model requires ITRF2020 coefficient axes.
+    #[error("IERS solid-Earth tides require ITRF2020 coefficient axes")]
+    SolidEarthTideRequiresItrf2020,
+    /// The selected permanent tide system is not implemented by this model.
+    #[error("IERS solid-Earth tides do not support the selected tide system")]
+    UnsupportedSolidEarthTideSystem,
+    /// The tide-raiser identity is not the Moon or Sun.
+    #[error("a solid-Earth tide raiser must be the Moon or Sun")]
+    InvalidTideRaiserIdentity,
+    /// The tide-raiser gravitational parameter is not finite and positive.
+    #[error("tide-raiser gravitational parameter must be finite and positive")]
+    InvalidTideRaiserGravitationalParameter,
+    /// No provenance was supplied for the caller-owned ephemeris.
+    #[error("solid-Earth tide ephemeris provenance must not be empty")]
+    MissingSolidEarthTideEphemerisProvenance,
     /// The provider uses a convention not implemented by this evaluator.
     #[error("only fully normalized 4π coefficients are supported")]
     UnsupportedNormalization,
@@ -657,6 +754,10 @@ pub enum ProvenanceProvider {
     CoefficientDeltas,
     /// Body-fixed frame transform source.
     FrameTransform,
+    /// Sun or Moon gravitational parameter used by the tide model.
+    TideRaiser,
+    /// Caller-selected ephemeris used by the tide model.
+    TideEphemeris,
 }
 
 /// Required provenance field that was missing or blank.
@@ -720,6 +821,13 @@ pub enum EvaluationError {
         valid_from: Epoch,
         /// Inclusive end of delta coverage.
         valid_to: Epoch,
+    },
+    /// The selected coefficient-delta provider failed during epoch setup or evaluation.
+    #[error("coefficient-delta provider failed during evaluation")]
+    CoefficientDeltaProviderFailure {
+        /// Underlying provider failure.
+        #[source]
+        source: CoefficientDeltaProviderError,
     },
     /// Delta provider omitted a selected coefficient.
     #[error("coefficient delta C/S({degree},{order}) is missing at the requested epoch")]
@@ -961,6 +1069,54 @@ impl SphericalHarmonicGravityModel {
         })
     }
 
+    /// Adds the frequency-independent solid-Earth tide response of IERS
+    /// Conventions (2010), Chapter 6, §6.2, Step 1.
+    ///
+    /// The model uses the static field's Earth gravitational parameter,
+    /// equatorial radius, ITRF2020 coefficient axes, and tide system. Sun and
+    /// Moon gravitational parameters and their provenance are explicit, and
+    /// each epoch resolves both bodies from the caller-owned ephemeris in
+    /// ITRF2020. The epoch-scoped coefficients are composed before the
+    /// existing potential-gradient evaluator.
+    ///
+    /// `TideFree` coefficients receive the complete frequency-independent
+    /// response, including the permanent degree-2 zonal part. `ZeroTide`
+    /// coefficients receive the response with that permanent part removed, as
+    /// prescribed by IERS Eq. 6.13; this prevents double counting. `MeanTide`
+    /// coefficients are rejected because their permanent external-potential
+    /// convention is not implemented here. Frequency-dependent solid-Earth,
+    /// ocean, and pole tides are not included.
+    ///
+    /// No ephemeris is selected, downloaded, or cached implicitly. The
+    /// ephemeris provenance records must identify all data and frame
+    /// conventions used to return the Moon and Sun in ITRF2020.
+    ///
+    /// # Errors
+    ///
+    /// Returns a construction error when the field is not Earth-centered or
+    /// uses another coefficient frame/tide system, a tide-raiser parameter or
+    /// provenance is invalid, coverage is invalid, or the selected field
+    /// degree/order exceeds the model's degree-4/order-4 support.
+    pub fn with_iers2010_solid_earth_tides(
+        self,
+        coverage: CoefficientDeltaCoverage,
+        ephemeris: Arc<dyn orbits::cartesian::BodyEphemerisProvider>,
+        ephemeris_reference_data: Vec<ReferenceDataDescriptor>,
+        moon: TideRaiser,
+        sun: TideRaiser,
+    ) -> Result<TimeVaryingSphericalHarmonicGravityModel, ConstructionError> {
+        let provider = solid_earth_tides::Iers2010SolidEarthTideProvider::new(
+            self.field,
+            self.metadata.tide_system,
+            coverage,
+            ephemeris,
+            ephemeris_reference_data,
+            moon,
+            sun,
+        )?;
+        self.with_coefficient_deltas(Arc::new(provider))
+    }
+
     /// Returns the physical constants, frame identities, and truncation.
     #[must_use]
     pub const fn field(&self) -> SphericalHarmonicField {
@@ -1197,15 +1353,19 @@ impl TimeVaryingSphericalHarmonicGravityModel {
             });
         }
 
+        let delta_evaluator = self
+            .delta_provider
+            .evaluator_at(epoch)
+            .map_err(|source| EvaluationError::CoefficientDeltaProviderFailure { source })?;
         self.static_model
             .evaluate_with_coefficient_accessor(epoch, state, |degree, order| {
                 let static_coefficient = self
                     .static_model
                     .coefficient(degree, order)
                     .ok_or(EvaluationError::NonFiniteAcceleration)?;
-                let delta = self
-                    .delta_provider
-                    .coefficient_delta(epoch, degree, order)
+                let delta = delta_evaluator
+                    .coefficient_delta(degree, order)
+                    .map_err(|source| EvaluationError::CoefficientDeltaProviderFailure { source })?
                     .ok_or(EvaluationError::MissingCoefficientDelta { degree, order })?;
                 if !delta.cosine.is_finite() || !delta.sine.is_finite() {
                     return Err(EvaluationError::NonFiniteCoefficientDelta { degree, order });
@@ -1523,7 +1683,9 @@ impl Sub for ComplexDual {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use frames::{BodyFixedTransform, DirectionCosineMatrix};
+    use bodies::Body;
+    use frames::{BodyFixedTransform, DirectionCosineMatrix, FrameKinematics};
+    use orbits::cartesian::{BodyEphemerisError, BodyEphemerisProvider, BodyState};
     use units::{Position, VelocityVector};
 
     #[derive(Debug)]
@@ -1612,6 +1774,42 @@ mod tests {
     struct ProvenancedRotationProvider {
         reference_data: Vec<ReferenceDataDescriptor>,
         omit_response_provenance: bool,
+    }
+
+    #[derive(Debug)]
+    struct TideEphemeris {
+        fail: bool,
+    }
+
+    impl BodyEphemerisProvider for TideEphemeris {
+        fn state_at(
+            &self,
+            body: Body,
+            epoch: Epoch,
+            frame: ReferenceFrame,
+        ) -> Result<BodyState, BodyEphemerisError> {
+            if self.fail {
+                return Err(BodyEphemerisError::OutsideCoverage {
+                    body,
+                    epoch: Box::new(epoch),
+                });
+            }
+            let position = match body {
+                Body::MOON => [384_400_000.0, 0.0, 0.0],
+                Body::SUN => [149_597_870_700.0, 0.0, 0.0],
+                _ => return Err(BodyEphemerisError::UnsupportedBody { body }),
+            };
+            Ok(BodyState::new(
+                body,
+                epoch,
+                FrameKinematics::new(
+                    Position::from_metres(position[0], position[1], position[2]),
+                    VelocityVector::from_metres_per_second(0.0, 0.0, 0.0),
+                    frame,
+                )
+                .expect("finite ephemeris state"),
+            ))
+        }
     }
 
     impl BodyFixedTransformProvider for ProvenancedRotationProvider {
@@ -2716,6 +2914,111 @@ mod tests {
                 _ => unreachable!(),
             }
         }
+    }
+
+    #[test]
+    fn iers_solid_tides_compose_in_model_and_preserve_ephemeris_errors() {
+        let create_model = |fail| {
+            model(
+                2,
+                2,
+                synthetic_coefficients(2, 2),
+                CoefficientEpochSemantics::TimeInvariant,
+                0.0,
+            )
+            .with_iers2010_solid_earth_tides(
+                CoefficientDeltaCoverage {
+                    start: Epoch::from_tai_seconds(0.0),
+                    end: Epoch::from_tai_seconds(20_000.0),
+                    time_scale: TimeScale::TAI,
+                },
+                Arc::new(TideEphemeris { fail }),
+                vec![ReferenceDataDescriptor {
+                    authority: "synthetic independent test data".into(),
+                    product: "geocentric Sun/Moon ephemeris".into(),
+                    revision: "test-1".into(),
+                    checksum: None,
+                }],
+                TideRaiser::new(
+                    Body::MOON,
+                    GravitationalParameter::try_from(4.904_869_5e12).expect("Moon GM"),
+                    ReferenceDataDescriptor {
+                        authority: "synthetic independent test data".into(),
+                        product: "Moon gravitational parameter".into(),
+                        revision: "test-1".into(),
+                        checksum: None,
+                    },
+                )
+                .expect("Moon tide raiser"),
+                TideRaiser::new(
+                    Body::SUN,
+                    GravitationalParameter::try_from(1.327_124_4e20).expect("Sun GM"),
+                    ReferenceDataDescriptor {
+                        authority: "synthetic independent test data".into(),
+                        product: "Sun gravitational parameter".into(),
+                        revision: "test-1".into(),
+                        checksum: None,
+                    },
+                )
+                .expect("Sun tide raiser"),
+            )
+        };
+
+        let time_varying = create_model(false).expect("IERS solid-tide composition");
+        assert_eq!(time_varying.delta_provider().reference_data().len(), 4);
+        let epoch = Epoch::from_tai_seconds(100.0);
+        let evaluation_state = state([7.0e6, 1.0e6, 2.0e6]);
+        let acceleration = time_varying
+            .cartesian_acceleration(epoch, &evaluation_state)
+            .expect("composed coefficient field");
+        assert!(acceleration.value().is_finite());
+        let delta_evaluator = time_varying
+            .delta_provider()
+            .evaluator_at(epoch)
+            .expect("tide delta evaluation");
+        let mut summed_coefficients = synthetic_coefficients(2, 2);
+        for degree in 0..=2 {
+            for order in 0..=degree {
+                let delta = delta_evaluator
+                    .coefficient_delta(degree, order)
+                    .expect("tide delta")
+                    .expect("covered tide coefficient");
+                summed_coefficients[degree as usize][order as usize].cosine += delta.cosine;
+                summed_coefficients[degree as usize][order as usize].sine += delta.sine;
+            }
+        }
+        let summed_static = model(
+            2,
+            2,
+            summed_coefficients,
+            CoefficientEpochSemantics::TimeInvariant,
+            0.0,
+        );
+        assert_eq!(
+            acceleration,
+            summed_static
+                .cartesian_acceleration(epoch, &evaluation_state)
+                .expect("static sum of IERS tide coefficients")
+        );
+
+        let failing = create_model(true).expect("valid provider configuration");
+        let error = failing
+            .cartesian_acceleration(epoch, &evaluation_state)
+            .expect_err("ephemeris failure must remain visible");
+        let evaluation = std::error::Error::source(&error)
+            .and_then(|source| source.downcast_ref::<EvaluationError>())
+            .expect("typed coefficient evaluation error");
+        let provider = std::error::Error::source(evaluation)
+            .and_then(|source| source.downcast_ref::<SolidEarthTideEvaluationError>())
+            .expect("typed solid-tide provider error");
+        assert!(matches!(
+            provider,
+            SolidEarthTideEvaluationError::Ephemeris {
+                body: Body::MOON,
+                source,
+                ..
+            } if matches!(source.as_ref(), BodyEphemerisError::OutsideCoverage { .. })
+        ));
     }
 
     #[test]

@@ -57,12 +57,15 @@ pub use dynamics_relativity::{
 };
 #[cfg(feature = "spherical-harmonics")]
 pub use dynamics_spherical_harmonics::{
-    CoefficientEpochSemantics, CoefficientNormalization,
-    ConstructionError as SphericalHarmonicConstructionError,
+    CoefficientDeltaCoverage, CoefficientDeltaProviderError, CoefficientEpochSemantics,
+    CoefficientNormalization, ConstructionError as SphericalHarmonicConstructionError,
     EvaluationError as SphericalHarmonicEvaluationError, HarmonicCoefficient,
-    HarmonicCoefficientMetadata, HarmonicCoefficientProvider, ProvenanceField, ProvenanceProvider,
-    SourcedBodyFixedTransformProvider, SphericalHarmonicField, SphericalHarmonicGravity,
-    SphericalHarmonicGravityModel, TideSystem,
+    HarmonicCoefficientDeltaEvaluator, HarmonicCoefficientDeltaMetadata,
+    HarmonicCoefficientDeltaProvider, HarmonicCoefficientMetadata, HarmonicCoefficientProvider,
+    HarmonicCoefficientRate, LinearSecularRateProvider, ProvenanceField, ProvenanceProvider,
+    SolidEarthTideEvaluationError, SourcedBodyFixedTransformProvider, SphericalHarmonicField,
+    SphericalHarmonicGravity, SphericalHarmonicGravityModel, TideRaiser, TideSystem,
+    TimeVaryingSphericalHarmonicGravityModel,
 };
 #[cfg(feature = "srp")]
 pub use dynamics_srp::{
@@ -169,11 +172,14 @@ pub mod spherical_harmonics {
     //! Caller-supplied general spherical-harmonic gravity capability.
 
     pub use dynamics_spherical_harmonics::{
-        CoefficientEpochSemantics, CoefficientNormalization,
-        ConstructionError as SphericalHarmonicConstructionError,
+        CoefficientDeltaCoverage, CoefficientDeltaProviderError, CoefficientEpochSemantics,
+        CoefficientNormalization, ConstructionError as SphericalHarmonicConstructionError,
         EvaluationError as SphericalHarmonicEvaluationError, HarmonicCoefficient,
-        HarmonicCoefficientMetadata, HarmonicCoefficientProvider, ProvenanceField,
-        ProvenanceProvider, SourcedBodyFixedTransformProvider, SphericalHarmonicField,
-        SphericalHarmonicGravity, SphericalHarmonicGravityModel, TideSystem,
+        HarmonicCoefficientDeltaEvaluator, HarmonicCoefficientDeltaMetadata,
+        HarmonicCoefficientDeltaProvider, HarmonicCoefficientMetadata, HarmonicCoefficientProvider,
+        HarmonicCoefficientRate, LinearSecularRateProvider, ProvenanceField, ProvenanceProvider,
+        SolidEarthTideEvaluationError, SourcedBodyFixedTransformProvider, SphericalHarmonicField,
+        SphericalHarmonicGravity, SphericalHarmonicGravityModel, TideRaiser, TideSystem,
+        TimeVaryingSphericalHarmonicGravityModel,
     };
 }

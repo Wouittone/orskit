@@ -107,3 +107,12 @@ Conventions (2010), Chapter 6, §6.1. Tests independently evaluate the scalar
 potential from the published expansion and finite-difference its Cartesian
 gradient; no third-party implementation, source code, test vectors, or
 coefficient data are copied or bundled.
+
+## Follow-up status (2026-10-11)
+
+The static model contract above remains unchanged. ADR-0054 adds a separate,
+opt-in composition for the IERS 2010 frequency-independent solid-Earth Step 1
+response. It handles the permanent degree-2 zonal term for tide-free and
+zero-tide coefficient sets and rejects mean-tide inputs; it does not perform
+general tide-system conversion. Frequency-dependent solid-Earth, ocean, and
+pole tides remain follow-up work.

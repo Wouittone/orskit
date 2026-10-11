@@ -18,6 +18,17 @@
 - No bundled data, parser, or implicit download.
 - Python/JVM binding exposure remains deferred while the Rust core stabilizes.
 
+## Follow-up status (2026-10-11)
+
+The earlier tide deferral was resolved only for a bounded solid-Earth slice:
+task 0054 and ADR-0054 implement the IERS 2010 frequency-independent Step 1
+coefficient response through degree/order 4, with permanent-tide handling for
+tide-free and zero-tide coefficient sets. The #17 Earth-orientation
+prerequisite now has a full IAU 2006/2000A CIO-based GCRF/ITRF2020 provider
+through task 0051 and ADR-0051. Frequency-dependent solid-Earth terms, ocean
+and pole tides, independent tide-product vectors, and additional relativity
+remain open; issue #15 is not complete.
+
 ## Scientific contract
 
 - Use the IERS Conventions (2010) Chapter 10 §10.2 Eq. 10.8 correction for a
