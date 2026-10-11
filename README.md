@@ -166,6 +166,10 @@ Current developer and API guides include:
 - [custom propagation pairs](docs/guides/custom-propagation.md); and
 - the [pre-1.0 release policy](docs/release-policy.md) and [changelog](CHANGELOG.md).
 
+For agent-assisted contributions, see
+[bot publishing with human reviews](docs/guides/bot-publishing.md). The publisher
+uses the repository's GitHub App without changing your Copilot app review login.
+
 ## License
 
 orskit is intended to be licensed, at your option, under either:
