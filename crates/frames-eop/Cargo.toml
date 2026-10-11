@@ -12,6 +12,7 @@ description = "Caller-supplied Earth-orientation data providers for orskit frame
 name = "frames_eop"
 
 [dependencies]
+erfa = { version = "=0.2.1", default-features = false }
 frames = { path = "../frames" }
 hifitime.workspace = true
 thiserror.workspace = true
