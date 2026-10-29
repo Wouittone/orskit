@@ -58,8 +58,12 @@ function Invoke-RestMethod {
         '^/app/installations/123/access_tokens$' {
             $request = $Body | ConvertFrom-Json
             Assert ($request.repositories.Count -eq 1 -and $request.repositories[0] -eq 'orskit') 'Token was not repository-scoped.'
-            Assert (@($request.permissions.PSObject.Properties).Count -eq 2) 'Unexpected token permissions.'
-            return @{ token = 'fake-installation-token'; permissions = @{ contents = 'write'; pull_requests = 'write' } }
+            $workflowRequested = $null -ne $request.permissions.PSObject.Properties['workflows']
+            Assert ($workflowRequested -eq $state.WorkflowRequested) 'Workflow permission was not explicitly scoped.'
+            Assert (@($request.permissions.PSObject.Properties).Count -eq (2 + [int]$workflowRequested)) 'Unexpected token permissions.'
+            $permissions = @{ contents = 'write'; pull_requests = 'write' }
+            if ($state.GrantWorkflowPermission) { $permissions.workflows = 'write' }
+            return @{ token = 'fake-installation-token'; permissions = [pscustomobject]$permissions }
         }
         '^/repos/Wouittone/orskit$' { return @{ full_name = 'Wouittone/orskit' } }
         '^/repos/Wouittone/orskit/git/ref/heads/' { return @{ ref = 'refs/heads/main' } }
@@ -81,6 +85,8 @@ function Run-Case {
     param([string]$Name, [hashtable]$Options, [hashtable]$Overrides, [string]$ExpectedError, [int]$Pushes, [int]$Creates)
     $state = @{
         Branch = 'bot/test'; Dirty = ''; Existing = @(); FailPush = $false
+        WorkflowRequested = ($Options.ContainsKey('AllowWorkflowFiles') -and [bool]$Options.AllowWorkflowFiles)
+        GrantWorkflowPermission = $false
         Remotes = @('https://github.com/Wouittone/orskit.git')
         Pushes = 0; Creates = 0; Revokes = 0
         Requests = [Collections.Generic.List[string]]::new()
@@ -113,7 +119,10 @@ try {
     [IO.File]::WriteAllText($keyPath, $testRsa.ExportRSAPrivateKeyPem())
     [IO.File]::WriteAllText($bodyPath, "## Outcome`nTest`n## Evidence`nOffline mocked checks passed.`n## Checklist`n- [x] Test")
     Run-Case 'Read-only authentication on main' @{ Check = $true } @{ Branch = 'main' } '' 0 0
+    Run-Case 'Read-only workflow permission check' @{ Check = $true; AllowWorkflowFiles = $true } @{ GrantWorkflowPermission = $true } '' 0 0
     Run-Case 'New bot PR' @{ Base = 'main'; Title = 'Test'; BodyFile = $bodyPath } @{} '' 1 1
+    Run-Case 'Workflow permission opt-in' @{ Base = 'main'; Title = 'Test'; BodyFile = $bodyPath; AllowWorkflowFiles = $true } @{ GrantWorkflowPermission = $true } '' 1 1
+    Run-Case 'Refuse missing workflow permission' @{ Base = 'main'; Title = 'Test'; BodyFile = $bodyPath; AllowWorkflowFiles = $true } @{} 'publishing permissions' 0 0
     $botPr = @{ user = @{ login = 'orskit-copilot[bot]' }; base = @{ ref = 'main' }; html_url = 'https://github.com/Wouittone/orskit/pull/999' }
     Run-Case 'Reuse existing bot PR' @{ Base = 'main' } @{ Existing = @($botPr) } '' 1 0
     Run-Case 'Branch-only push' @{ Base = 'main'; PushOnly = $true } @{} '' 1 0
