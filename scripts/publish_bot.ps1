@@ -3,6 +3,7 @@
 param(
     [switch]$Check,
     [switch]$PushOnly,
+    [switch]$AllowWorkflowFiles,
     [string]$Base,
     [string]$Title,
     [string]$BodyFile,
@@ -111,18 +112,25 @@ if ($app.slug -cne $appSlug -or $app.id -ne $appId) {
     throw 'The private key did not authenticate the expected orskit-copilot App.'
 }
 $installation = Invoke-GitHub GET "/repos/$repository/installation" $jwt
+$permissions = @{ contents = 'write'; pull_requests = 'write' }
+if ($AllowWorkflowFiles) {
+    $permissions.workflows = 'write'
+}
 $grant = Invoke-GitHub POST "/app/installations/$($installation.id)/access_tokens" $jwt @{
     repositories = @('orskit')
-    permissions = @{ contents = 'write'; pull_requests = 'write' }
+    permissions = $permissions
 }
 $token = $grant.token
 $jwt = $null
 try {
     $repo = Invoke-GitHub GET "/repos/$repository" $token
+    $workflowPermission = $grant.permissions.PSObject.Properties['workflows']
     if ($repo.full_name -cne $repository -or
         $grant.permissions.contents -ne 'write' -or
-        $grant.permissions.pull_requests -ne 'write') {
-        throw 'Installation token lacks access to the expected repository or publishing permissions.'
+        $grant.permissions.pull_requests -ne 'write' -or
+        ($AllowWorkflowFiles -and
+            ($null -eq $workflowPermission -or $workflowPermission.Value -ne 'write'))) {
+        throw 'Installation token lacks access to the expected repository or required publishing permissions.'
     }
     if ($Check) {
         Write-Output "Authenticated as $appSlug[bot] for $repository. App/review login and Git configuration are unchanged."

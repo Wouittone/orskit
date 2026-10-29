@@ -9,6 +9,11 @@ author metadata alone does not do that.
 
 Install PowerShell 7.2 or later and Git. Install the `orskit-copilot` App on
 `Wouittone/orskit`, with Contents and Pull requests write permissions.
+
+Only when publishing a change to a GitHub Actions workflow, also grant the App
+Workflows write permission. The publisher requests that permission only when
+invoked with `-AllowWorkflowFiles`.
+
 Save its RSA private-key PEM outside all repository checkouts, by default at:
 
 ```text
@@ -29,6 +34,9 @@ This creates a repository-scoped, short-lived installation token, verifies the
 App and repository access, and revokes the token before returning. It does not
 modify the app login, `GH_TOKEN`, credential manager, Git author configuration,
 or remotes.
+
+For a workflow-changing branch, verify the additional permission without
+publishing by adding `-AllowWorkflowFiles` to the check command.
 
 ## Publish
 
@@ -60,8 +68,9 @@ force-pushes, bypasses branch protections, changes upstream tracking, or falls
 back to personal credentials. Failed PR creation may leave an already-pushed
 branch: correct the reported error and rerun the same command. Open bot PRs are
 reused, so successful reruns do not create duplicate PRs. Workflow-file pushes
-are intentionally excluded from the token's permissions; those need a separate
-explicitly authorized publishing path.
+are excluded from the token by default. For an explicitly authorized workflow
+change, add `-AllowWorkflowFiles`; the App installation must grant Workflows
+write permission for that invocation.
 
 ## Review in the app
 
