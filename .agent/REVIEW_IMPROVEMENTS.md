@@ -86,8 +86,11 @@ otherwise. `Wave 1` is the first implementation batch created from this review.
   that follow the pinned toolchain without overriding user preferences.
 - [x] **C12 (Wave 1, no dependency):** add a minimal dev-container/Codespaces
   definition with Rust 1.96.1, rustfmt, Clippy, and cargo-nextest.
-- [ ] **C13 (depends on C10):** expand CI to Linux, macOS, and Windows with a
-  cost-conscious matrix and retain the full locked check suite.
+- [x] **C13 (depends on C10):** expand CI to Linux, macOS, and Windows with a
+  cost-conscious matrix and retain the full locked check suite. Evidence:
+  `.github/workflows/build.yml` keeps the complete quality suite on Linux and
+  runs locked all-target/all-feature workspace checks and tests on Windows and
+  macOS.
 - [ ] **C14 (depends on C13):** add explicit MSRV, dependency-license/advisory,
   documentation publication, and coverage jobs with documented failure and
   secret policies.
